@@ -1,0 +1,263 @@
+// AQUAI — Milestone 0 schema: tenancy + farm hierarchy + audit log.
+// Full domain schema proposal lives in docs/architecture/04-database-schema.md;
+// this file implements the slice needed for MVP Milestone 0
+// (docs/architecture/12-mvp-roadmap.md §12.2). Later milestones extend this file,
+// they never replace its conventions (soft delete, companyId denormalization, cuid ids —
+// see docs/architecture/04-database-schema.md §4.1).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tenancy & identity (docs/architecture/04-database-schema.md §4.2)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Company {
+  id          String        @id @default(cuid())
+  name        String
+  legalName   String?
+  countryCode String
+  timezone    String
+  planTier    PlanTier      @default(TRIAL)
+  status      CompanyStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  memberships CompanyMembership[]
+  farms       Farm[]
+  auditLogs   AuditLog[]
+  invitations Invitation[]
+
+  @@map("companies")
+}
+
+enum PlanTier {
+  TRIAL
+  STANDARD
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+model User {
+  id             String    @id @default(cuid())
+  authProviderId String    @unique // Clerk user id
+  email          String    @unique
+  fullName       String
+  locale         String    @default("en")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  memberships CompanyMembership[]
+
+  @@map("users")
+}
+
+model CompanyMembership {
+  id        String           @id @default(cuid())
+  companyId String
+  userId    String
+  role      Role
+  status    MembershipStatus @default(ACTIVE)
+  invitedAt DateTime?
+  joinedAt  DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  farmScopes MembershipFarmScope[]
+
+  @@unique([companyId, userId])
+  @@index([companyId])
+  @@index([userId])
+  @@map("company_memberships")
+}
+
+enum Role {
+  PLATFORM_ADMIN
+  COMPANY_OWNER
+  GENERAL_MANAGER
+  FARM_MANAGER
+  VETERINARIAN
+  FEED_MANAGER
+  ACCOUNTANT
+  WORKER
+  READ_ONLY
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+/// Restricts a farm-scoped role (FARM_MANAGER, VETERINARIAN, FEED_MANAGER, WORKER, READ_ONLY)
+/// to a subset of a company's farms. See docs/architecture/07-roles-permissions-matrix.md §7.2.
+/// Absence of any row for a membership that requires scoping means "no farms assigned yet",
+/// not "all farms" — that implicit-all behavior is reserved for company-wide roles
+/// (COMPANY_OWNER, GENERAL_MANAGER, ACCOUNTANT), enforced in the permissions guard, not here.
+model MembershipFarmScope {
+  id           String @id @default(cuid())
+  membershipId String
+  farmId       String
+
+  membership CompanyMembership @relation(fields: [membershipId], references: [id])
+  farm       Farm              @relation(fields: [farmId], references: [id])
+
+  @@unique([membershipId, farmId])
+  @@index([farmId])
+  @@map("membership_farm_scopes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Farm hierarchy (docs/architecture/04-database-schema.md §4.3)
+// ─────────────────────────────────────────────────────────────────────────
+
+model Farm {
+  id        String     @id @default(cuid())
+  companyId String
+  name      String
+  code      String
+  timezone  String?
+  latitude  Decimal?   @db.Decimal(9, 6)
+  longitude Decimal?   @db.Decimal(9, 6)
+  status    FarmStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  deletedAt DateTime?
+
+  company  Company               @relation(fields: [companyId], references: [id])
+  sections FarmSection[]
+  scopedTo MembershipFarmScope[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("farms")
+}
+
+enum FarmStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model FarmSection {
+  id        String    @id @default(cuid())
+  companyId String
+  farmId    String
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  farm  Farm   @relation(fields: [farmId], references: [id])
+  tanks Tank[]
+
+  @@index([companyId, farmId])
+  @@map("farm_sections")
+}
+
+model Tank {
+  id            String     @id @default(cuid())
+  companyId     String
+  farmSectionId String
+  code          String
+  type          TankType
+  volumeM3      Decimal?   @db.Decimal(10, 2)
+  maxBiomassKg  Decimal?   @db.Decimal(12, 2)
+  qrToken       String     @unique @default(cuid())
+  status        TankStatus @default(ACTIVE)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
+
+  farmSection FarmSection @relation(fields: [farmSectionId], references: [id])
+
+  @@unique([companyId, farmSectionId, code])
+  @@index([companyId])
+  @@map("tanks")
+}
+
+enum TankType {
+  TANK
+  POND
+  CAGE
+  RACEWAY
+}
+
+enum TankStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+/// A pending invite to join a company with a given role. Deliberately separate from
+/// CompanyMembership (which requires a real userId) because an invited person may not have an
+/// AQUAI/Clerk account yet at invite time. Accepting an invitation (by the invited email,
+/// authenticated via Clerk) creates the CompanyMembership and marks this ACCEPTED — the
+/// invitation itself is never mutated into a membership record, so the "who invited whom, when,
+/// for what role, and when it was accepted" trail survives (§21 audit trail intent).
+model Invitation {
+  id          String           @id @default(cuid())
+  companyId   String
+  email       String
+  role        Role
+  status      InvitationStatus @default(PENDING)
+  token       String           @unique @default(cuid())
+  invitedById String
+  createdAt   DateTime         @default(now())
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  acceptedByUserId String?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, email])
+  @@index([token])
+  @@map("invitations")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Audit (docs/architecture/04-database-schema.md §4.7) — foundational from day one (§21)
+// ─────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  companyId     String
+  userId        String?
+  action        String
+  entityType    String
+  entityId      String
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?
+  occurredAt    DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, entityType, entityId])
+  @@index([companyId, occurredAt])
+  @@map("audit_logs")
+}

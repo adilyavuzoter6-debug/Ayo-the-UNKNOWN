@@ -1,0 +1,17 @@
+{
+  "name": "@aquai/config",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./src/eslint.base.js",
+  "exports": {
+    "./eslint-base": "./src/eslint.base.js",
+    "./eslint-nestjs": "./src/eslint.nestjs.js",
+    "./prettier": "./src/prettier.js"
+  },
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.31.0"
+  }
+}

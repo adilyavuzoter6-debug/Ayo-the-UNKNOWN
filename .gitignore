@@ -1,0 +1,52 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+build/
+.next/
+out/
+
+# turbo
+.turbo/
+
+# typescript incremental build cache
+*.tsbuildinfo
+
+# env — ignore every .env variant (.env, .env.local, .env.neon, .env.production, ...) except
+# the checked-in .env.example templates
+.env*
+!.env.example
+!**/.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Claude Code local settings (machine-specific permissions, not shared project config)
+.claude/settings.local.json
+
+# os
+.DS_Store
+Thumbs.db
+
+# prisma
+apps/api/prisma/migrations/dev.db
+
+# testing
+coverage/
+
+# expo / react native
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision

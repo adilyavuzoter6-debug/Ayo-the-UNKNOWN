@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  PNPM_VERSION: "9.15.0"
+  NODE_VERSION: "20"
+
+jobs:
+  lint-typecheck-unit:
+    name: Lint, typecheck, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @aquai/api run prisma:generate
+
+      # Enforces the module-boundary rule (packages/calculations not importable from
+      # apps/web|apps/mobile, docs/architecture/02-monorepo-structure.md §2.3) and the
+      # tenant-scoped-query rule (docs/architecture/06-multi-tenant-security.md §6.2) via
+      # `turbo run lint`, which runs each package's own `lint` script.
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        run: pnpm run test
+
+  integration:
+    name: Integration tests (incl. tenant isolation gate)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aquai
+          POSTGRES_PASSWORD: aquai
+          POSTGRES_DB: aquai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://aquai:aquai@localhost:5432/aquai_test?schema=public"
+      CLERK_JWKS_URL: "https://example-unused-in-ci.clerk.accounts.dev/.well-known/jwks.json"
+      CLERK_ISSUER: "https://example-unused-in-ci.clerk.accounts.dev"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: pnpm --filter @aquai/api exec prisma migrate deploy
+
+      # docs/architecture/13-testing-strategy.md §13.4: this suite is a release gate. A failure
+      # here must block merge — do not add continue-on-error to this step.
+      - name: Cross-tenant isolation & integration tests
+        run: pnpm --filter @aquai/api run test:integration
