@@ -1,0 +1,17 @@
+name: Keep API warm
+
+# Render's free web-service plan sleeps after 15 minutes of no traffic, then takes ~30-50s to
+# wake on the next request — which made the app feel like it was hanging right after sign-up
+# (the onboarding page's first call to our API landed on a cold instance). Pinging the health
+# endpoint well within that 15-minute window keeps the instance always warm, for $0.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API health endpoint
+        run: curl -fsS https://aquai-api.onrender.com/api/v1/health
