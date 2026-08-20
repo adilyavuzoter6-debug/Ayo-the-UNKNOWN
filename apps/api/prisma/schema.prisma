@@ -142,9 +142,10 @@ model Farm {
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
 
-  company  Company               @relation(fields: [companyId], references: [id])
-  sections FarmSection[]
-  scopedTo MembershipFarmScope[]
+  company    Company               @relation(fields: [companyId], references: [id])
+  sections   FarmSection[]
+  scopedTo   MembershipFarmScope[]
+  warehouses Warehouse[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -186,7 +187,12 @@ model Tank {
   updatedAt     DateTime   @updatedAt
   deletedAt     DateTime?
 
-  farmSection FarmSection @relation(fields: [farmSectionId], references: [id])
+  farmSection     FarmSection      @relation(fields: [farmSectionId], references: [id])
+  alerts          Alert[]
+  batchTankStates BatchTankState[]
+  feedingEvents   FeedingEvent[]
+  mortalityEvents MortalityEvent[]
+  weightSamples   WeightSample[]
 
   @@unique([companyId, farmSectionId, code])
   @@index([companyId])
@@ -206,6 +212,436 @@ enum TankStatus {
   MAINTENANCE
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Fish batches & movement ledger (docs/architecture/08-fish-batch-lineage.md,
+// docs/architecture/04-database-schema.md §4.4) — Milestone 2.
+//
+// Immutable, append-only ledger: BatchMovement rows are the single source of truth for
+// where fish are and how batches relate to each other (stocking/transfer/split/merge/
+// harvest-removal). There is deliberately no mutable "current tank"/"current count" column
+// anywhere — BatchCurrentState/BatchTankState below are derived, rebuildable projections
+// over the ledger, recomputed synchronously after every write (see BatchProjectionService).
+// Splitting/merging must reference other FishBatch rows, never rewrite one in place.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Species/strain catalog. companyId null = global reference row; set = a company's own
+/// custom strain.
+model FishSpecies {
+  id        String    @id @default(cuid())
+  companyId String?
+  name      String
+  strain    String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  batches FishBatch[]
+
+  @@map("fish_species")
+}
+
+model FishBatch {
+  id                String      @id @default(cuid())
+  companyId         String
+  lotCode           String
+  speciesId         String
+  hatcherySupplier  String?
+  eggSource         String?
+  hatchDate         DateTime?
+  farmEntryDate     DateTime
+  initialCount      Int
+  initialAvgWeightG Decimal     @db.Decimal(10, 3)
+  status            BatchStatus @default(ACTIVE)
+  /// Denormalized convenience pointer to source batch(es) when created via SPLIT/MERGE —
+  /// the real source of truth for lineage is still BatchMovement.fromBatchId/toBatchId.
+  parentBatchIds    String[]    @default([])
+  createdById       String
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  deletedAt         DateTime?
+
+  species          FishSpecies        @relation(fields: [speciesId], references: [id])
+  movements        BatchMovement[]
+  currentState     BatchCurrentState?
+  tankStates       BatchTankState[]
+  feedingEvents    FeedingEvent[]
+  mortalityEvents  MortalityEvent[]
+  weightSamples    WeightSample[]
+  biomassSnapshots BiomassSnapshot[]
+
+  @@unique([companyId, lotCode])
+  @@index([companyId, status])
+  @@map("fish_batches")
+}
+
+enum BatchStatus {
+  ACTIVE
+  PARTIALLY_HARVESTED
+  HARVESTED
+  CLOSED
+}
+
+/// Append-only movement ledger. Rows are never updated or deleted once posted — a correction
+/// is a new row (see reversalOfId), never an edit to an existing one.
+model BatchMovement {
+  id                  String       @id @default(cuid())
+  companyId           String
+  movementType        MovementType
+  batchId             String
+  fromTankId          String?
+  toTankId            String?
+  fromBatchId         String?
+  toBatchId           String?
+  fishCount           Int
+  estimatedAvgWeightG Decimal?     @db.Decimal(10, 3)
+  estimatedBiomassKg  Decimal?     @db.Decimal(12, 3)
+  occurredAt          DateTime
+  postedAt            DateTime     @default(now())
+  createdById         String
+  notes               String?
+  /// If set, this row is a correction of an earlier mistaken entry; the original row is
+  /// left untouched (append-only correction, not an edit).
+  reversalOfId        String?
+
+  batch FishBatch @relation(fields: [batchId], references: [id])
+
+  @@index([companyId, batchId])
+  @@index([companyId, toTankId])
+  @@index([companyId, fromTankId])
+  @@map("batch_movements")
+}
+
+enum MovementType {
+  STOCKING
+  TRANSFER
+  SPLIT
+  MERGE
+  HARVEST_REMOVAL
+  ADJUSTMENT
+}
+
+/// Derived, rebuildable projection — NEVER the source of truth. Recomputed from
+/// BatchMovement after every write (BatchProjectionService.recompute).
+model BatchCurrentState {
+  batchId             String   @id
+  /// Null when the batch is currently split across more than one tank — see BatchTankState.
+  currentTankId       String?
+  estimatedCount      Int
+  estimatedAvgWeightG Decimal  @db.Decimal(10, 3)
+  estimatedBiomassKg  Decimal  @db.Decimal(12, 3)
+  lastRecalculatedAt  DateTime
+
+  batch FishBatch @relation(fields: [batchId], references: [id])
+
+  @@map("batch_current_states")
+}
+
+/// Per-tank live allocation for a batch (a batch can be split across multiple tanks at
+/// once) — also a derived projection, same rebuild rule as BatchCurrentState.
+model BatchTankState {
+  batchId            String
+  tankId             String
+  estimatedCount     Int
+  lastRecalculatedAt DateTime
+
+  batch FishBatch @relation(fields: [batchId], references: [id])
+  tank  Tank      @relation(fields: [tankId], references: [id])
+
+  @@id([batchId, tankId])
+  @@map("batch_tank_states")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Mortality, weight sampling & biomass (docs/architecture/04-database-schema.md §4.5/§4.7,
+// docs/architecture/10-biological-calculations.md) — Milestone 4.
+//
+// Mortality is a first-class recorded event, not just a byproduct of the movement ledger, but
+// still feeds into it: BatchProjectionService.recompute treats a MortalityEvent's fishCount as
+// an outflow from its tank exactly like a TRANSFER/HARVEST_REMOVAL would (§10.3: "the movement
+// ledger AND mortality" define a tank's live count). WeightSample rows are raw measurements,
+// never overwritten — the most recent one for a batch drives BatchCurrentState's avgWeightG/
+// biomassKg going forward. BiomassSnapshot is a point-in-time materialization for reporting,
+// not the source of truth (that's always BatchCurrentState, derived live).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum MortalityReason {
+  UNKNOWN
+  DISEASE
+  OXYGEN
+  TEMPERATURE
+  TRANSFER_STRESS
+  PHYSICAL_DAMAGE
+  PREDATOR
+  FEED_RELATED
+  OTHER
+}
+
+model MortalityEvent {
+  id                  String          @id @default(cuid())
+  companyId           String
+  tankId              String
+  batchId             String
+  fishCount           Int
+  estimatedAvgWeightG Decimal?        @db.Decimal(10, 3)
+  estimatedBiomassKg  Decimal?        @db.Decimal(12, 3)
+  reason              MortalityReason
+  occurredAt          DateTime
+  createdById         String
+  notes               String?
+  createdAt           DateTime        @default(now())
+
+  tank  Tank      @relation(fields: [tankId], references: [id])
+  batch FishBatch @relation(fields: [batchId], references: [id])
+
+  @@index([companyId, tankId, occurredAt])
+  @@index([companyId, batchId, occurredAt])
+  @@map("mortality_events")
+}
+
+enum SampleMethod {
+  INDIVIDUAL
+  AGGREGATE
+}
+
+/// Raw measurement, never edited/overwritten once posted (§16 — historical samples must
+/// survive for SGR/growth-curve calculations later).
+model WeightSample {
+  id                 String       @id @default(cuid())
+  companyId          String
+  tankId             String
+  batchId            String
+  sampleMethod       SampleMethod
+  sampleSize         Int
+  /// Only populated for sampleMethod: INDIVIDUAL.
+  individualWeightsG Decimal[]    @default([]) @db.Decimal(10, 3)
+  totalWeightG       Decimal      @db.Decimal(12, 3)
+  avgWeightG         Decimal      @db.Decimal(10, 3)
+  minWeightG         Decimal?     @db.Decimal(10, 3)
+  maxWeightG         Decimal?     @db.Decimal(10, 3)
+  stdDevG            Decimal?     @db.Decimal(10, 3)
+  cv                 Decimal?     @db.Decimal(6, 3)
+  occurredAt         DateTime
+  createdById        String
+  notes              String?
+  createdAt          DateTime     @default(now())
+
+  tank  Tank      @relation(fields: [tankId], references: [id])
+  batch FishBatch @relation(fields: [batchId], references: [id])
+
+  @@index([companyId, batchId, occurredAt])
+  @@map("weight_samples")
+}
+
+/// Point-in-time materialization for reporting/forecasting — NOT the source of truth
+/// (BatchCurrentState, derived live, is). Written by BiomassCalculationService.recalculate;
+/// re-running it same-day updates this row rather than duplicating it.
+model BiomassSnapshot {
+  id             String   @id @default(cuid())
+  companyId      String
+  batchId        String
+  tankId         String?
+  snapshotDate   DateTime @db.Date
+  estimatedCount Int
+  avgWeightG     Decimal  @db.Decimal(10, 3)
+  biomassKg      Decimal  @db.Decimal(12, 3)
+  methodology    String
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  batch FishBatch @relation(fields: [batchId], references: [id])
+
+  @@unique([batchId, tankId, snapshotDate])
+  @@index([companyId, snapshotDate])
+  @@map("biomass_snapshots")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Feed inventory ledger & feeding (docs/architecture/09-feed-inventory-ledger.md,
+// docs/architecture/04-database-schema.md §4.5/§4.6) — Milestone 3.
+//
+// Same event-sourcing + projection pattern as the fish-batch ledger above: eldeki yem stoğu
+// hiçbir zaman değiştirilip/azaltılan saklanan bir sayı değildir — her zaman
+// FeedInventoryTransaction satırlarının işaretli toplamıdır, FeedInventoryBalance'a
+// materialize edilir. FeedingEvent, karşılık gelen FEED_CONSUMPTION işlemi yazılmadan var
+// olamaz (inventoryTransactionId zorunlu 1:1).
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Company-wide feed catalog entry (e.g. "Skretting Nutra Olympic 6mm").
+model FeedProduct {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String
+  manufacturer String?
+  pelletSizeMm Decimal?  @db.Decimal(5, 2)
+  proteinPct   Decimal?  @db.Decimal(5, 2)
+  fatPct       Decimal?  @db.Decimal(5, 2)
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+
+  inventoryBatches FeedInventoryBatch[]
+  feedingEvents    FeedingEvent[]
+
+  @@index([companyId])
+  @@map("feed_products")
+}
+
+/// A physical storage location at a farm.
+model Warehouse {
+  id        String    @id @default(cuid())
+  companyId String
+  farmId    String
+  name      String
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  farm             Farm                 @relation(fields: [farmId], references: [id])
+  inventoryBatches FeedInventoryBatch[]
+
+  @@index([companyId, farmId])
+  @@map("warehouses")
+}
+
+/// A specific delivery/lot of a FeedProduct into a Warehouse — own supplier lot code, expiry,
+/// cost. Separate from the FeedProduct catalog so the same product can be purchased repeatedly
+/// at different costs/expiries while still rolling up to one catalog entry.
+model FeedInventoryBatch {
+  id              String    @id @default(cuid())
+  companyId       String
+  warehouseId     String
+  feedProductId   String
+  supplierLotCode String?
+  manufactureDate DateTime?
+  expiryDate      DateTime?
+  unitCostPerKg   Decimal?  @db.Decimal(12, 4)
+  createdById     String
+  createdAt       DateTime  @default(now())
+
+  warehouse    Warehouse                  @relation(fields: [warehouseId], references: [id])
+  feedProduct  FeedProduct                @relation(fields: [feedProductId], references: [id])
+  balance      FeedInventoryBalance?
+  transactions FeedInventoryTransaction[]
+
+  @@index([companyId, warehouseId, feedProductId])
+  @@map("feed_inventory_batches")
+}
+
+enum InventoryTxType {
+  PURCHASE
+  TRANSFER_IN
+  TRANSFER_OUT
+  FEED_CONSUMPTION
+  ADJUSTMENT
+  RETURN
+  WASTE
+}
+
+/// Append-only ledger. Eldeki stok HER ZAMAN bu satırların işaretli toplamıdır.
+model FeedInventoryTransaction {
+  id                   String          @id @default(cuid())
+  companyId            String
+  warehouseId          String
+  feedInventoryBatchId String
+  type                 InventoryTxType
+  /// Always positive, EXCEPT for ADJUSTMENT which may be negative (a physical recount can go
+  /// either way) — sign for every other type is fixed by `type` alone, see
+  /// FeedInventoryProjectionService's sign table.
+  quantityKg           Decimal         @db.Decimal(12, 3)
+  occurredAt           DateTime
+  createdById          String
+  referenceType        String?
+  referenceId          String?
+  notes                String?
+  createdAt            DateTime        @default(now())
+
+  feedInventoryBatch FeedInventoryBatch @relation(fields: [feedInventoryBatchId], references: [id])
+
+  @@index([companyId, warehouseId, feedInventoryBatchId, occurredAt])
+  @@map("feed_inventory_transactions")
+}
+
+/// Derived, rebuildable projection — NEVER the source of truth. No companyId column (same as
+/// BatchCurrentState/BatchTankState) — reached only via an already-tenant-verified
+/// feedInventoryBatchId.
+model FeedInventoryBalance {
+  feedInventoryBatchId String   @id
+  quantityOnHandKg     Decimal  @db.Decimal(12, 3)
+  lastRecalculatedAt   DateTime
+
+  feedInventoryBatch FeedInventoryBatch @relation(fields: [feedInventoryBatchId], references: [id])
+
+  @@map("feed_inventory_balances")
+}
+
+enum FeedingMethod {
+  MANUAL
+  AUTOMATIC_FEEDER
+  DEMAND_FEEDER
+}
+
+/// A feeding action against a tank's fish batch. Cannot exist without its FEED_CONSUMPTION
+/// FeedInventoryTransaction (inventoryTransactionId) — written in the same request as this row.
+model FeedingEvent {
+  id            String        @id @default(cuid())
+  companyId     String
+  tankId        String
+  batchId       String
+  feedProductId String
+  quantityKg    Decimal       @db.Decimal(10, 3)
+  method        FeedingMethod @default(MANUAL)
+  occurredAt    DateTime
+  createdById   String
+  notes         String?
+  createdAt     DateTime      @default(now())
+
+  inventoryTransactionId String @unique
+
+  tank        Tank        @relation(fields: [tankId], references: [id])
+  batch       FishBatch   @relation(fields: [batchId], references: [id])
+  feedProduct FeedProduct @relation(fields: [feedProductId], references: [id])
+
+  @@index([companyId, tankId, occurredAt])
+  @@index([companyId, batchId, occurredAt])
+  @@map("feeding_events")
+}
+
+enum AlertType {
+  BIOMASS_CAPACITY
+  MANUAL
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AlertStatus {
+  OPEN
+  RESOLVED
+}
+
+/// Manually raised or system-raised (BIOMASS_CAPACITY) issue on a tank. Unlike the ledger
+/// tables above this is mutable (resolved), so it keeps updatedAt like the rest of the
+/// mutable entities in this schema.
+model Alert {
+  id           String        @id @default(cuid())
+  companyId    String
+  tankId       String
+  type         AlertType
+  severity     AlertSeverity
+  message      String
+  status       AlertStatus   @default(OPEN)
+  resolvedAt   DateTime?
+  resolvedById String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  tank Tank @relation(fields: [tankId], references: [id])
+
+  @@index([companyId, tankId])
+  @@index([companyId, status])
+  @@map("alerts")
+}
+
 /// A pending invite to join a company with a given role. Deliberately separate from
 /// CompanyMembership (which requires a real userId) because an invited person may not have an
 /// AQUAI/Clerk account yet at invite time. Accepting an invitation (by the invited email,
@@ -213,16 +649,16 @@ enum TankStatus {
 /// invitation itself is never mutated into a membership record, so the "who invited whom, when,
 /// for what role, and when it was accepted" trail survives (§21 audit trail intent).
 model Invitation {
-  id          String           @id @default(cuid())
-  companyId   String
-  email       String
-  role        Role
-  status      InvitationStatus @default(PENDING)
-  token       String           @unique @default(cuid())
-  invitedById String
-  createdAt   DateTime         @default(now())
-  expiresAt   DateTime
-  acceptedAt  DateTime?
+  id               String           @id @default(cuid())
+  companyId        String
+  email            String
+  role             Role
+  status           InvitationStatus @default(PENDING)
+  token            String           @unique @default(cuid())
+  invitedById      String
+  createdAt        DateTime         @default(now())
+  expiresAt        DateTime
+  acceptedAt       DateTime?
   acceptedByUserId String?
 
   company Company @relation(fields: [companyId], references: [id])

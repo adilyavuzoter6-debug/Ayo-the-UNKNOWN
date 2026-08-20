@@ -1,133 +1,1341 @@
-import { INestApplication, ValidationPipe, VersioningType } from "@nestjs/common";
-import { Test } from "@nestjs/testing";
+import type { INestApplication } from "@nestjs/common";
+import { PrismaClient } from "@prisma/client";
 import request from "supertest";
-import { AppModule } from "../src/app.module";
-import { PrismaService } from "../src/prisma/prisma.service";
-import { TOKEN_VERIFIER, type TokenVerifier } from "../src/modules/auth/token-verifier";
-import { cleanupTenant, seedTenant, type SeededTenant } from "./utils/seed-tenants";
+import { Webhook } from "svix";
+import { Permission, ROLE_PERMISSIONS, type Role } from "@aquai/types";
+import { createTestApp } from "./support/test-app";
+import { INVALID_TOKEN } from "./support/fake-token-verifier";
+import {
+  resetDatabase,
+  seedFeedCatalog,
+  seedFishSpecies,
+  seedRoleMemberships,
+  seedTenant,
+  seedUnaffiliatedUser,
+  type TenantFixture,
+} from "./support/fixtures";
 
 /**
- * The release-gate suite described in docs/architecture/13-testing-strategy.md §13.4 and
- * docs/architecture/06-multi-tenant-security.md §6.6: proves a Company A user can never reach
- * Company B's data, including by manually substituting a Company B id into an
- * otherwise-valid Company A-authenticated request.
- *
- * Requires a real PostgreSQL reachable via DATABASE_URL (see apps/api/.env.example) with
- * migrations applied — run via `pnpm test:integration`. CI provisions this with a Postgres
- * service container (see .github/workflows/ci.yml).
- *
- * Auth is faked by overriding the TOKEN_VERIFIER provider (modules/auth/token-verifier.ts) with
- * one that trusts the bearer token's raw string as the Clerk subject id — real JWT verification
- * requires a live JWKS endpoint that doesn't exist in test runs. ClerkAuthGuard itself,
- * TenantContextGuard, and PermissionsGuard all run unmodified: only "is this signature valid" is
- * faked, everything downstream (tenant resolution, permission checks) is exercised for real.
+ * Cross-tenant isolation release gate (docs/architecture/13-testing-strategy.md §13.4,
+ * docs/architecture/06-multi-tenant-security.md §6.6): proves a Company A caller can never read,
+ * list, or mutate Company B's farms/sections/tanks, and that RBAC (§13.3's authorization-matrix
+ * requirement) is enforced off the same ROLE_PERMISSIONS map the app itself uses. Covers every
+ * resource type that exists as of Milestone 1 — grows as fish-batches/feeding/etc. ship.
  */
-describe("Cross-tenant isolation", () => {
+describe("Tenant isolation & authorization (integration)", () => {
   let app: INestApplication;
-  let prisma: PrismaService;
-  let tenantA: SeededTenant;
-  let tenantB: SeededTenant;
-
-  const fakeTokenVerifier: TokenVerifier = {
-    async verify(token: string) {
-      return { sub: token };
-    },
-  };
+  let prisma: PrismaClient;
+  let companyA: TenantFixture;
+  let companyB: TenantFixture;
+  let unaffiliatedToken: string;
+  let roleTokens: Record<Role, string>;
+  let speciesId: string;
+  let matrixBatchId: string;
+  let feedProductId: string;
+  let warehouseId: string;
+  let companyBWarehouseId: string;
+  let lotSeq = 0;
+  const nextLotCode = () => `LOT-TEST-${Date.now()}-${lotSeq++}`;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(TOKEN_VERIFIER)
-      .useValue(fakeTokenVerifier)
-      .compile();
+    app = await createTestApp();
+    prisma = new PrismaClient();
 
-    app = moduleRef.createNestApplication();
-    app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
-    app.setGlobalPrefix("api");
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-    );
-    await app.init();
+    await resetDatabase(prisma);
 
-    prisma = moduleRef.get(PrismaService);
-    tenantA = await seedTenant(prisma, "A");
-    tenantB = await seedTenant(prisma, "B");
+    companyA = await seedTenant(prisma, "a");
+    companyB = await seedTenant(prisma, "b");
+    unaffiliatedToken = await seedUnaffiliatedUser(prisma);
+    roleTokens = await seedRoleMemberships(prisma, companyA.companyId);
+    speciesId = await seedFishSpecies(prisma);
+
+    const catalogA = await seedFeedCatalog(prisma, companyA.companyId, companyA.farmId);
+    feedProductId = catalogA.feedProductId;
+    warehouseId = catalogA.warehouseId;
+    const catalogB = await seedFeedCatalog(prisma, companyB.companyId, companyB.farmId);
+    companyBWarehouseId = catalogB.warehouseId;
+
+    // A read-only fixture batch for the authorization matrix's BATCH_MOVEMENT_READ check —
+    // seeded directly via Prisma (not through the API) so it exists regardless of which role
+    // the matrix happens to test first.
+    const matrixBatch = await prisma.fishBatch.create({
+      data: {
+        companyId: companyA.companyId,
+        lotCode: "LOT-MATRIX-FIXTURE",
+        speciesId,
+        farmEntryDate: new Date("2026-01-01"),
+        initialCount: 100,
+        initialAvgWeightG: 50,
+        createdById: "system",
+      },
+    });
+    matrixBatchId = matrixBatch.id;
   });
 
   afterAll(async () => {
-    await cleanupTenant(prisma, tenantA);
-    await cleanupTenant(prisma, tenantB);
+    await resetDatabase(prisma);
+    await prisma.$disconnect();
     await app.close();
   });
 
-  function authedAs(companyId: string, authProviderId: string) {
-    return {
-      get: (path: string) =>
+  const auth = (token: string) => `Bearer ${token}`;
+
+  describe("authentication", () => {
+    it("rejects a request with no bearer token (401)", async () => {
+      const res = await request(app.getHttpServer()).get("/api/v1/farms");
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe("UNAUTHENTICATED");
+    });
+
+    it("rejects an invalid/expired token (401)", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(INVALID_TOKEN));
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a verified user with no active company membership (403)", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(unaffiliatedToken));
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("single-resource lookups never leak across tenants", () => {
+    it("GET /farms/:id — Company B's farm id, authed as A → 404 (not a data-confirming 403)", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/sections — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/sections`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /tanks/:id — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farm-sections/:sectionId/tanks — Company B's section id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farm-sections/${companyB.sectionId}/tanks`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /tanks/:tankId/fish-batches — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/fish-batches`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /tanks/:tankId/feeding-events — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /warehouses/:warehouseId/inventory-batches — Company B's warehouse id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/warehouses/${companyBWarehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/alerts — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/alerts`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/stock-summary — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/stock-summary`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /tanks/:tankId/mortality-events — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /tanks/:tankId/weight-samples — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /fish-batches/:id/biomass/history — Company A's batch id, authed as B → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${matrixBatchId}/biomass/history`)
+        .set("Authorization", auth(companyB.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("sanity check: the same lookups succeed for the owning tenant", async () => {
+      const [farm, sections, tank] = await Promise.all([
         request(app.getHttpServer())
-          .get(path)
-          .set("Authorization", `Bearer ${authProviderId}`)
-          .set("x-company-id", companyId),
-      post: (path: string) =>
+          .get(`/api/v1/farms/${companyA.farmId}`)
+          .set("Authorization", auth(companyA.ownerToken)),
         request(app.getHttpServer())
-          .post(path)
-          .set("Authorization", `Bearer ${authProviderId}`)
-          .set("x-company-id", companyId),
-    };
-  }
-
-  it("returns 404, not the record, when Company A requests Company B's farm by id", async () => {
-    const res = await authedAs(tenantA.companyId, tenantA.ownerAuthProviderId).get(
-      `/api/v1/farms/${tenantB.farmId}`,
-    );
-    expect(res.status).toBe(404);
-    expect(JSON.stringify(res.body)).not.toContain(tenantB.farmId);
+          .get(`/api/v1/farms/${companyA.farmId}/sections`)
+          .set("Authorization", auth(companyA.ownerToken)),
+        request(app.getHttpServer())
+          .get(`/api/v1/tanks/${companyA.tankId}`)
+          .set("Authorization", auth(companyA.ownerToken)),
+      ]);
+      expect(farm.status).toBe(200);
+      expect(sections.status).toBe(200);
+      expect(tank.status).toBe(200);
+    });
   });
 
-  it("returns the record when Company B requests its own farm by the same id", async () => {
-    const res = await authedAs(tenantB.companyId, tenantB.ownerAuthProviderId).get(
-      `/api/v1/farms/${tenantB.farmId}`,
-    );
-    expect(res.status).toBe(200);
-    expect(res.body.data.id).toBe(tenantB.farmId);
+  describe("mutations against a cross-tenant parent are rejected, not misfiled", () => {
+    it("POST /farms/:farmId/sections — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyB.farmId}/sections`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Sneaky Section" });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /farm-sections/:sectionId/tanks — Company B's section id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farm-sections/${companyB.sectionId}/tanks`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ code: "SNEAKY", type: "TANK" });
+      expect(res.status).toBe(404);
+    });
+
+    it("PATCH /tanks/:id — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${companyB.tankId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ status: "MAINTENANCE" });
+      expect(res.status).toBe(404);
+    });
+
+    it("PATCH /farms/:id — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/farms/${companyB.farmId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Sneaky Rename" });
+      expect(res.status).toBe(404);
+    });
+
+    it("DELETE /farms/:id — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${companyB.farmId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("DELETE /farm-sections/:sectionId — Company B's section id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .delete(`/api/v1/farm-sections/${companyB.sectionId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /fish-batches — Company B's tank id in the body, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: companyB.tankId,
+          fishCount: 100,
+          avgWeightG: 50,
+          farmEntryDate: "2026-01-01",
+        });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /tanks/:tankId/feeding-events — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyB.tankId}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: "placeholder", feedInventoryBatchId: "placeholder", quantityKg: 10 });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /warehouses/:warehouseId/inventory-batches — Company B's warehouse id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${companyBWarehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg: 100 });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /tanks/:tankId/mortality-events — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyB.tankId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: "placeholder", fishCount: 1, reason: "UNKNOWN" });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /tanks/:tankId/weight-samples — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyB.tankId}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: "placeholder", sampleMethod: "AGGREGATE", avgWeightG: 100, sampleSize: 10 });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /fish-batches/:id/biomass/recalculate — Company A's batch id, authed as B → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${matrixBatchId}/biomass/recalculate`)
+        .set("Authorization", auth(companyB.ownerToken));
+      expect(res.status).toBe(404);
+    });
   });
 
-  it("never includes Company B's farms in Company A's farm list, regardless of query params", async () => {
-    const res = await authedAs(tenantA.companyId, tenantA.ownerAuthProviderId).get(
-      "/api/v1/farms?pageSize=100",
-    );
-    expect(res.status).toBe(200);
-    const ids: string[] = res.body.data.map((f: { id: string }) => f.id);
-    expect(ids).not.toContain(tenantB.farmId);
+  describe("list & aggregate endpoints never include cross-tenant records", () => {
+    it("GET /farms — Company A's list never contains Company B's farm code", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(200);
+      const codes = res.body.data.map((f: { code: string }) => f.code);
+      expect(codes).toContain(companyA.farmCode);
+      expect(codes).not.toContain(companyB.farmCode);
+    });
+
+    it("GET /farms/:farmId/tanks — Company B's farm id, authed as A → empty, not another tenant's tanks", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/tanks`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
+
+    it("GET /audit-logs — Company A's audit trail never contains a Company B entityId", async () => {
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/audit-logs")
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(200);
+      const entityIds = res.body.data.map((entry: { entityId: string }) => entry.entityId);
+      expect(entityIds).not.toContain(companyB.farmId);
+      expect(entityIds).not.toContain(companyB.tankId);
+    });
+
+    it("GET /farms/:farmId/stock-summary — stocking Company A's tank never moves Company B's own summary", async () => {
+      const before = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/stock-summary`)
+        .set("Authorization", auth(companyB.ownerToken));
+      expect(before.status).toBe(200);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: companyA.tankId,
+          fishCount: 500,
+          avgWeightG: 200,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const after = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/stock-summary`)
+        .set("Authorization", auth(companyB.ownerToken));
+      expect(after.status).toBe(200);
+      expect(after.body.data.fishCount).toBe(before.body.data.fishCount);
+      expect(after.body.data.biomassKg).toBe(before.body.data.biomassKg);
+    });
   });
 
-  it("rejects a request where the authenticated user asserts a company they are not a member of", async () => {
-    // Company A's owner tries to act as Company B by sending Company B's id in X-Company-Id —
-    // TenantContextGuard must re-validate membership from the database, not trust the header.
-    const res = await authedAs(tenantB.companyId, tenantA.ownerAuthProviderId).get(
-      "/api/v1/farms",
-    );
-    expect(res.status).toBe(403);
+  describe("validation failures return the standard error envelope, not a partial write", () => {
+    it("POST /farms with a missing required field → 400", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/farms")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "No Code Farm" });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_FAILED");
+      expect(res.body.error.requestId).toBeTruthy();
+    });
   });
 
-  it("never leaks Company B's audit log entries into Company A's audit log view", async () => {
-    // Generate an audit-logged action for B (creating a farm already did, via FarmsService).
-    const resA = await authedAs(tenantA.companyId, tenantA.ownerAuthProviderId).get(
-      "/api/v1/audit-logs?pageSize=100",
-    );
-    expect(resA.status).toBe(200);
-    const entityIds: string[] = resA.body.data.map((entry: { entityId: string }) => entry.entityId);
-    expect(entityIds).not.toContain(tenantB.farmId);
+  describe("authorization matrix — parametrized off the app's own ROLE_PERMISSIONS map", () => {
+    const checks: Array<{ permission: Permission; request: (t: string) => request.Test }> = [
+      {
+        permission: Permission.FARM_READ,
+        request: (t) =>
+          request(app.getHttpServer()).get("/api/v1/farms").set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FARM_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post("/api/v1/farms")
+            .set("Authorization", auth(t))
+            .send({ name: "Matrix Farm", code: `MTX-${Math.random().toString(36).slice(2, 8)}` }),
+      },
+      {
+        permission: Permission.TANK_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FARM_UPDATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .patch(`/api/v1/farms/${companyA.farmId}`)
+            .set("Authorization", auth(t))
+            .send({ timezone: "Europe/Oslo" }),
+      },
+      {
+        permission: Permission.AUDIT_LOG_READ,
+        request: (t) =>
+          request(app.getHttpServer()).get("/api/v1/audit-logs").set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FISH_BATCH_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/fish-batches`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FISH_BATCH_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post("/api/v1/fish-batches")
+            .set("Authorization", auth(t))
+            .send({
+              speciesId,
+              lotCode: nextLotCode(),
+              tankId: companyA.tankId,
+              fishCount: 10,
+              avgWeightG: 50,
+              farmEntryDate: "2026-01-01",
+            }),
+      },
+      {
+        permission: Permission.BATCH_MOVEMENT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/fish-batches/${matrixBatchId}/movements`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FEED_PRODUCT_READ,
+        request: (t) =>
+          request(app.getHttpServer()).get("/api/v1/feed-products").set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FEED_PRODUCT_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post("/api/v1/feed-products")
+            .set("Authorization", auth(t))
+            .send({ name: `Matrix Feed ${Math.random().toString(36).slice(2, 8)}` }),
+      },
+      {
+        permission: Permission.WAREHOUSE_READ,
+        request: (t) =>
+          request(app.getHttpServer()).get("/api/v1/warehouses").set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FEED_INVENTORY_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FEED_INVENTORY_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+            .set("Authorization", auth(t))
+            .send({ feedProductId, quantityKg: 10 }),
+      },
+      {
+        permission: Permission.FEEDING_EVENT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/feeding-events`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.ALERT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/farms/${companyA.farmId}/alerts`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.MORTALITY_EVENT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/mortality-events`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.WEIGHT_SAMPLE_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/weight-samples`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.BIOMASS_SNAPSHOT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/fish-batches/${matrixBatchId}/biomass/history`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        // matrixBatchId has no BatchMovement history, so this recalculates to an empty
+        // BatchTankState set (no per-tank rows to upsert) — a 2xx with an empty array, which is
+        // all the matrix checks (status only, not content).
+        permission: Permission.BIOMASS_SNAPSHOT_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post(`/api/v1/fish-batches/${matrixBatchId}/biomass/recalculate`)
+            .set("Authorization", auth(t)),
+      },
+    ];
+
+    for (const { permission, request: makeRequest } of checks) {
+      for (const role of Object.keys(ROLE_PERMISSIONS) as Role[]) {
+        const shouldAllow = ROLE_PERMISSIONS[role].includes(permission);
+
+        it(`${role} ${shouldAllow ? "is allowed" : "is denied"} ${permission}`, async () => {
+          const res = await makeRequest(roleTokens[role]);
+          if (shouldAllow) {
+            expect(res.status).toBeLessThan(400);
+          } else {
+            expect(res.status).toBe(403);
+          }
+        });
+      }
+    }
   });
 
-  it("creating a farm under Company A's context never stamps Company B's id, even if attempted", async () => {
-    const res = await authedAs(tenantA.companyId, tenantA.ownerAuthProviderId)
-      .post("/api/v1/farms")
-      .send({ name: "Spoof Attempt Farm", code: "SPOOF1" });
-    // Body has no companyId field to spoof in the first place (DTO whitelists only
-    // name/code/timezone/lat/lng — forbidNonWhitelisted rejects anything else), but assert the
-    // persisted row is stamped with the resolved tenant regardless.
-    expect(res.status).toBe(201);
-    const created = await prisma.farm.findUnique({ where: { id: res.body.data.id } });
-    expect(created?.companyId).toBe(tenantA.companyId);
-    expect(created?.companyId).not.toBe(tenantB.companyId);
+  describe("update/delete — CRU-not-D roles per the permissions matrix", () => {
+    // Own scratch section/tank per test (not the shared companyA fixtures other describe blocks
+    // depend on staying unmodified/undeleted).
+    async function seedScratchTank(prisma: PrismaClient, companyId: string, sectionId: string) {
+      return prisma.tank.create({
+        data: { companyId, farmSectionId: sectionId, code: `SCR${Date.now()}`, type: "TANK" },
+      });
+    }
+
+    it("owner can update and then soft-delete a tank in their own company", async () => {
+      const scratch = await seedScratchTank(prisma, companyA.companyId, companyA.sectionId);
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ status: "MAINTENANCE" });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.data.status).toBe("MAINTENANCE");
+
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(deleteRes.status).toBe(200);
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(getRes.status).toBe(404); // soft-deleted tanks are excluded from lookups too
+    });
+
+    it("FARM_MANAGER can update a tank but is denied deleting it (CRU, not CRUD)", async () => {
+      const scratch = await seedScratchTank(prisma, companyA.companyId, companyA.sectionId);
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.FARM_MANAGER))
+        .send({ status: "INACTIVE" });
+      expect(updateRes.status).toBe(200);
+
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.FARM_MANAGER));
+      expect(deleteRes.status).toBe(403);
+    });
+
+    it("WORKER can read tanks but is denied updating or deleting them", async () => {
+      const scratch = await seedScratchTank(prisma, companyA.companyId, companyA.sectionId);
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.WORKER))
+        .send({ status: "INACTIVE" });
+      expect(updateRes.status).toBe(403);
+
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.WORKER));
+      expect(deleteRes.status).toBe(403);
+    });
+
+    async function seedScratchFarm(prisma: PrismaClient, companyId: string) {
+      return prisma.farm.create({
+        data: { companyId, name: "Scratch Farm", code: `SCR${Date.now()}` },
+      });
+    }
+
+    it("owner can update and then soft-delete a farm in their own company", async () => {
+      const scratch = await seedScratchFarm(prisma, companyA.companyId);
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Renamed Scratch Farm" });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.data.name).toBe("Renamed Scratch Farm");
+
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(deleteRes.status).toBe(200);
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(getRes.status).toBe(404); // soft-deleted farms are excluded from lookups too
+
+      const listRes = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(listRes.body.data.map((f: { id: string }) => f.id)).not.toContain(scratch.id);
+    });
+
+    it("FARM_MANAGER can update a farm but is denied deleting it (CRU, not CRUD)", async () => {
+      const scratch = await seedScratchFarm(prisma, companyA.companyId);
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.FARM_MANAGER))
+        .send({ timezone: "Europe/Oslo" });
+      expect(updateRes.status).toBe(200);
+
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.FARM_MANAGER));
+      expect(deleteRes.status).toBe(403);
+    });
+
+    it("WORKER can read farms but is denied updating or deleting them", async () => {
+      const scratch = await seedScratchFarm(prisma, companyA.companyId);
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.WORKER))
+        .send({ timezone: "Europe/Oslo" });
+      expect(updateRes.status).toBe(403);
+
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${scratch.id}`)
+        .set("Authorization", auth(roleTokens.WORKER));
+      expect(deleteRes.status).toBe(403);
+    });
+  });
+
+  describe("biomass-capacity alert rule", () => {
+    it("stocking a tank past 90% of maxBiomassKg opens exactly one alert, and resolving it respects ALERT_RESOLVE", async () => {
+      const scratchTank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `BIOMASS${Date.now()}`,
+          type: "TANK",
+          maxBiomassKg: 100,
+        },
+      });
+
+      // 1000 fish x 100g = 100kg = 100% of the 100kg cap → crosses the 90% threshold.
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: scratchTank.id,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const openAfterFirst = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const alertsForTank = openAfterFirst.body.data.filter(
+        (a: { tankId: string; type: string }) => a.tankId === scratchTank.id && a.type === "BIOMASS_CAPACITY",
+      );
+      expect(alertsForTank).toHaveLength(1);
+
+      // Stocking again while already over threshold must not spam a second open alert.
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: scratchTank.id,
+          fishCount: 10,
+          avgWeightG: 100,
+          farmEntryDate: "2026-01-02",
+        })
+        .expect(201);
+
+      const openAfterSecond = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const stillOneAlert = openAfterSecond.body.data.filter(
+        (a: { tankId: string; type: string }) => a.tankId === scratchTank.id && a.type === "BIOMASS_CAPACITY",
+      );
+      expect(stillOneAlert).toHaveLength(1);
+      const alertId = stillOneAlert[0].id;
+
+      // WORKER has ALERT_READ but not ALERT_RESOLVE.
+      const deniedResolve = await request(app.getHttpServer())
+        .patch(`/api/v1/alerts/${alertId}/resolve`)
+        .set("Authorization", auth(roleTokens.WORKER));
+      expect(deniedResolve.status).toBe(403);
+
+      const resolveRes = await request(app.getHttpServer())
+        .patch(`/api/v1/alerts/${alertId}/resolve`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(resolveRes.status).toBe(200);
+      expect(resolveRes.body.data.status).toBe("RESOLVED");
+
+      const openAfterResolve = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        openAfterResolve.body.data.some((a: { id: string }) => a.id === alertId),
+      ).toBe(false);
+    });
+  });
+
+  describe("fish-batch ledger correctness", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    it("stocking a batch is reflected in BatchCurrentState/BatchTankState", async () => {
+      const tank = await createTank("LEDGER-A");
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 5000,
+          avgWeightG: 120,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      expect(res.body.data.currentState.estimatedCount).toBe(5000);
+      expect(res.body.data.currentState.currentTankId).toBe(tank.id);
+    });
+
+    it("transferring more than the tank's live count is rejected with 400, not a silent negative", async () => {
+      const tankA = await createTank("LEDGER-B1");
+      const tankB = await createTank("LEDGER-B2");
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tankA.id,
+          fishCount: 100,
+          avgWeightG: 50,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${create.body.data.id}/movements`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromTankId: tankA.id, toTankId: tankB.id, fishCount: 101 });
+      expect(res.status).toBe(400);
+    });
+
+    it("transferring within the live count moves fish between tanks, total conserved", async () => {
+      const tankA = await createTank("LEDGER-C1");
+      const tankB = await createTank("LEDGER-C2");
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tankA.id,
+          fishCount: 1000,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const batchId = create.body.data.id;
+
+      const transferRes = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/movements`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromTankId: tankA.id, toTankId: tankB.id, fishCount: 400 })
+        .expect(201);
+      expect(transferRes.body.data.currentState.estimatedCount).toBe(1000);
+
+      const [tankAAllocations, tankBAllocations] = await Promise.all([
+        request(app.getHttpServer())
+          .get(`/api/v1/tanks/${tankA.id}/fish-batches`)
+          .set("Authorization", auth(companyA.ownerToken)),
+        request(app.getHttpServer())
+          .get(`/api/v1/tanks/${tankB.id}/fish-batches`)
+          .set("Authorization", auth(companyA.ownerToken)),
+      ]);
+      const aAlloc = tankAAllocations.body.data.find(
+        (a: { batchId: string }) => a.batchId === batchId,
+      );
+      const bAlloc = tankBAllocations.body.data.find(
+        (a: { batchId: string }) => a.batchId === batchId,
+      );
+      expect(aAlloc.estimatedCount).toBe(600);
+      expect(bAlloc.estimatedCount).toBe(400);
+    });
+
+    it("splitting a batch into two tanks creates two new batches and closes the fully-split source", async () => {
+      const source = await createTank("LEDGER-D0");
+      const childTankA = await createTank("LEDGER-D1");
+      const childTankB = await createTank("LEDGER-D2");
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: source.id,
+          fishCount: 1000,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const parentId = create.body.data.id;
+
+      const splitRes = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${parentId}/split`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          fromTankId: source.id,
+          splits: [
+            { toTankId: childTankA.id, fishCount: 600, lotCode: nextLotCode() },
+            { toTankId: childTankB.id, fishCount: 400, lotCode: nextLotCode() },
+          ],
+        })
+        .expect(201);
+      expect(splitRes.body.data.childIds).toHaveLength(2);
+
+      const parentAfter = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${parentId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(parentAfter.body.data.status).toBe("CLOSED");
+      expect(parentAfter.body.data.currentState.estimatedCount).toBe(0);
+
+      for (const childId of splitRes.body.data.childIds as string[]) {
+        const child = await request(app.getHttpServer())
+          .get(`/api/v1/fish-batches/${childId}`)
+          .set("Authorization", auth(companyA.ownerToken));
+        expect(child.body.data.parentBatchIds).toEqual([parentId]);
+      }
+    });
+
+    it("merging two batches into a new one closes both sources and carries parentBatchIds", async () => {
+      const tankA = await createTank("LEDGER-E1");
+      const tankB = await createTank("LEDGER-E2");
+      const targetTank = await createTank("LEDGER-E3");
+
+      const [batchARes, batchBRes] = await Promise.all([
+        request(app.getHttpServer())
+          .post("/api/v1/fish-batches")
+          .set("Authorization", auth(companyA.ownerToken))
+          .send({
+            speciesId,
+            lotCode: nextLotCode(),
+            tankId: tankA.id,
+            fishCount: 300,
+            avgWeightG: 100,
+            farmEntryDate: "2026-01-01",
+          })
+          .expect(201),
+        request(app.getHttpServer())
+          .post("/api/v1/fish-batches")
+          .set("Authorization", auth(companyA.ownerToken))
+          .send({
+            speciesId,
+            lotCode: nextLotCode(),
+            tankId: tankB.id,
+            fishCount: 200,
+            avgWeightG: 120,
+            farmEntryDate: "2026-01-01",
+          })
+          .expect(201),
+      ]);
+      const batchAId = batchARes.body.data.id;
+      const batchBId = batchBRes.body.data.id;
+
+      const mergeRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches/merge")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          sources: [
+            { batchId: batchAId, fromTankId: tankA.id, fishCount: 300 },
+            { batchId: batchBId, fromTankId: tankB.id, fishCount: 200 },
+          ],
+          toTankId: targetTank.id,
+          lotCode: nextLotCode(),
+        })
+        .expect(201);
+
+      expect([...mergeRes.body.data.parentBatchIds].sort()).toEqual(
+        [batchAId, batchBId].sort(),
+      );
+      expect(mergeRes.body.data.currentState.estimatedCount).toBe(500);
+
+      const [aAfter, bAfter] = await Promise.all([
+        request(app.getHttpServer())
+          .get(`/api/v1/fish-batches/${batchAId}`)
+          .set("Authorization", auth(companyA.ownerToken)),
+        request(app.getHttpServer())
+          .get(`/api/v1/fish-batches/${batchBId}`)
+          .set("Authorization", auth(companyA.ownerToken)),
+      ]);
+      expect(aAfter.body.data.status).toBe("CLOSED");
+      expect(bAfter.body.data.status).toBe("CLOSED");
+    });
+
+    it("GET /fish-batches/:id/history returns every movement for the batch, in chronological order", async () => {
+      const tankA = await createTank("LEDGER-F1");
+      const tankB = await createTank("LEDGER-F2");
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tankA.id,
+          fishCount: 500,
+          avgWeightG: 90,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const batchId = create.body.data.id;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/movements`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromTankId: tankA.id, toTankId: tankB.id, fishCount: 200 })
+        .expect(201);
+
+      const historyRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/history`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const types = historyRes.body.data.movements.map(
+        (m: { movementType: string }) => m.movementType,
+      );
+      expect(types).toEqual(["STOCKING", "TRANSFER"]);
+    });
+  });
+
+  describe("feed inventory ledger correctness", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    async function receiveStock(quantityKg: number) {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    it("receiving stock (PURCHASE) is reflected in FeedInventoryBalance", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg: 250 })
+        .expect(201);
+
+      expect(Number(res.body.data.balance.quantityOnHandKg)).toBe(250);
+    });
+
+    it("logging a FeedingEvent decrements the balance and is rejected (400) if it would go negative", async () => {
+      const tank = await createTank("FEED-A");
+      const inventoryBatchId = await receiveStock(100);
+
+      const batchRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 500,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const fishBatchId = batchRes.body.data.id;
+
+      const feedRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: fishBatchId, feedInventoryBatchId: inventoryBatchId, quantityKg: 40 })
+        .expect(201);
+      expect(feedRes.body.data.quantityKg).toBeDefined();
+
+      const balanceRes = await request(app.getHttpServer())
+        .get(`/api/v1/inventory-batches/${inventoryBatchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(Number(balanceRes.body.data.balance.quantityOnHandKg)).toBe(60);
+
+      const overfeedRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: fishBatchId, feedInventoryBatchId: inventoryBatchId, quantityKg: 61 });
+      expect(overfeedRes.status).toBe(400);
+    });
+
+    it("an ADJUSTMENT transaction moves the balance by its signed amount", async () => {
+      const inventoryBatchId = await receiveStock(100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/inventory-batches/${inventoryBatchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ quantityKg: -15, notes: "Physical recount shortfall" })
+        .expect(201);
+
+      const afterShortfall = await request(app.getHttpServer())
+        .get(`/api/v1/inventory-batches/${inventoryBatchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(Number(afterShortfall.body.data.balance.quantityOnHandKg)).toBe(85);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/inventory-batches/${inventoryBatchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ quantityKg: 5, notes: "Found an extra sack" })
+        .expect(201);
+
+      const afterTopUp = await request(app.getHttpServer())
+        .get(`/api/v1/inventory-batches/${inventoryBatchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(Number(afterTopUp.body.data.balance.quantityOnHandKg)).toBe(90);
+
+      const negativeRes = await request(app.getHttpServer())
+        .post(`/api/v1/inventory-batches/${inventoryBatchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ quantityKg: -999 });
+      expect(negativeRes.status).toBe(400);
+    });
+
+    it("farm stock-summary's todayFeedKg reflects same-day FeedingEvents", async () => {
+      const tank = await createTank("FEED-B");
+      const inventoryBatchId = await receiveStock(200);
+
+      const batchRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 500,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const before = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/stock-summary`)
+        .set("Authorization", auth(companyA.ownerToken));
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: batchRes.body.data.id, feedInventoryBatchId: inventoryBatchId, quantityKg: 12.5 })
+        .expect(201);
+
+      const after = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/stock-summary`)
+        .set("Authorization", auth(companyA.ownerToken));
+
+      expect(after.body.data.todayFeedKg).toBe(before.body.data.todayFeedKg + 12.5);
+    });
+
+    it("WORKER can log a feeding event but READ_ONLY is denied", async () => {
+      const tank = await createTank("FEED-C");
+      const inventoryBatchId = await receiveStock(100);
+      const batchRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 200,
+          avgWeightG: 60,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const workerRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(roleTokens.WORKER))
+        .send({ batchId: batchRes.body.data.id, feedInventoryBatchId: inventoryBatchId, quantityKg: 5 });
+      expect(workerRes.status).toBe(201);
+
+      const readOnlyRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(roleTokens.READ_ONLY))
+        .send({ batchId: batchRes.body.data.id, feedInventoryBatchId: inventoryBatchId, quantityKg: 5 });
+      expect(readOnlyRes.status).toBe(403);
+    });
+  });
+
+  describe("mortality, weight sampling & biomass correctness", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    async function stockBatch(tankId: string, fishCount: number, avgWeightG: number) {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId,
+          fishCount,
+          avgWeightG,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    it("reporting mortality reduces the tank's live count and rejects fishCount exceeding it", async () => {
+      const tank = await createTank("MORT-A");
+      const batchId = await stockBatch(tank.id, 1000, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 200, reason: "DISEASE" })
+        .expect(201);
+
+      const afterMortality = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(afterMortality.body.data.currentState.estimatedCount).toBe(800);
+
+      const excessRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 801, reason: "DISEASE" });
+      expect(excessRes.status).toBe(400);
+    });
+
+    it("an INDIVIDUAL weight sample server-computes avgWeightG/stdDevG/cv from submitted weights", async () => {
+      const tank = await createTank("WS-A");
+      const batchId = await stockBatch(tank.id, 300, 50);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, sampleMethod: "INDIVIDUAL", individualWeightsG: [100, 110, 90, 100] })
+        .expect(201);
+
+      expect(res.body.data.sampleSize).toBe(4);
+      expect(Number(res.body.data.totalWeightG)).toBe(400);
+      expect(Number(res.body.data.avgWeightG)).toBe(100);
+      expect(Number(res.body.data.minWeightG)).toBe(90);
+      expect(Number(res.body.data.maxWeightG)).toBe(110);
+      // weights [100,110,90,100] -> mean 100, population variance 50, stddev sqrt(50) ~ 7.0711
+      expect(Number(res.body.data.stdDevG)).toBeCloseTo(7.0711, 3);
+      expect(Number(res.body.data.cv)).toBeCloseTo(7.0711, 3);
+    });
+
+    it("a weight sample updates BatchCurrentState's avgWeightG and biomassKg using the mortality-adjusted count", async () => {
+      const tank = await createTank("WS-B");
+      const batchId = await stockBatch(tank.id, 1000, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 200, reason: "OXYGEN" })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, sampleMethod: "AGGREGATE", avgWeightG: 120, sampleSize: 50 })
+        .expect(201);
+
+      const afterRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(afterRes.body.data.currentState.estimatedCount).toBe(800);
+      expect(Number(afterRes.body.data.currentState.estimatedAvgWeightG)).toBe(120);
+      expect(Number(afterRes.body.data.currentState.estimatedBiomassKg)).toBe(96);
+    });
+
+    it("POST .../biomass/recalculate creates a snapshot matching BatchCurrentState, and calling it twice same-day updates rather than duplicates", async () => {
+      const tank = await createTank("BIO-A");
+      const batchId = await stockBatch(tank.id, 1000, 100);
+
+      const first = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/biomass/recalculate`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(201);
+      expect(first.body.data).toHaveLength(1);
+      expect(first.body.data[0].estimatedCount).toBe(1000);
+      expect(Number(first.body.data[0].avgWeightG)).toBe(100);
+      expect(Number(first.body.data[0].biomassKg)).toBe(100);
+      const firstSnapshotId = first.body.data[0].id;
+
+      const second = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/biomass/recalculate`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(201);
+      expect(second.body.data).toHaveLength(1);
+      expect(second.body.data[0].id).toBe(firstSnapshotId);
+
+      const historyRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/biomass/history`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(historyRes.body.data).toHaveLength(1);
+    });
+  });
+
+  describe("Clerk webhook signature verification", () => {
+    const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET!;
+
+    function signedHeaders(payload: string) {
+      const svixId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const timestamp = new Date();
+      const signature = new Webhook(webhookSecret).sign(svixId, timestamp, payload);
+      return {
+        "svix-id": svixId,
+        "svix-timestamp": String(Math.floor(timestamp.getTime() / 1000)),
+        "svix-signature": signature,
+      };
+    }
+
+    it("rejects a request with missing svix headers (400)", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/webhooks/clerk")
+        .set("Content-Type", "application/json")
+        .send(JSON.stringify({ type: "user.created", data: {} }));
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects a payload that no longer matches its signature (400)", async () => {
+      const originalPayload = JSON.stringify({
+        type: "user.created",
+        data: { id: "clerk_tamper_test" },
+      });
+      const headers = signedHeaders(originalPayload);
+      const tamperedPayload = JSON.stringify({
+        type: "user.created",
+        data: { id: "clerk_tamper_test_ATTACKER" },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/webhooks/clerk")
+        .set(headers)
+        .set("Content-Type", "application/json")
+        .send(tamperedPayload);
+      expect(res.status).toBe(400);
+    });
+
+    it("a correctly-signed user.created payload reconciles a placeholder User with real profile data", async () => {
+      const authProviderId = `clerk_webhook_test_${Date.now()}`;
+      await prisma.user.create({
+        data: {
+          authProviderId,
+          email: `${authProviderId}@pending.aquai.local`,
+          fullName: "Pending Profile",
+        },
+      });
+
+      const payload = JSON.stringify({
+        type: "user.created",
+        data: {
+          id: authProviderId,
+          email_addresses: [{ email_address: "real.user@example.com" }],
+          first_name: "Real",
+          last_name: "User",
+        },
+      });
+      const headers = signedHeaders(payload);
+
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/webhooks/clerk")
+        .set(headers)
+        .set("Content-Type", "application/json")
+        .send(payload);
+      expect(res.status).toBe(201); // NestJS's default POST status; no @HttpCode override
+
+      const updated = await prisma.user.findUnique({ where: { authProviderId } });
+      expect(updated?.email).toBe("real.user@example.com");
+      expect(updated?.fullName).toBe("Real User");
+    });
   });
 });

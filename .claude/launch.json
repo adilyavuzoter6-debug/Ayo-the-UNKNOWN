@@ -1,0 +1,27 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "C:\\Users\\Yavuz\\.npm-global\\pnpm.cmd",
+      "runtimeArgs": [
+        "--filter",
+        "@aquai/web",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "C:\\Users\\Yavuz\\.npm-global\\pnpm.cmd",
+      "runtimeArgs": [
+        "--filter",
+        "@aquai/api",
+        "run",
+        "dev"
+      ],
+      "port": 3001
+    }
+  ]
+}

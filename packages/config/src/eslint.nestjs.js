@@ -37,6 +37,7 @@ module.exports = [
       "**/prisma/**",
       "**/modules/users/users.service.ts",
       "**/modules/companies/companies.service.ts",
+      "**/modules/webhooks/clerk-webhooks.service.ts",
     ],
     rules: {
       "no-restricted-syntax": "off",

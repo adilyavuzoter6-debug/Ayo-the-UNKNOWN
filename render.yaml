@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: aquai-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: >-
+      corepack enable &&
+      corepack prepare pnpm@9.15.0 --activate &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter @aquai/types run build &&
+      pnpm --filter @aquai/validation run build &&
+      pnpm --filter @aquai/api exec prisma generate &&
+      pnpm --filter @aquai/api run build
+    # Folded into startCommand (not preDeployCommand, which is gated to paid plans on Render) —
+    # `prisma migrate deploy` only applies pending migrations, so re-running it on every free-tier
+    # cold start (the instance sleeps after 15 min idle) is a safe no-op once the schema is current.
+    startCommand: pnpm --filter @aquai/api exec prisma migrate deploy && node apps/api/dist/main.js
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_JWKS_URL
+        sync: false
+      - key: CLERK_ISSUER
+        sync: false
+      - key: CLERK_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

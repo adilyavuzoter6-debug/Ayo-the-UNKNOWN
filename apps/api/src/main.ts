@@ -5,7 +5,10 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true preserves the raw request bytes on req.rawBody (in addition to the normal
+  // parsed req.body) for every route — needed by the Clerk webhook's svix signature
+  // verification, which must hash the exact bytes Clerk signed, not a re-serialized JSON object.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
   app.setGlobalPrefix("api");

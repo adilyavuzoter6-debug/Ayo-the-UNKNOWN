@@ -12,6 +12,24 @@ const TENANT_SCOPED_MODELS = new Set([
   "FarmSection",
   "Tank",
   "AuditLog",
+  "Alert",
+  "FishSpecies",
+  "FishBatch",
+  "BatchMovement",
+  "FeedProduct",
+  "Warehouse",
+  "FeedInventoryBatch",
+  "FeedInventoryTransaction",
+  "FeedingEvent",
+  "MortalityEvent",
+  "WeightSample",
+  "BiomassSnapshot",
+  // BatchCurrentState/BatchTankState/FeedInventoryBalance deliberately excluded — per
+  // docs/architecture/04-database-schema.md §4.4/§4.6 they carry no companyId column at all
+  // (keyed only by batchId/tankId or feedInventoryBatchId), same as MembershipFarmScope.
+  // Tenant isolation for them comes from always reaching them through an already-tenant-
+  // verified FishBatch/Tank/FeedInventoryBatch id (assertTankInTenant, FishBatchesService.
+  // findById, etc.), never from a direct companyId filter on the table itself.
 ]);
 
 /**
@@ -113,5 +131,20 @@ export class TenantPrismaService {
    */
   async findInvitationByToken(token: string) {
     return this.prisma.invitation.findUnique({ where: { token } });
+  }
+
+  /**
+   * Another narrow, deliberate exception: FishSpecies rows with `companyId: null` are global
+   * reference species shared across every tenant (see prisma/schema.prisma FishSpecies
+   * doc-comment). `forTenant(companyId).fishSpecies.findMany()` would force an exact-match
+   * `companyId` filter and silently exclude those global rows, so this reads both sets
+   * explicitly instead. Every other FishSpecies operation (creating a company's own custom
+   * strain) still goes through `forTenant()` as normal.
+   */
+  async findSpeciesForCompany(companyId: string) {
+    return this.prisma.fishSpecies.findMany({
+      where: { deletedAt: null, OR: [{ companyId }, { companyId: null }] },
+      orderBy: { name: "asc" },
+    });
   }
 }

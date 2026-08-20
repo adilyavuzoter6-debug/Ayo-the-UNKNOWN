@@ -13,6 +13,20 @@ import { ClerkAuthGuard } from "./modules/auth/guards/clerk-auth.guard";
 import { CompaniesModule } from "./modules/companies/companies.module";
 import { UsersModule } from "./modules/users/users.module";
 import { FarmsModule } from "./modules/farms/farms.module";
+import { FarmSectionsModule } from "./modules/farm-sections/farm-sections.module";
+import { TanksModule } from "./modules/tanks/tanks.module";
+import { FishSpeciesModule } from "./modules/fish-species/fish-species.module";
+import { FishBatchesModule } from "./modules/fish-batches/fish-batches.module";
+import { FeedProductsModule } from "./modules/feed-products/feed-products.module";
+import { WarehousesModule } from "./modules/warehouses/warehouses.module";
+import { FeedInventoryModule } from "./modules/feed-inventory/feed-inventory.module";
+import { FeedingModule } from "./modules/feeding/feeding.module";
+import { AlertsModule } from "./modules/alerts/alerts.module";
+import { FarmStatsModule } from "./modules/farm-stats/farm-stats.module";
+import { WebhooksModule } from "./modules/webhooks/webhooks.module";
+import { MortalityModule } from "./modules/mortality/mortality.module";
+import { WeightSamplingModule } from "./modules/weight-sampling/weight-sampling.module";
+import { BiomassModule } from "./modules/biomass/biomass.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
 @Module({
@@ -25,6 +39,20 @@ import { AuditModule } from "./modules/audit/audit.module";
     UsersModule,
     CompaniesModule,
     FarmsModule,
+    FarmSectionsModule,
+    TanksModule,
+    AlertsModule,
+    FishSpeciesModule,
+    FishBatchesModule,
+    FeedProductsModule,
+    WarehousesModule,
+    FeedInventoryModule,
+    FeedingModule,
+    FarmStatsModule,
+    WebhooksModule,
+    MortalityModule,
+    WeightSamplingModule,
+    BiomassModule,
   ],
   controllers: [AppController],
   providers: [

@@ -19,6 +19,8 @@ out/
 .env*
 !.env.example
 !**/.env.example
+!.env.test.example
+!**/.env.test.example
 
 # logs
 *.log
@@ -32,6 +34,10 @@ pnpm-debug.log*
 
 # Claude Code local settings (machine-specific permissions, not shared project config)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# stray runtime artifacts
+*.pid
 
 # os
 .DS_Store
