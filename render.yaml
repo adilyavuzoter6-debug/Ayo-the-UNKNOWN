@@ -6,9 +6,12 @@ services:
     region: frankfurt
     # `corepack enable` fails on Render's build image with EROFS (it tries to write shims into
     # the read-only /usr/bin) — installing pnpm as a normal global npm package sidesteps that.
+    # `--prod=false` is required because NODE_ENV=production (needed at runtime) also applies
+    # during the build step on Render, which would otherwise skip devDependencies — including
+    # typescript and the @aquai/tsconfig workspace package the build itself needs.
     buildCommand: >-
       npm install -g pnpm@9.15.0 &&
-      pnpm install --frozen-lockfile &&
+      pnpm install --frozen-lockfile --prod=false &&
       pnpm --filter @aquai/types run build &&
       pnpm --filter @aquai/validation run build &&
       pnpm --filter @aquai/api exec prisma generate &&

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
@@ -8,6 +8,7 @@ import { SkipTenantContext } from "../../common/decorators/skip-tenant-context.d
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { AcceptInvitationDto } from "./dto/accept-invitation.dto";
 import { InviteUserDto } from "./dto/invite-user.dto";
+import { UpdateMemberRoleDto } from "./dto/update-member-role.dto";
 import { MembersService } from "./members.service";
 
 @ApiTags("users")
@@ -30,6 +31,43 @@ export class UsersController {
   @RequirePermission(Permission.USER_READ)
   list(@CurrentTenant() tenant: TenantContext) {
     return this.membersService.listMembers(tenant.companyId);
+  }
+
+  @Get("invitations")
+  @RequirePermission(Permission.USER_INVITE)
+  listInvitations(@CurrentTenant() tenant: TenantContext) {
+    return this.membersService.listInvitations(tenant.companyId);
+  }
+
+  @Patch(":membershipId/role")
+  @RequirePermission(Permission.USER_UPDATE_ROLE)
+  updateRole(
+    @Param("membershipId") membershipId: string,
+    @Body() dto: UpdateMemberRoleDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.membersService.updateRole(tenant.companyId, membershipId, dto.role, user.id);
+  }
+
+  @Delete(":membershipId")
+  @RequirePermission(Permission.USER_REVOKE)
+  revoke(
+    @Param("membershipId") membershipId: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.membersService.revoke(tenant.companyId, membershipId, user.id);
+  }
+
+  @Delete("invitations/:invitationId")
+  @RequirePermission(Permission.USER_INVITE)
+  revokeInvitation(
+    @Param("invitationId") invitationId: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.membersService.revokeInvitation(tenant.companyId, invitationId, user.id);
   }
 
   @Post("accept-invitation")

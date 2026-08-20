@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Role } from "@aquai/types";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
@@ -68,6 +68,120 @@ export class MembersService {
       include: { user: true },
       orderBy: { createdAt: "asc" },
     });
+  }
+
+  async listInvitations(companyId: string) {
+    return this.tenantPrisma.forTenant(companyId).invitation.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /** True if revoking/demoting this membership would leave the company with zero active owners. */
+  private async wouldRemoveLastOwner(
+    membershipId: string,
+    client: ReturnType<TenantPrismaService["forTenant"]>,
+  ): Promise<boolean> {
+    const membership = await client.companyMembership.findFirst({
+      where: { id: membershipId, status: "ACTIVE" },
+    });
+    if (!membership || membership.role !== "COMPANY_OWNER") {
+      return false;
+    }
+    const otherActiveOwners = await client.companyMembership.count({
+      where: { role: "COMPANY_OWNER", status: "ACTIVE", id: { not: membershipId } },
+    });
+    return otherActiveOwners === 0;
+  }
+
+  async updateRole(companyId: string, membershipId: string, role: Role, updatedByUserId: string) {
+    const client = this.tenantPrisma.forTenant(companyId);
+
+    const existing = await client.companyMembership.findFirst({
+      where: { id: membershipId, status: "ACTIVE" },
+    });
+    if (!existing) {
+      throw new NotFoundException("Membership not found.");
+    }
+    if (role !== "COMPANY_OWNER" && (await this.wouldRemoveLastOwner(membershipId, client))) {
+      throw new BadRequestException("Cannot change the role of the company's last owner.");
+    }
+
+    const updated = await client.companyMembership.update({
+      where: { id: membershipId },
+      data: { role },
+      include: { user: true },
+    });
+
+    await this.auditService.record({
+      companyId,
+      userId: updatedByUserId,
+      action: "UPDATE",
+      entityType: "CompanyMembership",
+      entityId: membershipId,
+      previousValue: { role: existing.role },
+      newValue: { role },
+    });
+
+    return updated;
+  }
+
+  async revoke(companyId: string, membershipId: string, revokedByUserId: string) {
+    const client = this.tenantPrisma.forTenant(companyId);
+
+    const existing = await client.companyMembership.findFirst({
+      where: { id: membershipId, status: "ACTIVE" },
+    });
+    if (!existing) {
+      throw new NotFoundException("Membership not found.");
+    }
+    if (await this.wouldRemoveLastOwner(membershipId, client)) {
+      throw new BadRequestException("Cannot revoke the company's last owner.");
+    }
+
+    const revoked = await client.companyMembership.update({
+      where: { id: membershipId },
+      data: { status: "REVOKED" },
+    });
+
+    await this.auditService.record({
+      companyId,
+      userId: revokedByUserId,
+      action: "REVOKE",
+      entityType: "CompanyMembership",
+      entityId: membershipId,
+      previousValue: { status: "ACTIVE" },
+      newValue: { status: "REVOKED" },
+    });
+
+    return revoked;
+  }
+
+  async revokeInvitation(companyId: string, invitationId: string, revokedByUserId: string) {
+    const client = this.tenantPrisma.forTenant(companyId);
+
+    const existing = await client.invitation.findFirst({
+      where: { id: invitationId, status: "PENDING" },
+    });
+    if (!existing) {
+      throw new NotFoundException("Invitation not found.");
+    }
+
+    const revoked = await client.invitation.update({
+      where: { id: invitationId },
+      data: { status: "REVOKED" },
+    });
+
+    await this.auditService.record({
+      companyId,
+      userId: revokedByUserId,
+      action: "REVOKE",
+      entityType: "Invitation",
+      entityId: invitationId,
+      newValue: { status: "REVOKED" },
+    });
+
+    return revoked;
   }
 
   async acceptInvitation(token: string, acceptingUserId: string, acceptingUserEmail: string) {

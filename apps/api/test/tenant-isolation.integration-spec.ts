@@ -1859,6 +1859,91 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("company member management", () => {
+    it("inviting a user creates a pending invitation that can be listed and revoked", async () => {
+      const inviteRes = await request(app.getHttpServer())
+        .post("/api/v1/users/invite")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ email: `invitee-${Date.now()}@test.aquai.local`, role: "WORKER" })
+        .expect(201);
+      expect(inviteRes.body.data.status).toBe("PENDING");
+
+      const listRes = await request(app.getHttpServer())
+        .get("/api/v1/users/invitations")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(
+        listRes.body.data.some((i: { id: string }) => i.id === inviteRes.body.data.id),
+      ).toBe(true);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/users/invitations/${inviteRes.body.data.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const afterRes = await request(app.getHttpServer())
+        .get("/api/v1/users/invitations")
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        afterRes.body.data.some((i: { id: string }) => i.id === inviteRes.body.data.id),
+      ).toBe(false);
+    });
+
+    it("updates a member's role, revokes a member, and refuses to revoke the company's last owner", async () => {
+      // Scratch company, fully isolated from the shared companyA fixtures used everywhere else.
+      const company = await prisma.company.create({
+        data: { name: `Scratch MM ${Date.now()}`, countryCode: "NO", timezone: "Europe/Oslo" },
+      });
+      const ownerUser = await prisma.user.create({
+        data: {
+          authProviderId: `mm-owner-${Date.now()}`,
+          email: `mm-owner-${Date.now()}@test.aquai.local`,
+          fullName: "MM Owner",
+        },
+      });
+      const ownerMembership = await prisma.companyMembership.create({
+        data: { companyId: company.id, userId: ownerUser.id, role: "COMPANY_OWNER", status: "ACTIVE", joinedAt: new Date() },
+      });
+      const ownerToken = ownerUser.authProviderId;
+
+      const workerUser = await prisma.user.create({
+        data: {
+          authProviderId: `mm-worker-${Date.now()}`,
+          email: `mm-worker-${Date.now()}@test.aquai.local`,
+          fullName: "MM Worker",
+        },
+      });
+      const workerMembership = await prisma.companyMembership.create({
+        data: { companyId: company.id, userId: workerUser.id, role: "WORKER", status: "ACTIVE", joinedAt: new Date() },
+      });
+
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/api/v1/users/${workerMembership.id}/role`)
+        .set("Authorization", auth(ownerToken))
+        .send({ role: "FARM_MANAGER" })
+        .expect(200);
+      expect(updateRes.body.data.role).toBe("FARM_MANAGER");
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/users/${workerMembership.id}`)
+        .set("Authorization", auth(ownerToken))
+        .expect(200);
+
+      const listRes = await request(app.getHttpServer())
+        .get("/api/v1/users")
+        .set("Authorization", auth(ownerToken));
+      expect(
+        listRes.body.data.some((m: { id: string }) => m.id === workerMembership.id),
+      ).toBe(false);
+
+      // Only the owner remains active now — revoking them must be rejected, not silently allowed.
+      const guardRes = await request(app.getHttpServer())
+        .delete(`/api/v1/users/${ownerMembership.id}`)
+        .set("Authorization", auth(ownerToken));
+      expect(guardRes.status).toBe(400);
+    });
+  });
+
   describe("Clerk webhook signature verification", () => {
     const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET!;
 
