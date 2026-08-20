@@ -74,6 +74,7 @@ export enum Permission {
   ALERT_RESOLVE = "alert:resolve",
 
   AUDIT_LOG_READ = "audit_log:read",
+  INSPECTION_REPORT_READ = "inspection_report:read",
 
   PLATFORM_ADMIN_CROSS_TENANT_ACCESS = "platform_admin:cross_tenant_access",
 }
@@ -132,6 +133,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
+    Permission.INSPECTION_REPORT_READ,
   ],
   GENERAL_MANAGER: [
     Permission.COMPANY_READ,
@@ -177,6 +179,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
+    Permission.INSPECTION_REPORT_READ,
   ],
   FARM_MANAGER: [
     Permission.COMPANY_READ,
@@ -217,6 +220,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
+    Permission.INSPECTION_REPORT_READ,
   ],
   VETERINARIAN: [
     Permission.COMPANY_READ,
@@ -246,6 +250,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.COST_ENTRY_READ,
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
+    Permission.INSPECTION_REPORT_READ,
   ],
   FEED_MANAGER: [
     Permission.COMPANY_READ,
@@ -293,6 +298,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.COST_ENTRY_READ,
     Permission.ALERT_READ,
     Permission.AUDIT_LOG_READ,
+    Permission.INSPECTION_REPORT_READ,
   ],
   WORKER: [
     Permission.FARM_READ,

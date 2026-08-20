@@ -13,7 +13,7 @@ export class InspectionController {
   constructor(private readonly inspectionService: InspectionService) {}
 
   @Get()
-  @RequirePermission(Permission.AUDIT_LOG_READ)
+  @RequirePermission(Permission.INSPECTION_REPORT_READ)
   get(
     @Param("farmId") farmId: string,
     @Query("periodStart") periodStart: string,

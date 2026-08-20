@@ -480,6 +480,14 @@ describe("Tenant isolation & authorization (integration)", () => {
           request(app.getHttpServer()).get("/api/v1/audit-logs").set("Authorization", auth(t)),
       },
       {
+        permission: Permission.INSPECTION_REPORT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/farms/${companyA.farmId}/inspection-report`)
+            .query({ periodStart: "2026-01-01", periodEnd: "2026-12-31" })
+            .set("Authorization", auth(t)),
+      },
+      {
         permission: Permission.FISH_BATCH_READ,
         request: (t) =>
           request(app.getHttpServer())
