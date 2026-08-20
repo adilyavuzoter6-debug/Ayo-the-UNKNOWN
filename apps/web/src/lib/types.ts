@@ -257,6 +257,73 @@ export interface HarvestRecord {
   createdAt: string;
 }
 
+export type TreatmentType = "MEDICATION" | "VACCINATION";
+
+export interface Treatment {
+  id: string;
+  companyId: string;
+  batchId: string;
+  tankId: string;
+  type: TreatmentType;
+  productName: string;
+  dosage: string | null;
+  withdrawalPeriodDays: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  veterinarianId: string | null;
+  createdById: string;
+  notes: string | null;
+  createdAt: string;
+}
+
+export type CostCategory =
+  | "FEED"
+  | "EGGS"
+  | "FINGERLINGS"
+  | "MEDICINE"
+  | "VACCINATION"
+  | "LABOR"
+  | "ELECTRICITY"
+  | "OXYGEN"
+  | "FUEL"
+  | "TRANSPORTATION"
+  | "OVERHEAD"
+  | "DEPRECIATION"
+  | "OTHER";
+
+export interface CostEntry {
+  id: string;
+  companyId: string;
+  category: CostCategory;
+  amount: string;
+  currency: string;
+  farmId: string | null;
+  tankId: string | null;
+  batchId: string | null;
+  incurredAt: string;
+  sourceType: string | null;
+  sourceId: string | null;
+  createdById: string;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface CostSummaryBatchRow {
+  batchId: string;
+  lotCode: string;
+  directCostTotal: number;
+  harvestedKg: number;
+  directCostPerKg: number | null;
+}
+
+export interface CostSummary {
+  periodStart: string;
+  periodEnd: string;
+  totalAmount: number;
+  byCategory: Partial<Record<CostCategory, number>>;
+  batchBreakdown: CostSummaryBatchRow[];
+}
+
 export interface FeedProduct {
   id: string;
   companyId: string;

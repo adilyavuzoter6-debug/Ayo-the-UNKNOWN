@@ -201,6 +201,20 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(res.status).toBe(404);
     });
 
+    it("GET /tanks/:tankId/treatments — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/cost-entries — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
     it("sanity check: the same lookups succeed for the owning tenant", async () => {
       const [farm, sections, tank] = await Promise.all([
         request(app.getHttpServer())
@@ -333,6 +347,22 @@ describe("Tenant isolation & authorization (integration)", () => {
         .post(`/api/v1/tanks/${companyB.tankId}/harvest-records`)
         .set("Authorization", auth(companyA.ownerToken))
         .send({ batchId: "placeholder", type: "ACTUAL", fullness: "FULL" });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /tanks/:tankId/treatments — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyB.tankId}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: "placeholder", type: "MEDICATION", productName: "X", startedAt: "2026-01-01" });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /farms/:farmId/cost-entries — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyB.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "LABOR", amount: 100, incurredAt: "2026-01-01" });
       expect(res.status).toBe(404);
     });
   });
@@ -559,6 +589,36 @@ describe("Tenant isolation & authorization (integration)", () => {
           request(app.getHttpServer())
             .get(`/api/v1/tanks/${companyA.tankId}/harvest-records`)
             .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.TREATMENT_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/treatments`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.TREATMENT_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post(`/api/v1/tanks/${companyA.tankId}/treatments`)
+            .set("Authorization", auth(t))
+            .send({ batchId: matrixBatchId, type: "VACCINATION", productName: "Matrix Vax", startedAt: "2026-01-01" }),
+      },
+      {
+        permission: Permission.COST_ENTRY_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.COST_ENTRY_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+            .set("Authorization", auth(t))
+            .send({ category: "OTHER", amount: 1, incurredAt: "2026-01-01" }),
       },
       {
         // matrixBatchId has no BatchMovement history, so this recalculates to an empty
@@ -1941,6 +2001,167 @@ describe("Tenant isolation & authorization (integration)", () => {
         .delete(`/api/v1/users/${ownerMembership.id}`)
         .set("Authorization", auth(ownerToken));
       expect(guardRes.status).toBe(400);
+    });
+  });
+
+  describe("veterinary treatments & harvest withdrawal-period compliance", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    async function stockBatch(tankId: string, fishCount: number, avgWeightG: number) {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId,
+          fishCount,
+          avgWeightG,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    it("blocks an ACTUAL harvest while a treatment's withdrawal period is still active", async () => {
+      const tank = await createTank("TRX-A");
+      const batchId = await stockBatch(tank.id, 200, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "MEDICATION",
+          productName: "Florfenicol 20%",
+          startedAt: new Date().toISOString(),
+          withdrawalPeriodDays: 9999,
+        })
+        .expect(201);
+
+      const harvestRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" });
+      expect(harvestRes.status).toBe(400);
+      expect(harvestRes.body.error.message).toContain("Florfenicol");
+    });
+
+    it("allows an ACTUAL harvest once the withdrawal period has elapsed", async () => {
+      const tank = await createTank("TRX-B");
+      const batchId = await stockBatch(tank.id, 200, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "MEDICATION",
+          productName: "Old Treatment",
+          startedAt: "2020-01-01",
+          endedAt: "2020-01-02",
+          withdrawalPeriodDays: 5,
+        })
+        .expect(201);
+
+      const harvestRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" });
+      expect(harvestRes.status).toBe(201);
+    });
+  });
+
+  describe("production cost tracking", () => {
+    it("logs a manual cost entry, auto-derives a FEED cost entry from a priced stock receipt, and summarizes by category and per-batch cost/kg", async () => {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `COST-A${Date.now()}`,
+          type: "TANK",
+        },
+      });
+      const batchId = await (async () => {
+        const res = await request(app.getHttpServer())
+          .post("/api/v1/fish-batches")
+          .set("Authorization", auth(companyA.ownerToken))
+          .send({
+            speciesId,
+            lotCode: nextLotCode(),
+            tankId: tank.id,
+            fishCount: 100,
+            avgWeightG: 100,
+            farmEntryDate: "2026-01-01",
+          })
+          .expect(201);
+        return res.body.data.id as string;
+      })();
+
+      const todayIso = new Date().toISOString();
+
+      // Manual, batch-tagged cost entry (e.g. transport for this specific lot).
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "TRANSPORTATION", amount: 250, batchId, incurredAt: todayIso })
+        .expect(201);
+
+      // A priced stock receipt should auto-derive a FEED cost entry (25kg * 40/kg = 1000).
+      await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg: 25, unitCostPerKg: 40 })
+        .expect(201);
+
+      const listRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(
+        listRes.body.data.some(
+          (e: { category: string; sourceType: string | null }) =>
+            e.category === "FEED" && e.sourceType === "FeedInventoryTransaction",
+        ),
+      ).toBe(true);
+
+      // Full harvest so the batch has a directCostPerKg denominator.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" })
+        .expect(201);
+
+      const periodStart = new Date();
+      periodStart.setDate(periodStart.getDate() - 1);
+      const periodEnd = new Date();
+      periodEnd.setDate(periodEnd.getDate() + 1);
+
+      const summaryRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-summary`)
+        .query({ periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString() })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      expect(summaryRes.body.data.byCategory.TRANSPORTATION).toBeGreaterThanOrEqual(250);
+      expect(summaryRes.body.data.byCategory.FEED).toBeGreaterThanOrEqual(1000);
+
+      const batchRow = summaryRes.body.data.batchBreakdown.find(
+        (b: { batchId: string }) => b.batchId === batchId,
+      );
+      expect(batchRow).toBeDefined();
+      expect(batchRow.directCostTotal).toBe(250);
+      expect(batchRow.harvestedKg).toBe(10); // 100 fish * 100g / 1000
+      expect(batchRow.directCostPerKg).toBe(25); // 250 / 10
     });
   });
 

@@ -61,7 +61,7 @@ export class FeedInventoryService {
     userId: string,
     dto: ReceiveStockDto,
   ) {
-    await this.assertWarehouseInTenant(companyId, warehouseId);
+    const warehouse = await this.assertWarehouseInTenant(companyId, warehouseId);
 
     const batch = await this.tenantPrisma.forTenant(companyId).feedInventoryBatch.create({
       data: {
@@ -76,6 +76,8 @@ export class FeedInventoryService {
       },
     });
 
+    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : new Date();
+
     await this.tenantPrisma.forTenant(companyId).feedInventoryTransaction.create({
       data: {
         companyId,
@@ -83,11 +85,29 @@ export class FeedInventoryService {
         feedInventoryBatchId: batch.id,
         type: "PURCHASE",
         quantityKg: dto.quantityKg,
-        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+        occurredAt,
         createdById: userId,
         notes: dto.notes,
       },
     });
+
+    // Auto-derived FEED cost entry (§4.7's CostEntry.sourceType convention) — only when the
+    // purchase actually records a unit cost; a lot received without pricing simply isn't costed.
+    if (dto.unitCostPerKg !== undefined) {
+      await this.tenantPrisma.forTenant(companyId).costEntry.create({
+        data: {
+          companyId,
+          farmId: warehouse.farmId,
+          category: "FEED",
+          amount: dto.unitCostPerKg * dto.quantityKg,
+          incurredAt: occurredAt,
+          sourceType: "FeedInventoryTransaction",
+          sourceId: batch.id,
+          createdById: userId,
+          notes: `${dto.quantityKg} kg × ${dto.unitCostPerKg}/kg (auto)`,
+        },
+      });
+    }
 
     await this.projection.recompute(companyId, batch.id);
 

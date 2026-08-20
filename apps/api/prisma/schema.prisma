@@ -147,6 +147,7 @@ model Farm {
   scopedTo   MembershipFarmScope[]
   warehouses Warehouse[]
   alerts     Alert[]
+  costEntries CostEntry[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -196,6 +197,8 @@ model Tank {
   weightSamples        WeightSample[]
   waterQualityReadings WaterQualityReading[]
   harvestRecords       HarvestRecord[]
+  treatments           Treatment[]
+  costEntries          CostEntry[]
 
   @@unique([companyId, farmSectionId, code])
   @@index([companyId])
@@ -271,6 +274,8 @@ model FishBatch {
   weightSamples    WeightSample[]
   biomassSnapshots BiomassSnapshot[]
   harvestRecords   HarvestRecord[]
+  treatments       Treatment[]
+  costEntries      CostEntry[]
 
   @@unique([companyId, lotCode])
   @@index([companyId, status])
@@ -541,6 +546,92 @@ model HarvestRecord {
   @@index([companyId, batchId])
   @@index([companyId, tankId])
   @@map("harvest_records")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Veterinary treatments & production cost tracking (docs/architecture/04-database-schema.md
+// §4.7, promoted from Phase 2 per user request). A treatment's withdrawal period (the legally
+// required wait between the last dose and harvest — arınma süresi) is checked synchronously by
+// HarvestService before an ACTUAL harvest is allowed, the same invariant-check-before-write
+// pattern as every other ledger guard in this codebase (live-count checks, negative-balance
+// checks) — never a UI-only warning, since missing it is a real food-safety/legal risk.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum TreatmentType {
+  MEDICATION
+  VACCINATION
+}
+
+model Treatment {
+  id                   String        @id @default(cuid())
+  companyId            String
+  batchId              String
+  tankId               String
+  type                 TreatmentType
+  productName          String
+  dosage               String?
+  /// Days after the last dose (endedAt, falling back to startedAt for a single-dose treatment)
+  /// before the batch may legally be harvested. Null means no withdrawal restriction applies.
+  withdrawalPeriodDays Int?
+  startedAt            DateTime
+  endedAt              DateTime?
+  veterinarianId       String?
+  createdById          String
+  notes                String?
+  createdAt            DateTime      @default(now())
+  deletedAt            DateTime?
+
+  batch FishBatch @relation(fields: [batchId], references: [id])
+  tank  Tank      @relation(fields: [tankId], references: [id])
+
+  @@index([companyId, batchId])
+  @@index([companyId, tankId])
+  @@map("treatments")
+}
+
+enum CostCategory {
+  FEED
+  EGGS
+  FINGERLINGS
+  MEDICINE
+  VACCINATION
+  LABOR
+  ELECTRICITY
+  OXYGEN
+  FUEL
+  TRANSPORTATION
+  OVERHEAD
+  DEPRECIATION
+  OTHER
+}
+
+model CostEntry {
+  id          String       @id @default(cuid())
+  companyId   String
+  category    CostCategory
+  amount      Decimal      @db.Decimal(14, 2)
+  /// Defaults to TRY, not the doc's generic USD default — every farm this app has shipped to
+  /// so far is Turkish.
+  currency    String       @default("TRY")
+  farmId      String?
+  tankId      String?
+  batchId     String?
+  incurredAt  DateTime
+  /// e.g. "FeedInventoryTransaction" for cost rows auto-derived from a feed purchase — see
+  /// FeedInventoryService.receiveStock. Manual entries leave both source fields null.
+  sourceType  String?
+  sourceId    String?
+  createdById String
+  notes       String?
+  createdAt   DateTime     @default(now())
+
+  farm  Farm?      @relation(fields: [farmId], references: [id])
+  tank  Tank?      @relation(fields: [tankId], references: [id])
+  batch FishBatch? @relation(fields: [batchId], references: [id])
+
+  @@index([companyId, batchId])
+  @@index([companyId, farmId, incurredAt])
+  @@map("cost_entries")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

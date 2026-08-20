@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { BatchProjectionService } from "../fish-batches/batch-projection.service";
+import { TreatmentsService } from "../treatments/treatments.service";
 import type { CreateHarvestRecordDto } from "./dto/create-harvest-record.dto";
 
 @Injectable()
@@ -10,6 +11,7 @@ export class HarvestService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
     private readonly projection: BatchProjectionService,
+    private readonly treatmentsService: TreatmentsService,
   ) {}
 
   private async assertTankInTenant(companyId: string, tankId: string) {
@@ -92,6 +94,20 @@ export class HarvestService {
       dto.avgWeightG ?? Number(batch?.currentState?.estimatedAvgWeightG ?? batch?.initialAvgWeightG ?? 0);
     const biomassKg = (fishCount * avgWeightG) / 1000;
     const harvestedAt = dto.harvestedAt ? new Date(dto.harvestedAt) : new Date();
+
+    const withdrawalBlocks = await this.treatmentsService.getActiveWithdrawalBlocks(
+      companyId,
+      dto.batchId,
+      harvestedAt,
+    );
+    if (withdrawalBlocks.length > 0) {
+      const details = withdrawalBlocks
+        .map((b) => `${b.productName} (${b.withdrawalEndsAt.toISOString().slice(0, 10)}'e kadar)`)
+        .join(", ");
+      throw new BadRequestException(
+        `Bu parti arınma süresi (withdrawal period) dolmadığı için hasat edilemez: ${details}`,
+      );
+    }
 
     const record = await client.harvestRecord.create({
       data: {
