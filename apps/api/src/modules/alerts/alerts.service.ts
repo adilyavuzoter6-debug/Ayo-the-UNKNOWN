@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { AlertStatus } from "@prisma/client";
+import type { AlertStatus, WaterQualityReading } from "@prisma/client";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 
 const BIOMASS_ALERT_THRESHOLD_RATIO = 0.9;
 const LOW_FEED_STOCK_THRESHOLD_KG = 20;
 const MORTALITY_SPIKE_RATIO = 0.05;
+const DISSOLVED_OXYGEN_CRITICAL_LOW_MGL = 6.0;
+const PH_CRITICAL_LOW = 6.0;
+const PH_CRITICAL_HIGH = 9.0;
+const TEMPERATURE_CRITICAL_HIGH_C = 22.0;
 
 @Injectable()
 export class AlertsService {
@@ -216,6 +220,73 @@ export class AlertsService {
         type: "MORTALITY_SPIKE",
         severity: "HIGH",
         message: `Tank ${tank?.code ?? tankId} reported ${fishCount} mortalities in one event — ${(rate * 100).toFixed(1)}% of its live population.`,
+      },
+    });
+
+    await this.auditService.record({
+      companyId,
+      action: "CREATE",
+      entityType: "Alert",
+      entityId: alert.id,
+      newValue: { type: alert.type, tankId, severity: alert.severity },
+    });
+  }
+
+  /**
+   * Called from WaterQualityService.create() right after a reading is recorded. Unlike the
+   * other rules this needs no extra DB read — the just-written reading already carries every
+   * value it needs — so it's a pure evaluate-on-write check against literature-backed safe
+   * ranges for rainbow trout (dissolved oxygen ≥ 6 mg/L, pH 6-9, temperature ≤ 22°C). A single
+   * reading breaching any of them is urgent enough to raise immediately, not average out over
+   * time the way the doc's fuller rolling-baseline rules do.
+   */
+  async evaluateWaterQualityCriticalRule(
+    companyId: string,
+    tankId: string,
+    reading: Pick<WaterQualityReading, "temperatureC" | "dissolvedOxygenMgL" | "ph">,
+  ): Promise<void> {
+    const breaches: string[] = [];
+
+    const dissolvedOxygenMgL =
+      reading.dissolvedOxygenMgL !== null ? Number(reading.dissolvedOxygenMgL) : null;
+    if (dissolvedOxygenMgL !== null && dissolvedOxygenMgL < DISSOLVED_OXYGEN_CRITICAL_LOW_MGL) {
+      breaches.push(
+        `dissolved oxygen ${dissolvedOxygenMgL.toFixed(1)} mg/L (below ${DISSOLVED_OXYGEN_CRITICAL_LOW_MGL} mg/L)`,
+      );
+    }
+
+    const ph = reading.ph !== null ? Number(reading.ph) : null;
+    if (ph !== null && (ph < PH_CRITICAL_LOW || ph > PH_CRITICAL_HIGH)) {
+      breaches.push(`pH ${ph.toFixed(2)} (outside ${PH_CRITICAL_LOW}-${PH_CRITICAL_HIGH})`);
+    }
+
+    const temperatureC = reading.temperatureC !== null ? Number(reading.temperatureC) : null;
+    if (temperatureC !== null && temperatureC > TEMPERATURE_CRITICAL_HIGH_C) {
+      breaches.push(
+        `temperature ${temperatureC.toFixed(1)}°C (above ${TEMPERATURE_CRITICAL_HIGH_C}°C)`,
+      );
+    }
+
+    if (breaches.length === 0) {
+      return;
+    }
+
+    const client = this.tenantPrisma.forTenant(companyId);
+    const existingOpen = await client.alert.findFirst({
+      where: { tankId, type: "WATER_QUALITY_CRITICAL", status: "OPEN" },
+    });
+    if (existingOpen) {
+      return;
+    }
+
+    const tank = await client.tank.findFirst({ where: { id: tankId } });
+    const alert = await client.alert.create({
+      data: {
+        companyId,
+        tankId,
+        type: "WATER_QUALITY_CRITICAL",
+        severity: "HIGH",
+        message: `Tank ${tank?.code ?? tankId} water quality is critical: ${breaches.join("; ")}.`,
       },
     });
 

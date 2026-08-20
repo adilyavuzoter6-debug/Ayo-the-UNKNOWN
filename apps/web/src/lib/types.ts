@@ -409,6 +409,7 @@ export type AlertType =
   | "LOW_FEED_STOCK"
   | "MORTALITY_SPIKE"
   | "MISSING_DAILY_RECORDS"
+  | "WATER_QUALITY_CRITICAL"
   | "MANUAL";
 export type AlertSeverity = "LOW" | "MEDIUM" | "HIGH";
 export type AlertStatus = "OPEN" | "RESOLVED";
@@ -479,4 +480,46 @@ export interface AuditLogEntry {
   entityType: string;
   entityId: string;
   occurredAt: string;
+}
+
+export interface MinMaxAvg {
+  min: number;
+  max: number;
+  avg: number;
+  count: number;
+}
+
+export interface InspectionReport {
+  farm: { id: string; name: string; code: string };
+  periodStart: string;
+  periodEnd: string;
+  tankCount: number;
+  activeBatches: {
+    tankCode: string;
+    lotCode: string;
+    speciesName: string;
+    estimatedCount: number;
+    avgWeightG: number;
+  }[];
+  mortality: { total: number; byReason: Record<string, number> };
+  treatments: {
+    productName: string;
+    type: TreatmentType;
+    startedAt: string;
+    endedAt: string | null;
+    withdrawalPeriodDays: number | null;
+  }[];
+  waterQuality: {
+    temperatureC: MinMaxAvg | null;
+    dissolvedOxygenMgL: MinMaxAvg | null;
+    ph: MinMaxAvg | null;
+    readingCount: number;
+  };
+  harvestRecords: {
+    harvestedAt: string | null;
+    fishCount: number | null;
+    biomassKg: number | null;
+    destination: string | null;
+  }[];
+  totalFeedKg: number;
 }

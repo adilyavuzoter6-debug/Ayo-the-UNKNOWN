@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { useAuditLogs } from "@/hooks/use-audit-logs";
 import { ApiError } from "@/lib/api-error";
+import { InspectionReportSection } from "@/components/reports/inspection-report-section";
 
 const ACTION_LABEL: Record<string, string> = {
   CREATE: "Oluşturuldu",
@@ -42,12 +43,19 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="print:hidden">
         <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Raporlar</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">Denetim kaydı — şirketinizdeki tüm değişiklikler.</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Denetim raporu ve şirketinizdeki tüm değişikliklerin kaydı.
+        </p>
       </div>
 
-      <PanelCard title={`Denetim Kaydı${data ? ` (${data.total.toLocaleString("tr")})` : ""}`}>
+      <InspectionReportSection />
+
+      <PanelCard
+        title={`Denetim Kaydı${data ? ` (${data.total.toLocaleString("tr")})` : ""}`}
+        className="print:hidden"
+      >
         {isLoading ? (
           <div className="p-4">
             <Skeleton className="h-64 rounded" />

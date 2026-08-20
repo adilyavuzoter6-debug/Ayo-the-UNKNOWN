@@ -215,6 +215,14 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(res.status).toBe(404);
     });
 
+    it("GET /farms/:farmId/inspection-report — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/inspection-report`)
+        .query({ periodStart: "2026-01-01", periodEnd: "2026-12-31" })
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
     it("sanity check: the same lookups succeed for the owning tenant", async () => {
       const [farm, sections, tank] = await Promise.all([
         request(app.getHttpServer())
@@ -1917,6 +1925,62 @@ describe("Tenant isolation & authorization (integration)", () => {
         ),
       ).toBe(true);
     });
+
+    it("a critically low dissolved-oxygen reading opens a WATER_QUALITY_CRITICAL alert; a normal reading doesn't", async () => {
+      const tank = await createTank("ALRT-D");
+
+      // Within safe ranges (DO 6-9mg/L, pH 6-9, temp <=22C) — no alert.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ temperatureC: 15, dissolvedOxygenMgL: 8, ph: 7.2 })
+        .expect(201);
+
+      const noAlertRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        noAlertRes.body.data.some(
+          (a: { type: string; tankId: string | null }) =>
+            a.type === "WATER_QUALITY_CRITICAL" && a.tankId === tank.id,
+        ),
+      ).toBe(false);
+
+      // Dissolved oxygen below the 6mg/L critical threshold -> opens an alert.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ dissolvedOxygenMgL: 3.5 })
+        .expect(201);
+
+      const alertRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const critical = alertRes.body.data.filter(
+        (a: { type: string; tankId: string | null }) =>
+          a.type === "WATER_QUALITY_CRITICAL" && a.tankId === tank.id,
+      );
+      expect(critical).toHaveLength(1);
+      expect(critical[0].severity).toBe("HIGH");
+      expect(critical[0].message).toContain("dissolved oxygen");
+
+      // A second breaching reading shouldn't spam a duplicate open alert.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ dissolvedOxygenMgL: 2.0 })
+        .expect(201);
+
+      const afterRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        afterRes.body.data.filter(
+          (a: { type: string; tankId: string | null }) =>
+            a.type === "WATER_QUALITY_CRITICAL" && a.tankId === tank.id,
+        ),
+      ).toHaveLength(1);
+    });
   });
 
   describe("company member management", () => {
@@ -2162,6 +2226,114 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(batchRow.directCostTotal).toBe(250);
       expect(batchRow.harvestedKg).toBe(10); // 100 fish * 100g / 1000
       expect(batchRow.directCostPerKg).toBe(25); // 250 / 10
+    });
+  });
+
+  describe("regulatory inspection report", () => {
+    it("aggregates active stock, mortality, treatments, water quality, feed usage, and harvests for a period", async () => {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `INSP-A${Date.now()}`,
+          type: "TANK",
+        },
+      });
+
+      const lotCode = nextLotCode();
+      const stockRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode,
+          tankId: tank.id,
+          fishCount: 500,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const batchId = stockRes.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 15, reason: "DISEASE" })
+        .expect(201);
+
+      const treatmentProductName = `InspectionTestMed-${Date.now()}`;
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "MEDICATION",
+          productName: treatmentProductName,
+          startedAt: new Date().toISOString(),
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ temperatureC: 12.3, dissolvedOxygenMgL: 9.9, ph: 6.9 })
+        .expect(201);
+
+      const inventoryRes = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg: 100 })
+        .expect(201);
+      const inventoryBatchId = inventoryRes.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, feedInventoryBatchId: inventoryBatchId, quantityKg: 12.5 })
+        .expect(201);
+
+      const periodStart = new Date();
+      periodStart.setDate(periodStart.getDate() - 1);
+      const periodEnd = new Date();
+      periodEnd.setDate(periodEnd.getDate() + 1);
+
+      const reportRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/inspection-report`)
+        .query({ periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString() })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const report = reportRes.body.data;
+      expect(
+        report.activeBatches.some((b: { lotCode: string }) => b.lotCode === lotCode),
+      ).toBe(true);
+      expect(report.mortality.total).toBeGreaterThanOrEqual(15);
+      expect(
+        report.treatments.some(
+          (t: { productName: string }) => t.productName === treatmentProductName,
+        ),
+      ).toBe(true);
+      expect(report.waterQuality.readingCount).toBeGreaterThanOrEqual(1);
+      expect(report.waterQuality.dissolvedOxygenMgL.max).toBeGreaterThanOrEqual(9.9);
+      expect(report.totalFeedKg).toBeGreaterThanOrEqual(12.5);
+
+      const harvestRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" })
+        .expect(201);
+
+      const reportAfterHarvestRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/inspection-report`)
+        .query({ periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString() })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      expect(
+        reportAfterHarvestRes.body.data.harvestRecords.some(
+          (h: { fishCount: number }) => h.fishCount === harvestRes.body.data.fishCount,
+        ),
+      ).toBe(true);
     });
   });
 

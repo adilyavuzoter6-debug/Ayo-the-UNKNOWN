@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { AlertsService } from "../alerts/alerts.service";
 import type { CreateWaterQualityReadingDto } from "./dto/create-water-quality-reading.dto";
 
 const METRIC_FIELDS = [
@@ -19,6 +20,7 @@ export class WaterQualityService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly alertsService: AlertsService,
   ) {}
 
   private async assertTankInTenant(companyId: string, tankId: string) {
@@ -71,6 +73,8 @@ export class WaterQualityService {
       entityId: reading.id,
       newValue: { tankId },
     });
+
+    await this.alertsService.evaluateWaterQualityCriticalRule(companyId, tankId, reading);
 
     return reading;
   }

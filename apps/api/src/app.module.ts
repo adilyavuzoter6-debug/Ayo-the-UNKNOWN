@@ -32,6 +32,7 @@ import { WaterQualityModule } from "./modules/water-quality/water-quality.module
 import { HarvestModule } from "./modules/harvest/harvest.module";
 import { TreatmentsModule } from "./modules/treatments/treatments.module";
 import { CostsModule } from "./modules/costs/costs.module";
+import { InspectionModule } from "./modules/inspection/inspection.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
 @Module({
@@ -63,6 +64,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     HarvestModule,
     TreatmentsModule,
     CostsModule,
+    InspectionModule,
   ],
   controllers: [AppController],
   providers: [
