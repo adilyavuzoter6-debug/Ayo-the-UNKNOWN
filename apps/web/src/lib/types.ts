@@ -233,6 +233,30 @@ export interface WaterQualityReading {
   createdAt: string;
 }
 
+export type HarvestType = "PLANNED" | "ACTUAL";
+export type HarvestFullness = "PARTIAL" | "FULL";
+
+export interface HarvestRecord {
+  id: string;
+  companyId: string;
+  batchId: string;
+  tankId: string;
+  type: HarvestType;
+  fullness: HarvestFullness;
+  plannedDate: string | null;
+  harvestedAt: string | null;
+  fishCount: number | null;
+  biomassKg: string | null;
+  avgWeightG: string | null;
+  sizeGrade: string | null;
+  destination: string | null;
+  customer: string | null;
+  processingPlant: string | null;
+  createdById: string;
+  notes: string | null;
+  createdAt: string;
+}
+
 export interface FeedProduct {
   id: string;
   companyId: string;

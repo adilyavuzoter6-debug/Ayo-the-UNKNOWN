@@ -29,6 +29,7 @@ import { WeightSamplingModule } from "./modules/weight-sampling/weight-sampling.
 import { BiomassModule } from "./modules/biomass/biomass.module";
 import { BatchPerformanceModule } from "./modules/batch-performance/batch-performance.module";
 import { WaterQualityModule } from "./modules/water-quality/water-quality.module";
+import { HarvestModule } from "./modules/harvest/harvest.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
 @Module({
@@ -57,6 +58,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     BiomassModule,
     BatchPerformanceModule,
     WaterQualityModule,
+    HarvestModule,
   ],
   controllers: [AppController],
   providers: [

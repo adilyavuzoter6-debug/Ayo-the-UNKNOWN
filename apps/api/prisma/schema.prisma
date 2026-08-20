@@ -194,6 +194,7 @@ model Tank {
   mortalityEvents      MortalityEvent[]
   weightSamples        WeightSample[]
   waterQualityReadings WaterQualityReading[]
+  harvestRecords       HarvestRecord[]
 
   @@unique([companyId, farmSectionId, code])
   @@index([companyId])
@@ -268,6 +269,7 @@ model FishBatch {
   mortalityEvents  MortalityEvent[]
   weightSamples    WeightSample[]
   biomassSnapshots BiomassSnapshot[]
+  harvestRecords   HarvestRecord[]
 
   @@unique([companyId, lotCode])
   @@index([companyId, status])
@@ -489,6 +491,55 @@ model WaterQualityReading {
 
   @@index([companyId, tankId, occurredAt])
   @@map("water_quality_readings")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Harvest (docs/architecture/04-database-schema.md §4.7) — Milestone 7. An ACTUAL harvest
+// writes a paired HARVEST_REMOVAL BatchMovement (same atomic-pairing pattern as FeedingEvent +
+// FeedInventoryTransaction) so BatchProjectionService.recompute — which already understands
+// HARVEST_REMOVAL, added in Milestone 5 for the FCR engine — correctly zeroes/closes the batch.
+// PLANNED records are a lightweight calendar entry only; they never touch the ledger (real
+// harvest forecasting is Phase 2, docs/architecture/12-mvp-roadmap.md §12.3).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum HarvestType {
+  PLANNED
+  ACTUAL
+}
+
+enum HarvestFullness {
+  PARTIAL
+  FULL
+}
+
+model HarvestRecord {
+  id              String          @id @default(cuid())
+  companyId       String
+  batchId         String
+  tankId          String
+  type            HarvestType
+  fullness        HarvestFullness
+  plannedDate     DateTime?
+  harvestedAt     DateTime?
+  fishCount       Int?
+  biomassKg       Decimal?        @db.Decimal(12, 3)
+  avgWeightG      Decimal?        @db.Decimal(10, 3)
+  sizeGrade       String?
+  destination     String?
+  customer        String?
+  processingPlant String?
+  createdById     String
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+
+  batch FishBatch @relation(fields: [batchId], references: [id])
+  tank  Tank      @relation(fields: [tankId], references: [id])
+
+  @@index([companyId, batchId])
+  @@index([companyId, tankId])
+  @@map("harvest_records")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

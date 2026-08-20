@@ -194,6 +194,13 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(res.status).toBe(404);
     });
 
+    it("GET /tanks/:tankId/harvest-records — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
     it("sanity check: the same lookups succeed for the owning tenant", async () => {
       const [farm, sections, tank] = await Promise.all([
         request(app.getHttpServer())
@@ -318,6 +325,14 @@ describe("Tenant isolation & authorization (integration)", () => {
         .post(`/api/v1/tanks/${companyB.tankId}/water-quality-readings`)
         .set("Authorization", auth(companyA.ownerToken))
         .send({ temperatureC: 18.5 });
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /tanks/:tankId/harvest-records — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyB.tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: "placeholder", type: "ACTUAL", fullness: "FULL" });
       expect(res.status).toBe(404);
     });
   });
@@ -537,6 +552,13 @@ describe("Tenant isolation & authorization (integration)", () => {
             .post(`/api/v1/tanks/${companyA.tankId}/water-quality-readings`)
             .set("Authorization", auth(t))
             .send({ temperatureC: 19.2 }),
+      },
+      {
+        permission: Permission.HARVEST_RECORD_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/harvest-records`)
+            .set("Authorization", auth(t)),
       },
       {
         // matrixBatchId has no BatchMovement history, so this recalculates to an empty
@@ -1527,6 +1549,111 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyA.ownerToken))
         .send({ notes: "No numbers at all" });
       expect(emptyRes.status).toBe(400);
+    });
+  });
+
+  describe("harvest records", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    async function stockBatch(tankId: string, fishCount: number, avgWeightG: number) {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId,
+          fishCount,
+          avgWeightG,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    it("a FULL harvest (fishCount omitted) zeros the live count and closes the batch, and shows up in the batch's movement history", async () => {
+      const tank = await createTank("HRV-A");
+      const batchId = await stockBatch(tank.id, 1000, 100);
+
+      const harvestRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" })
+        .expect(201);
+      expect(harvestRes.body.data.fishCount).toBe(1000);
+      expect(Number(harvestRes.body.data.biomassKg)).toBe(100);
+
+      const batchRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(batchRes.body.data.status).toBe("CLOSED");
+      expect(batchRes.body.data.currentState.estimatedCount).toBe(0);
+
+      const historyRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/history`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const types = historyRes.body.data.movements.map((m: { movementType: string }) => m.movementType);
+      expect(types).toEqual(["STOCKING", "HARVEST_REMOVAL"]);
+    });
+
+    it("a PARTIAL harvest respects the live count and rejects an over-harvest", async () => {
+      const tank = await createTank("HRV-B");
+      const batchId = await stockBatch(tank.id, 500, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "PARTIAL", fishCount: 200 })
+        .expect(201);
+
+      const afterRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(afterRes.body.data.currentState.estimatedCount).toBe(300);
+      expect(afterRes.body.data.status).toBe("ACTIVE");
+
+      const overRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "PARTIAL", fishCount: 301 });
+      expect(overRes.status).toBe(400);
+    });
+
+    it("a PLANNED harvest record never touches the ledger", async () => {
+      const tank = await createTank("HRV-C");
+      const batchId = await stockBatch(tank.id, 300, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "PLANNED",
+          fullness: "FULL",
+          plannedDate: "2026-03-01",
+        })
+        .expect(201);
+
+      const afterRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(afterRes.body.data.currentState.estimatedCount).toBe(300);
+      expect(afterRes.body.data.status).toBe("ACTIVE");
+
+      const historyRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/history`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const types = historyRes.body.data.movements.map((m: { movementType: string }) => m.movementType);
+      expect(types).toEqual(["STOCKING"]);
     });
   });
 
