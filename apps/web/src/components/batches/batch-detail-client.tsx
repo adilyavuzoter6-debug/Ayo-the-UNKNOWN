@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
 import { useBatchHistory, useFishBatch } from "@/hooks/use-fish-batches";
 import { useBiomassHistory, useRecalculateBiomass } from "@/hooks/use-biomass";
+import { BatchPerformanceSection } from "@/components/batches/batch-performance-section";
 import { ApiError } from "@/lib/api-error";
 import type { BatchStatus, MovementType } from "@/lib/types";
 
@@ -273,6 +274,8 @@ export function BatchDetailClient({ batchId }: { batchId: string }) {
           </Card>
         )}
       </div>
+
+      <BatchPerformanceSection batchId={batchId} />
     </div>
   );
 }

@@ -1264,6 +1264,211 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("batch performance — FCR & SGR", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    it("computes a harvest/transfer-aware FCR that a naive weight-delta formula would get badly wrong", async () => {
+      const tankA = await createTank("FCR-A1");
+      const tankB = await createTank("FCR-A2");
+
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tankA.id,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const batchId = create.body.data.id;
+
+      // periodStart boundary: seeded directly (a real nightly snapshot job is deferred, per
+      // every prior milestone's "no scheduler yet" note) — as of 2026-01-01, the batch's entire
+      // 1000 fish @ 100g sat in tankA, biomass 100kg.
+      const periodStart = new Date("2026-01-01T00:00:00.000Z");
+      await prisma.biomassSnapshot.create({
+        data: {
+          companyId: companyA.companyId,
+          batchId,
+          tankId: tankA.id,
+          snapshotDate: periodStart,
+          estimatedCount: 1000,
+          avgWeightG: 100,
+          biomassKg: 100,
+          methodology: "test-fixture",
+          createdById: "system",
+        },
+      });
+
+      // Mid-period: move 300 fish to tankB (same batch — must net to zero for batch-level FCR).
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/movements`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromTankId: tankA.id, toTankId: tankB.id, fishCount: 300 })
+        .expect(201);
+
+      // Mid-period: the fish grew from 100g to 130g.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankA.id}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, sampleMethod: "AGGREGATE", avgWeightG: 130, sampleSize: 50 })
+        .expect(201);
+
+      // Mid-period: 30kg of feed consumed.
+      const inventoryBatchId = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+          .set("Authorization", auth(companyA.ownerToken))
+          .send({ feedProductId, quantityKg: 100 })
+          .expect(201)
+      ).body.data.id;
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankA.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, feedInventoryBatchId: inventoryBatchId, quantityKg: 18 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankB.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, feedInventoryBatchId: inventoryBatchId, quantityKg: 12 })
+        .expect(201);
+
+      // Mid-period: a partial harvest removes 200 fish from tankA at the now-current 130g
+      // weight (200 * 130 / 1000 = 26kg) — seeded directly via Prisma since the dedicated
+      // harvest module is a later milestone; BatchProjectionService already understands
+      // HARVEST_REMOVAL (§4.4.1), so recompute() (triggered by the recalculate call below)
+      // correctly folds it into the live count.
+      await prisma.batchMovement.create({
+        data: {
+          companyId: companyA.companyId,
+          movementType: "HARVEST_REMOVAL",
+          batchId,
+          fromTankId: tankA.id,
+          fishCount: 200,
+          estimatedAvgWeightG: 130,
+          estimatedBiomassKg: 26,
+          occurredAt: new Date(),
+          createdById: "system",
+        },
+      });
+
+      // periodEnd boundary: recalculate "today". tankA: 1000-300-200=500 @130g=65kg; tankB:
+      // 300 @130g=39kg. endBiomass = 104kg.
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/biomass/recalculate`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(201);
+      const periodEnd = new Date();
+
+      const fcrRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/fcr`)
+        .query({ periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString() })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      // Hand-calculated (§10.4): gain = (end 104 + harvest 26 + mortality 0) - start 100 = 30kg;
+      // FCR = feed 30kg / gain 30kg = 1.0. A naive `feed / (end - start)` formula would instead
+      // see gain = 104 - 100 = 4kg and report FCR = 7.5 — wrong by 7.5x because it ignores the
+      // 26kg that left via harvest.
+      expect(fcrRes.body.data.startBiomassKg).toBe(100);
+      expect(fcrRes.body.data.endBiomassKg).toBe(104);
+      expect(fcrRes.body.data.harvestBiomassKg).toBe(26);
+      expect(fcrRes.body.data.mortalityBiomassKg).toBe(0);
+      expect(fcrRes.body.data.feedConsumedKg).toBe(30);
+      expect(fcrRes.body.data.biomassGainKg).toBe(30);
+      expect(fcrRes.body.data.fcr).toBeCloseTo(1, 6);
+    });
+
+    it("GET .../fcr without a prior biomass snapshot before periodStart is rejected with 400, not a bogus number", async () => {
+      const tank = await createTank("FCR-B");
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 100,
+          avgWeightG: 50,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${create.body.data.id}/fcr`)
+        .query({ periodStart: "2026-01-01T00:00:00.000Z", periodEnd: new Date().toISOString() })
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(400);
+    });
+
+    it("SGR is computed from consecutive real WeightSample pairs, traceable by sample id", async () => {
+      const tank = await createTank("SGR-A");
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 500,
+          avgWeightG: 100,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const batchId = create.body.data.id;
+
+      const sample1 = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          sampleMethod: "AGGREGATE",
+          avgWeightG: 100,
+          sampleSize: 40,
+          occurredAt: "2026-01-01T00:00:00.000Z",
+        })
+        .expect(201);
+
+      const sample2 = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/weight-samples`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          sampleMethod: "AGGREGATE",
+          avgWeightG: 130,
+          sampleSize: 40,
+          occurredAt: "2026-01-11T00:00:00.000Z",
+        })
+        .expect(201);
+
+      const sgrRes = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/sgr`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      expect(sgrRes.body.data).toHaveLength(1);
+      const point = sgrRes.body.data[0];
+      expect(point.initialSampleId).toBe(sample1.body.data.id);
+      expect(point.finalSampleId).toBe(sample2.body.data.id);
+      expect(point.periodDays).toBeCloseTo(10, 6);
+      // Hand-calculated (§10.5): ((ln(130) - ln(100)) / 10) * 100.
+      const expectedSgr = ((Math.log(130) - Math.log(100)) / 10) * 100;
+      expect(point.sgrPctPerDay).toBeCloseTo(expectedSgr, 6);
+    });
+  });
+
   describe("Clerk webhook signature verification", () => {
     const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET!;
 

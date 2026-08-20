@@ -173,6 +173,30 @@ export interface WeightSample {
   createdAt: string;
 }
 
+export interface FcrResult {
+  methodology: string;
+  periodStart: string;
+  periodEnd: string;
+  startBiomassKg: number;
+  endBiomassKg: number;
+  mortalityBiomassKg: number;
+  harvestBiomassKg: number;
+  feedConsumedKg: number;
+  biomassGainKg: number;
+  fcr: number | null;
+}
+
+export interface SgrPoint {
+  initialSampleId: string;
+  finalSampleId: string;
+  initialOccurredAt: string;
+  finalOccurredAt: string;
+  initialAvgWeightG: number;
+  finalAvgWeightG: number;
+  periodDays: number;
+  sgrPctPerDay: number;
+}
+
 export interface BiomassSnapshot {
   id: string;
   companyId: string;

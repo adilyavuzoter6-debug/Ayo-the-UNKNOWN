@@ -27,6 +27,7 @@ import { WebhooksModule } from "./modules/webhooks/webhooks.module";
 import { MortalityModule } from "./modules/mortality/mortality.module";
 import { WeightSamplingModule } from "./modules/weight-sampling/weight-sampling.module";
 import { BiomassModule } from "./modules/biomass/biomass.module";
+import { BatchPerformanceModule } from "./modules/batch-performance/batch-performance.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
 @Module({
@@ -53,6 +54,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     MortalityModule,
     WeightSamplingModule,
     BiomassModule,
+    BatchPerformanceModule,
   ],
   controllers: [AppController],
   providers: [

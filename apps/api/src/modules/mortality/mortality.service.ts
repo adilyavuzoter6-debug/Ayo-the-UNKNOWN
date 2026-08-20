@@ -48,12 +48,22 @@ export class MortalityService {
       );
     }
 
+    // Captured at record time (before recompute() moves the projection forward) so the FCR
+    // engine's mortality-biomass term (§10.4) reflects the fish's weight at time of death, not
+    // whatever the batch's average weight happens to be by the time someone reads this back.
+    const batch = await this.tenantPrisma
+      .forTenant(companyId)
+      .fishBatch.findUnique({ where: { id: dto.batchId }, include: { currentState: true } });
+    const avgWeightG = Number(batch?.currentState?.estimatedAvgWeightG ?? batch?.initialAvgWeightG ?? 0);
+
     const event = await this.tenantPrisma.forTenant(companyId).mortalityEvent.create({
       data: {
         companyId,
         tankId,
         batchId: dto.batchId,
         fishCount: dto.fishCount,
+        estimatedAvgWeightG: avgWeightG,
+        estimatedBiomassKg: (dto.fishCount * avgWeightG) / 1000,
         reason: dto.reason,
         occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
         createdById: userId,
