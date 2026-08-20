@@ -52,13 +52,13 @@ export function EditSectionDialog({
   async function onSubmit(values: FormValues) {
     try {
       await updateSection.mutateAsync({ sectionId: section.id, name: values.name });
-      toast.success("Section renamed.");
+      toast.success("Bölüm adı güncellendi.");
       setOpen(false);
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.message);
       } else {
-        toast.error("Something went wrong renaming the section.");
+        toast.error("Bölüm adı güncellenirken bir sorun oluştu.");
       }
     }
   }
@@ -67,15 +67,15 @@ export function EditSectionDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Rename section">
+          <Button variant="ghost" size="icon-sm" aria-label="Bölümü yeniden adlandır">
             <Pencil className="size-3.5" />
           </Button>
         }
       />
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Rename section</DialogTitle>
-          <DialogDescription>Update this section&apos;s display name.</DialogDescription>
+          <DialogTitle>Bölümü yeniden adlandır</DialogTitle>
+          <DialogDescription>Bu bölümün görünen adını güncelle.</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -85,9 +85,9 @@ export function EditSectionDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Section name</FormLabel>
+                  <FormLabel>Bölüm adı</FormLabel>
                   <FormControl>
-                    <Input placeholder="Section 1" {...field} />
+                    <Input placeholder="Bölüm 1" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -95,7 +95,7 @@ export function EditSectionDialog({
             />
             <DialogFooter>
               <Button type="submit" disabled={updateSection.isPending}>
-                {updateSection.isPending ? "Saving…" : "Save"}
+                {updateSection.isPending ? "Kaydediliyor…" : "Kaydet"}
               </Button>
             </DialogFooter>
           </form>

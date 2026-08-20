@@ -24,6 +24,7 @@ import { EditSectionDialog } from "@/components/farms/edit-section-dialog";
 import { useDeleteFarmSection } from "@/hooks/use-farm-sections";
 import { useSectionTanks } from "@/hooks/use-tanks";
 import { ApiError } from "@/lib/api-error";
+import { TANK_STATUS_LABEL, TANK_TYPE_LABEL } from "@/lib/tanks";
 import type { FarmSection, Tank, TankStatus } from "@/lib/types";
 
 const STATUS_VARIANT: Record<TankStatus, "default" | "secondary" | "outline"> = {
@@ -40,10 +41,10 @@ export function SectionCard({ farmId, section }: { farmId: string; section: Farm
   async function onDeleteSection() {
     try {
       await deleteSection.mutateAsync(section.id);
-      toast.success(`Section "${section.name}" deleted.`);
+      toast.success(`"${section.name}" bölümü silindi.`);
     } catch (error) {
       toast.error(
-        error instanceof ApiError ? error.message : "Something went wrong deleting the section.",
+        error instanceof ApiError ? error.message : "Bölüm silinirken bir sorun oluştu.",
       );
     }
   }
@@ -61,23 +62,22 @@ export function SectionCard({ farmId, section }: { farmId: string; section: Farm
           <AlertDialog>
             <AlertDialogTrigger
               render={
-                <Button variant="ghost" size="icon-sm" aria-label="Delete section">
+                <Button variant="ghost" size="icon-sm" aria-label="Bölümü sil">
                   <Trash2 className="size-3.5 text-muted-foreground" />
                 </Button>
               }
             />
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete section &quot;{section.name}&quot;?</AlertDialogTitle>
+                <AlertDialogTitle>&quot;{section.name}&quot; bölümü silinsin mi?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This soft-deletes the section. It will no longer appear in this farm&apos;s
-                  layout.
+                  Bu işlem bölümü yumuşak siler. Bu çiftliğin yerleşiminde artık görünmez.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>Vazgeç</AlertDialogCancel>
                 <AlertDialogAction variant="destructive" onClick={onDeleteSection}>
-                  Delete
+                  Sil
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -104,17 +104,17 @@ export function SectionCard({ farmId, section }: { farmId: string; section: Farm
                   <Waves className="size-4 text-muted-foreground" />
                   <div>
                     <p className="font-mono text-sm font-medium">{tank.code}</p>
-                    <p className="text-xs text-muted-foreground">{tank.type}</p>
+                    <p className="text-xs text-muted-foreground">{TANK_TYPE_LABEL[tank.type]}</p>
                   </div>
                 </div>
                 <Badge variant={STATUS_VARIANT[tank.status]} className="text-[10px]">
-                  {tank.status}
+                  {TANK_STATUS_LABEL[tank.status]}
                 </Badge>
               </button>
             ))}
           </div>
         ) : (
-          <p className="py-2 text-sm text-muted-foreground">No tanks in this section yet.</p>
+          <p className="py-2 text-sm text-muted-foreground">Bu bölümde henüz havuz yok.</p>
         )}
       </CardContent>
 

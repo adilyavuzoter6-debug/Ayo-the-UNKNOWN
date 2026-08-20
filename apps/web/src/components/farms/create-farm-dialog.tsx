@@ -43,14 +43,14 @@ export function CreateFarmDialog() {
         ...values,
         timezone: values.timezone || undefined,
       });
-      toast.success(`Farm "${farm.name}" created.`);
+      toast.success(`"${farm.name}" çiftliği oluşturuldu.`);
       form.reset();
       setOpen(false);
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.message);
       } else {
-        toast.error("Something went wrong creating the farm.");
+        toast.error("Çiftlik oluşturulurken bir sorun oluştu.");
       }
     }
   }
@@ -67,15 +67,15 @@ export function CreateFarmDialog() {
         render={
           <Button>
             <Plus className="size-4" />
-            New farm
+            Yeni çiftlik
           </Button>
         }
       />
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create a farm</DialogTitle>
+          <DialogTitle>Çiftlik oluştur</DialogTitle>
           <DialogDescription>
-            A farm is a physical site. You can add sections and tanks to it afterwards.
+            Bir çiftlik fiziksel bir sahadır. Sonrasında bölüm ve havuz ekleyebilirsin.
           </DialogDescription>
         </DialogHeader>
 
@@ -86,9 +86,9 @@ export function CreateFarmDialog() {
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Farm name</FormLabel>
+                  <FormLabel>Çiftlik adı</FormLabel>
                   <FormControl>
-                    <Input placeholder="Main Farm" {...field} />
+                    <Input placeholder="Ana Çiftlik" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -101,10 +101,10 @@ export function CreateFarmDialog() {
                 name="code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Code</FormLabel>
+                    <FormLabel>Kod</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="FARM-1"
+                        placeholder="CIFTLIK-1"
                         {...field}
                         onChange={(e) => field.onChange(e.target.value.toUpperCase())}
                       />
@@ -119,7 +119,7 @@ export function CreateFarmDialog() {
                 name="timezone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Timezone (optional)</FormLabel>
+                    <FormLabel>Saat dilimi (opsiyonel)</FormLabel>
                     <FormControl>
                       <Input placeholder="Europe/Istanbul" {...field} />
                     </FormControl>
@@ -131,7 +131,7 @@ export function CreateFarmDialog() {
 
             <DialogFooter>
               <Button type="submit" disabled={createFarm.isPending}>
-                {createFarm.isPending ? "Creating…" : "Create farm"}
+                {createFarm.isPending ? "Oluşturuluyor…" : "Çiftlik oluştur"}
               </Button>
             </DialogFooter>
           </form>

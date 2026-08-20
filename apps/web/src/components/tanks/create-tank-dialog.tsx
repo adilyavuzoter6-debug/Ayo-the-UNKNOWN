@@ -34,14 +34,10 @@ import {
 } from "@/components/ui/select";
 import { useCreateTank } from "@/hooks/use-tanks";
 import { ApiError } from "@/lib/api-error";
+import { TANK_TYPE_LABEL } from "@/lib/tanks";
 import type { TankType } from "@/lib/types";
 
-const TANK_TYPES: { value: TankType; label: string }[] = [
-  { value: "TANK", label: "Tank" },
-  { value: "POND", label: "Pond" },
-  { value: "CAGE", label: "Cage" },
-  { value: "RACEWAY", label: "Raceway" },
-];
+const TANK_TYPES: TankType[] = ["POND", "CAGE", "TANK", "RACEWAY"];
 
 const schema = z.object({
   code: z.string().trim().min(1).max(20),
@@ -68,14 +64,14 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
         volumeM3: values.volumeM3 ? Number(values.volumeM3) : undefined,
         maxBiomassKg: values.maxBiomassKg ? Number(values.maxBiomassKg) : undefined,
       });
-      toast.success(`Tank "${tank.code}" created.`);
+      toast.success(`"${tank.code}" havuzu eklendi.`);
       form.reset();
       setOpen(false);
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.message);
       } else {
-        toast.error("Something went wrong creating the tank.");
+        toast.error("Havuz eklenirken bir sorun oluştu.");
       }
     }
   }
@@ -92,14 +88,14 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
         render={
           <Button variant="ghost" size="sm">
             <Plus className="size-4" />
-            Add tank
+            Havuz ekle
           </Button>
         }
       />
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Add a tank</DialogTitle>
-          <DialogDescription>Tanks, ponds, cages, or raceways within this section.</DialogDescription>
+          <DialogTitle>Havuz ekle</DialogTitle>
+          <DialogDescription>Bu bölüm içindeki havuz, kafes veya tank.</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -110,7 +106,7 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
                 name="code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Code</FormLabel>
+                    <FormLabel>Kod</FormLabel>
                     <FormControl>
                       <Input
                         placeholder="A12"
@@ -128,7 +124,7 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
                 name="type"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Type</FormLabel>
+                    <FormLabel>Tür</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger className="w-full">
@@ -137,8 +133,8 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
                       </FormControl>
                       <SelectContent>
                         {TANK_TYPES.map((t) => (
-                          <SelectItem key={t.value} value={t.value}>
-                            {t.label}
+                          <SelectItem key={t} value={t}>
+                            {TANK_TYPE_LABEL[t]}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -155,7 +151,7 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
                 name="volumeM3"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Volume (m³)</FormLabel>
+                    <FormLabel>Hacim (m³)</FormLabel>
                     <FormControl>
                       <Input type="number" min="0" step="0.01" placeholder="120" {...field} />
                     </FormControl>
@@ -169,7 +165,7 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
                 name="maxBiomassKg"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Max biomass (kg)</FormLabel>
+                    <FormLabel>Maks. biyokütle (kg)</FormLabel>
                     <FormControl>
                       <Input type="number" min="0" step="0.01" placeholder="5000" {...field} />
                     </FormControl>
@@ -181,7 +177,7 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
 
             <DialogFooter>
               <Button type="submit" disabled={createTank.isPending}>
-                {createTank.isPending ? "Adding…" : "Add tank"}
+                {createTank.isPending ? "Ekleniyor…" : "Havuz ekle"}
               </Button>
             </DialogFooter>
           </form>

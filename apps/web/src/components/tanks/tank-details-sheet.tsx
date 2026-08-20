@@ -46,20 +46,11 @@ import {
 } from "@/components/ui/sheet";
 import { useDeleteTank, useUpdateTank } from "@/hooks/use-tanks";
 import { ApiError } from "@/lib/api-error";
+import { TANK_STATUS_LABEL, TANK_TYPE_LABEL } from "@/lib/tanks";
 import type { Tank, TankStatus, TankType } from "@/lib/types";
 
-const TANK_TYPES: { value: TankType; label: string }[] = [
-  { value: "TANK", label: "Tank" },
-  { value: "POND", label: "Pond" },
-  { value: "CAGE", label: "Cage" },
-  { value: "RACEWAY", label: "Raceway" },
-];
-
-const TANK_STATUSES: { value: TankStatus; label: string }[] = [
-  { value: "ACTIVE", label: "Active" },
-  { value: "INACTIVE", label: "Inactive" },
-  { value: "MAINTENANCE", label: "Maintenance" },
-];
+const TANK_TYPES: TankType[] = ["POND", "CAGE", "TANK", "RACEWAY"];
+const TANK_STATUSES: TankStatus[] = ["ACTIVE", "MAINTENANCE", "INACTIVE"];
 
 const schema = z.object({
   code: z.string().trim().min(1).max(20),
@@ -110,9 +101,9 @@ export function TankDetailsSheet({
         volumeM3: values.volumeM3 ? Number(values.volumeM3) : undefined,
         maxBiomassKg: values.maxBiomassKg ? Number(values.maxBiomassKg) : undefined,
       });
-      toast.success(`Tank "${values.code}" updated.`);
+      toast.success(`"${values.code}" havuzu güncellendi.`);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Something went wrong updating the tank.");
+      toast.error(error instanceof ApiError ? error.message : "Havuz güncellenirken bir sorun oluştu.");
     }
   }
 
@@ -120,10 +111,10 @@ export function TankDetailsSheet({
     if (!tank) return;
     try {
       await deleteTank.mutateAsync(tank.id);
-      toast.success(`Tank "${tank.code}" deleted.`);
+      toast.success(`"${tank.code}" havuzu silindi.`);
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Something went wrong deleting the tank.");
+      toast.error(error instanceof ApiError ? error.message : "Havuz silinirken bir sorun oluştu.");
     }
   }
 
@@ -134,7 +125,7 @@ export function TankDetailsSheet({
           <>
             <SheetHeader>
               <SheetTitle className="font-mono">{tank.code}</SheetTitle>
-              <SheetDescription>Tank details, QR code, and settings.</SheetDescription>
+              <SheetDescription>Havuz bilgileri, QR kod ve ayarlar.</SheetDescription>
             </SheetHeader>
 
             <div className="flex flex-col items-center gap-2 px-4">
@@ -145,7 +136,7 @@ export function TankDetailsSheet({
                 {tank.qrToken}
               </Badge>
               <p className="text-center text-xs text-muted-foreground">
-                Scan to open this tank on the mobile app (once field workflows ship).
+                Mobil uygulamada bu havuzu açmak için okutun (saha iş akışları eklendiğinde).
               </p>
             </div>
 
@@ -160,7 +151,7 @@ export function TankDetailsSheet({
                     name="code"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Code</FormLabel>
+                        <FormLabel>Kod</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -177,7 +168,7 @@ export function TankDetailsSheet({
                     name="type"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Type</FormLabel>
+                        <FormLabel>Tür</FormLabel>
                         <Select value={field.value} onValueChange={field.onChange}>
                           <FormControl>
                             <SelectTrigger className="w-full">
@@ -186,8 +177,8 @@ export function TankDetailsSheet({
                           </FormControl>
                           <SelectContent>
                             {TANK_TYPES.map((t) => (
-                              <SelectItem key={t.value} value={t.value}>
-                                {t.label}
+                              <SelectItem key={t} value={t}>
+                                {TANK_TYPE_LABEL[t]}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -203,7 +194,7 @@ export function TankDetailsSheet({
                   name="status"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Status</FormLabel>
+                      <FormLabel>Durum</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger className="w-full">
@@ -212,8 +203,8 @@ export function TankDetailsSheet({
                         </FormControl>
                         <SelectContent>
                           {TANK_STATUSES.map((s) => (
-                            <SelectItem key={s.value} value={s.value}>
-                              {s.label}
+                            <SelectItem key={s} value={s}>
+                              {TANK_STATUS_LABEL[s]}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -229,7 +220,7 @@ export function TankDetailsSheet({
                     name="volumeM3"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Volume (m³)</FormLabel>
+                        <FormLabel>Hacim (m³)</FormLabel>
                         <FormControl>
                           <Input type="number" min="0" step="0.01" {...field} />
                         </FormControl>
@@ -243,7 +234,7 @@ export function TankDetailsSheet({
                     name="maxBiomassKg"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Max biomass (kg)</FormLabel>
+                        <FormLabel>Maks. biyokütle (kg)</FormLabel>
                         <FormControl>
                           <Input type="number" min="0" step="0.01" {...field} />
                         </FormControl>
@@ -261,22 +252,21 @@ export function TankDetailsSheet({
                   render={
                     <Button variant="destructive" size="sm">
                       <Trash2 className="size-3.5" />
-                      Delete
+                      Sil
                     </Button>
                   }
                 />
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Delete tank {tank.code}?</AlertDialogTitle>
+                    <AlertDialogTitle>{tank.code} havuzu silinsin mi?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This soft-deletes the tank. It will no longer appear in lists, but its
-                      history is preserved.
+                      Bu işlem havuzu yumuşak siler. Listelerde görünmez ama geçmişi korunur.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogCancel>Vazgeç</AlertDialogCancel>
                     <AlertDialogAction variant="destructive" onClick={onDelete}>
-                      Delete
+                      Sil
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -288,7 +278,7 @@ export function TankDetailsSheet({
                 disabled={updateTank.isPending}
                 onClick={form.handleSubmit(onSubmit)}
               >
-                {updateTank.isPending ? "Saving…" : "Save changes"}
+                {updateTank.isPending ? "Kaydediliyor…" : "Değişiklikleri kaydet"}
               </Button>
             </SheetFooter>
           </>

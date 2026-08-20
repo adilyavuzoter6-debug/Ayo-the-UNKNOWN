@@ -45,14 +45,14 @@ export function CreateSectionDialog({ farmId }: { farmId: string }) {
   async function onSubmit(values: FormValues) {
     try {
       const section = await createSection.mutateAsync(values);
-      toast.success(`Section "${section.name}" created.`);
+      toast.success(`"${section.name}" bölümü oluşturuldu.`);
       form.reset();
       setOpen(false);
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.message);
       } else {
-        toast.error("Something went wrong creating the section.");
+        toast.error("Bölüm oluşturulurken bir sorun oluştu.");
       }
     }
   }
@@ -69,14 +69,14 @@ export function CreateSectionDialog({ farmId }: { farmId: string }) {
         render={
           <Button variant="outline" size="sm">
             <Plus className="size-4" />
-            New section
+            Yeni bölüm
           </Button>
         }
       />
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Create a section</DialogTitle>
-          <DialogDescription>A subdivision of the farm site, e.g. &quot;Site A&quot;.</DialogDescription>
+          <DialogTitle>Bölüm oluştur</DialogTitle>
+          <DialogDescription>Çiftlik sahasının bir alt bölümü, örn. &quot;Saha A&quot;.</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -86,9 +86,9 @@ export function CreateSectionDialog({ farmId }: { farmId: string }) {
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Section name</FormLabel>
+                  <FormLabel>Bölüm adı</FormLabel>
                   <FormControl>
-                    <Input placeholder="Section 1" {...field} />
+                    <Input placeholder="Bölüm 1" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -96,7 +96,7 @@ export function CreateSectionDialog({ farmId }: { farmId: string }) {
             />
             <DialogFooter>
               <Button type="submit" disabled={createSection.isPending}>
-                {createSection.isPending ? "Creating…" : "Create section"}
+                {createSection.isPending ? "Oluşturuluyor…" : "Bölüm oluştur"}
               </Button>
             </DialogFooter>
           </form>

@@ -19,6 +19,7 @@ import { useFarm } from "@/hooks/use-farms";
 import { useFarmSections } from "@/hooks/use-farm-sections";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useFarmStockSummary } from "@/hooks/use-farm-stock-summary";
+import { TANK_TYPE_LABEL } from "@/lib/tanks";
 import type { Farm, TankStatus } from "@/lib/types";
 
 const TANK_STATUS_KIND: Record<TankStatus, StatusKind> = {
@@ -327,7 +328,7 @@ function ProductionUnitsTab({ farmId }: { farmId: string }) {
           <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-3.5 text-xs">
             <div>
               <div className="mb-0.5 text-muted-foreground">Tür</div>
-              <div className="font-medium text-foreground">{tank.type}</div>
+              <div className="font-medium text-foreground">{TANK_TYPE_LABEL[tank.type]}</div>
             </div>
             <div>
               <div className="mb-0.5 text-muted-foreground">Hacim</div>
