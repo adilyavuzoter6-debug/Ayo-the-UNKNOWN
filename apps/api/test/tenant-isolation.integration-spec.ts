@@ -187,6 +187,13 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(res.status).toBe(404);
     });
 
+    it("GET /tanks/:tankId/water-quality-readings — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyB.tankId}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
     it("sanity check: the same lookups succeed for the owning tenant", async () => {
       const [farm, sections, tank] = await Promise.all([
         request(app.getHttpServer())
@@ -303,6 +310,14 @@ describe("Tenant isolation & authorization (integration)", () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/fish-batches/${matrixBatchId}/biomass/recalculate`)
         .set("Authorization", auth(companyB.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("POST /tanks/:tankId/water-quality-readings — Company B's tank id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyB.tankId}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ temperatureC: 18.5 });
       expect(res.status).toBe(404);
     });
   });
@@ -507,6 +522,21 @@ describe("Tenant isolation & authorization (integration)", () => {
           request(app.getHttpServer())
             .get(`/api/v1/fish-batches/${matrixBatchId}/biomass/history`)
             .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.WATER_QUALITY_READING_READ,
+        request: (t) =>
+          request(app.getHttpServer())
+            .get(`/api/v1/tanks/${companyA.tankId}/water-quality-readings`)
+            .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.WATER_QUALITY_READING_CREATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .post(`/api/v1/tanks/${companyA.tankId}/water-quality-readings`)
+            .set("Authorization", auth(t))
+            .send({ temperatureC: 19.2 }),
       },
       {
         // matrixBatchId has no BatchMovement history, so this recalculates to an empty
@@ -1466,6 +1496,37 @@ describe("Tenant isolation & authorization (integration)", () => {
       // Hand-calculated (§10.5): ((ln(130) - ln(100)) / 10) * 100.
       const expectedSgr = ((Math.log(130) - Math.log(100)) / 10) * 100;
       expect(point.sgrPctPerDay).toBeCloseTo(expectedSgr, 6);
+    });
+  });
+
+  describe("water quality readings", () => {
+    it("records a manual reading and rejects an empty one (no metrics provided)", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyA.tankId}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          temperatureC: 17.4,
+          dissolvedOxygenMgL: 8.1,
+          ph: 7.2,
+          notes: "Morning check",
+        })
+        .expect(201);
+      expect(res.body.data.source).toBe("MANUAL");
+      expect(Number(res.body.data.temperatureC)).toBe(17.4);
+
+      const listRes = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${companyA.tankId}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(
+        listRes.body.data.some((r: { id: string }) => r.id === res.body.data.id),
+      ).toBe(true);
+
+      const emptyRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${companyA.tankId}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ notes: "No numbers at all" });
+      expect(emptyRes.status).toBe(400);
     });
   });
 

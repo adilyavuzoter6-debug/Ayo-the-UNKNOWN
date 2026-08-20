@@ -187,12 +187,13 @@ model Tank {
   updatedAt     DateTime   @updatedAt
   deletedAt     DateTime?
 
-  farmSection     FarmSection      @relation(fields: [farmSectionId], references: [id])
-  alerts          Alert[]
-  batchTankStates BatchTankState[]
-  feedingEvents   FeedingEvent[]
-  mortalityEvents MortalityEvent[]
-  weightSamples   WeightSample[]
+  farmSection          FarmSection           @relation(fields: [farmSectionId], references: [id])
+  alerts               Alert[]
+  batchTankStates      BatchTankState[]
+  feedingEvents        FeedingEvent[]
+  mortalityEvents      MortalityEvent[]
+  weightSamples        WeightSample[]
+  waterQualityReadings WaterQualityReading[]
 
   @@unique([companyId, farmSectionId, code])
   @@index([companyId])
@@ -452,6 +453,42 @@ model BiomassSnapshot {
   @@unique([batchId, tankId, snapshotDate])
   @@index([companyId, snapshotDate])
   @@map("biomass_snapshots")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Water quality (docs/architecture/04-database-schema.md §4.5) — Milestone 6. Manual entry
+// only for MVP; `source`/`sensorId` already model the SENSOR path so Phase 2/3 automated
+// ingestion is a new writer, not a schema change (§12.3).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum ReadingSource {
+  MANUAL
+  SENSOR
+}
+
+model WaterQualityReading {
+  id                 String        @id @default(cuid())
+  companyId          String
+  tankId             String
+  source             ReadingSource @default(MANUAL)
+  sensorId           String?
+  temperatureC       Decimal?      @db.Decimal(5, 2)
+  dissolvedOxygenMgL Decimal?      @db.Decimal(5, 2)
+  ph                 Decimal?      @db.Decimal(4, 2)
+  salinityPpt        Decimal?      @db.Decimal(5, 2)
+  ammoniaMgL         Decimal?      @db.Decimal(6, 3)
+  nitriteMgL         Decimal?      @db.Decimal(6, 3)
+  nitrateMgL         Decimal?      @db.Decimal(6, 3)
+  flowRateM3H        Decimal?      @db.Decimal(8, 2)
+  occurredAt         DateTime
+  createdById        String?
+  notes              String?
+  createdAt          DateTime      @default(now())
+
+  tank Tank @relation(fields: [tankId], references: [id])
+
+  @@index([companyId, tankId, occurredAt])
+  @@map("water_quality_readings")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -211,6 +211,28 @@ export interface BiomassSnapshot {
   createdAt: string;
 }
 
+export type ReadingSource = "MANUAL" | "SENSOR";
+
+export interface WaterQualityReading {
+  id: string;
+  companyId: string;
+  tankId: string;
+  source: ReadingSource;
+  sensorId: string | null;
+  temperatureC: string | null;
+  dissolvedOxygenMgL: string | null;
+  ph: string | null;
+  salinityPpt: string | null;
+  ammoniaMgL: string | null;
+  nitriteMgL: string | null;
+  nitrateMgL: string | null;
+  flowRateM3H: string | null;
+  occurredAt: string;
+  createdById: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
 export interface FeedProduct {
   id: string;
   companyId: string;

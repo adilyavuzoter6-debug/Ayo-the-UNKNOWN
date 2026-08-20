@@ -58,6 +58,9 @@ export enum Permission {
   BIOMASS_SNAPSHOT_CREATE = "biomass_snapshot:create",
   BIOMASS_SNAPSHOT_READ = "biomass_snapshot:read",
 
+  WATER_QUALITY_READING_CREATE = "water_quality_reading:create",
+  WATER_QUALITY_READING_READ = "water_quality_reading:read",
+
   ALERT_READ = "alert:read",
   ALERT_RESOLVE = "alert:resolve",
 
@@ -109,6 +112,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_CREATE,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_CREATE,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
@@ -146,6 +151,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_CREATE,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_CREATE,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
@@ -178,6 +185,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_CREATE,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_CREATE,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
@@ -202,6 +211,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_CREATE,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_CREATE,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
     Permission.ALERT_RESOLVE,
   ],
@@ -223,6 +234,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.MORTALITY_EVENT_READ,
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
   ],
   ACCOUNTANT: [
@@ -239,6 +251,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.MORTALITY_EVENT_READ,
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
     Permission.AUDIT_LOG_READ,
   ],
@@ -257,6 +270,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.MORTALITY_EVENT_READ,
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_CREATE,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
   ],
   READ_ONLY: [
@@ -273,6 +288,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.MORTALITY_EVENT_READ,
     Permission.WEIGHT_SAMPLE_READ,
     Permission.BIOMASS_SNAPSHOT_READ,
+    Permission.WATER_QUALITY_READING_READ,
     Permission.ALERT_READ,
   ],
 };

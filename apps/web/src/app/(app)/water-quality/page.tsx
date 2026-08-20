@@ -1,56 +1,21 @@
 "use client";
 
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Activity, AlertCircle, CheckCircle2, Droplets, Plus, Thermometer } from "lucide-react";
-import type { ComponentType } from "react";
+import * as React from "react";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Droplets } from "lucide-react";
 import { PanelCard } from "@/components/shared/panel-card";
-
-interface Measurement {
-  param: string;
-  unit: string;
-  value: number;
-  min: number;
-  max: number;
-  status: "normal" | "warning" | "critical";
-  icon: ComponentType<{ className?: string }>;
-}
-
-const measurements: Measurement[] = [
-  { param: "Sıcaklık", unit: "°C", value: 18.4, min: 12, max: 22, status: "normal", icon: Thermometer },
-  { param: "Çözünmüş O₂", unit: "mg/L", value: 7.2, min: 6, max: 12, status: "normal", icon: Droplets },
-  { param: "pH", unit: "", value: 7.4, min: 6.5, max: 8.5, status: "normal", icon: Activity },
-  { param: "Amonyak", unit: "mg/L", value: 0.12, min: 0, max: 0.5, status: "normal", icon: Activity },
-  { param: "Nitrit", unit: "mg/L", value: 0.08, min: 0, max: 0.1, status: "warning", icon: Activity },
-  { param: "Tuzluluk", unit: "‰", value: 0, min: 0, max: 5, status: "normal", icon: Droplets },
-  { param: "Bulanıklık", unit: "NTU", value: 4.2, min: 0, max: 10, status: "normal", icon: Activity },
-];
-
-const criticalMeasurements = [
-  { pool: "A-12", param: "Çözünmüş O₂", value: 5.2, unit: "mg/L", threshold: 6.0, time: "14 dk önce" },
-  { pool: "B-07", param: "Nitrit", value: 0.14, unit: "mg/L", threshold: 0.1, time: "42 dk önce" },
-];
-
-const tempHistory = Array.from({ length: 12 }, (_, i) => ({
-  saat: `${(6 + i * 2).toString().padStart(2, "0")}:00`,
-  "A-01": +(17.8 + Math.sin(i * 0.5) * 0.8).toFixed(2),
-  "A-02": +(18.1 + Math.cos(i * 0.4) * 0.6).toFixed(2),
-  "B-01": +(17.4 + Math.sin(i * 0.6) * 0.9).toFixed(2),
-}));
-
-const statusConfig: Record<
-  Measurement["status"],
-  {
-    icon: ComponentType<{ className?: string }>;
-    textClass: string;
-    bgClass: string;
-    dotClass: string;
-    label: string;
-  }
-> = {
-  normal: { icon: CheckCircle2, textClass: "text-success", bgClass: "bg-success/15", dotClass: "bg-success", label: "Normal" },
-  warning: { icon: AlertCircle, textClass: "text-warning", bgClass: "bg-warning/20", dotClass: "bg-warning", label: "Uyarı" },
-  critical: { icon: AlertCircle, textClass: "text-destructive", bgClass: "bg-destructive/15", dotClass: "bg-destructive", label: "Kritik" },
-};
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RecordWaterQualityDialog } from "@/components/water-quality/record-water-quality-dialog";
+import { useFarms } from "@/hooks/use-farms";
+import { useFarmTanks } from "@/hooks/use-tanks";
+import { useTankWaterQualityReadings } from "@/hooks/use-water-quality";
 
 const chartTooltipStyle = {
   background: "var(--color-card)",
@@ -60,119 +25,157 @@ const chartTooltipStyle = {
 };
 const axisTick = { fontSize: 11, fill: "var(--color-muted-foreground)" };
 
+function Metric({ label, value, unit }: { label: string; value: string | null; unit: string }) {
+  return (
+    <div className="border-r border-b border-border px-4.5 py-4 last:border-r-0">
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className="mt-0.5 font-mono text-[22px] font-bold text-foreground">
+        {value !== null ? Number(value).toString() : "—"}
+        {value !== null ? <span className="ml-0.5 text-sm font-normal text-muted-foreground">{unit}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 export default function WaterQualityPage() {
+  const { data: farms } = useFarms();
+  const [selectedFarmId, setSelectedFarmId] = React.useState<string>("");
+  // Derived, not effect-driven: falls back to the first farm/tank until the user picks one
+  // explicitly, without the cascading-render setState-in-effect anti-pattern.
+  const farmId =
+    selectedFarmId && farms?.some((f) => f.id === selectedFarmId)
+      ? selectedFarmId
+      : (farms?.[0]?.id ?? "");
+
+  const { data: tanks } = useFarmTanks(farmId);
+  const [selectedTankId, setSelectedTankId] = React.useState<string>("");
+  const tankId =
+    selectedTankId && tanks?.some((t) => t.id === selectedTankId)
+      ? selectedTankId
+      : (tanks?.[0]?.id ?? "");
+
+  const { data: readings, isLoading } = useTankWaterQualityReadings(tankId);
+  const latest = readings?.[0];
+
+  const selectedTank = tanks?.find((t) => t.id === tankId);
+
+  const chartData = [...(readings ?? [])]
+    .filter((r) => r.temperatureC !== null)
+    .reverse()
+    .map((r) => ({
+      tarih: new Date(r.occurredAt).toLocaleDateString("tr"),
+      sıcaklık: Number(r.temperatureC),
+    }));
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Su Kalitesi</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">A Çiftliği · Son ölçüm: bugün 09:41</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {selectedTank
+              ? `${selectedTank.code} · ${latest ? `Son ölçüm: ${new Date(latest.occurredAt).toLocaleString("tr")}` : "Henüz ölçüm yok"}`
+              : "Bir havuz seçin"}
+          </p>
         </div>
-        <button
-          type="button"
-          className="flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="size-4" /> Ölçüm Ekle
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Çiftlik seçin" />
+            </SelectTrigger>
+            <SelectContent>
+              {(farms ?? []).map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={tankId} onValueChange={(v) => setSelectedTankId(v ?? "")}>
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="Havuz seçin" />
+            </SelectTrigger>
+            <SelectContent>
+              {(tanks ?? []).map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {tankId ? (
+            <RecordWaterQualityDialog tankId={tankId} tankCode={selectedTank?.code ?? ""} />
+          ) : null}
+        </div>
       </div>
 
-      {criticalMeasurements.length > 0 && (
-        <div className="flex flex-col gap-2">
-          {criticalMeasurements.map((m, i) => (
-            <div
-              key={i}
-              className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3"
-            >
-              <AlertCircle className="size-4 shrink-0 text-destructive" />
-              <div className="flex-1">
-                <span className="text-sm font-semibold text-destructive">
-                  {m.pool} — {m.param} kritik seviyede
-                </span>
-                <span className="ml-2 text-xs text-destructive/80">
-                  {m.value} {m.unit} (eşik: {m.threshold} {m.unit})
-                </span>
-              </div>
-              <span className="text-[11px] text-destructive/80">{m.time}</span>
-              <button
-                type="button"
-                className="rounded-md bg-destructive px-3 py-1 text-xs font-semibold text-white hover:bg-destructive/90"
-              >
-                İşlem Al
-              </button>
-            </div>
-          ))}
-        </div>
+      {!tankId ? (
+        <PanelCard title="Son Ölçümler">
+          <p className="flex items-center gap-2 px-4.5 py-10 text-sm text-muted-foreground">
+            <Droplets className="size-4" /> Ölçümleri görmek için bir çiftlik ve havuz seçin.
+          </p>
+        </PanelCard>
+      ) : isLoading ? (
+        <Skeleton className="h-40 rounded-lg" />
+      ) : latest ? (
+        <PanelCard title={`Son Ölçüm — ${selectedTank?.code}`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Sıcaklık" value={latest.temperatureC} unit="°C" />
+            <Metric label="Çözünmüş O₂" value={latest.dissolvedOxygenMgL} unit="mg/L" />
+            <Metric label="pH" value={latest.ph} unit="" />
+            <Metric label="Tuzluluk" value={latest.salinityPpt} unit="‰" />
+            <Metric label="Amonyak" value={latest.ammoniaMgL} unit="mg/L" />
+            <Metric label="Nitrit" value={latest.nitriteMgL} unit="mg/L" />
+            <Metric label="Nitrat" value={latest.nitrateMgL} unit="mg/L" />
+            <Metric label="Akış" value={latest.flowRateM3H} unit="m³/sa" />
+          </div>
+        </PanelCard>
+      ) : (
+        <PanelCard title="Son Ölçümler">
+          <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">
+            Bu havuz için henüz kayıtlı ölçüm yok.
+          </p>
+        </PanelCard>
       )}
 
-      <PanelCard title="Son Ölçümler — A-01 Havuzu">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-          {measurements.map((m, i) => {
-            const sc = statusConfig[m.status];
-            const StatusIcon = sc.icon;
-            const pct = ((m.value - m.min) / (m.max - m.min)) * 100;
-            return (
-              <div
-                key={m.param}
-                className="border-border px-4.5 py-4"
-                style={{
-                  borderRightWidth: i % 4 !== 3 ? 1 : 0,
-                  borderBottomWidth: i < measurements.length - 4 ? 1 : 0,
-                }}
-              >
-                <div className="mb-2.5 flex items-start justify-between">
-                  <div>
-                    <div className="text-[11px] font-medium text-muted-foreground">{m.param}</div>
-                    <div className="mt-0.5 font-mono text-[22px] font-bold text-foreground">
-                      {m.value}
-                      <span className="ml-0.5 text-sm font-normal text-muted-foreground">{m.unit}</span>
-                    </div>
-                  </div>
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${sc.bgClass} ${sc.textClass}`}
-                  >
-                    <StatusIcon className="size-2.5" /> {sc.label}
-                  </span>
-                </div>
-                <div className="relative mb-1.5 h-1 rounded-full bg-border">
-                  <div
-                    className={`absolute top-1/2 size-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full border-2 border-card ${sc.dotClass}`}
-                    style={{ left: `${Math.max(0, Math.min(pct, 100))}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground/80">
-                  <span>
-                    {m.min}
-                    {m.unit}
-                  </span>
-                  <span>
-                    Normal: {m.min}–{m.max}
-                  </span>
-                  <span>
-                    {m.max}
-                    {m.unit}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </PanelCard>
+      {chartData.length > 1 ? (
+        <PanelCard title="Sıcaklık Değişimi (°C)">
+          <div className="p-3">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={chartData} margin={{ left: 12, right: 20, top: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                <XAxis dataKey="tarih" tick={axisTick} axisLine={false} tickLine={false} />
+                <YAxis tick={axisTick} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}°`} />
+                <Tooltip
+                  contentStyle={chartTooltipStyle}
+                  formatter={(v) => [`${Number(v).toFixed(1)}°C`, "Sıcaklık"]}
+                />
+                <Line type="monotone" dataKey="sıcaklık" stroke="var(--color-teal-500)" strokeWidth={2} dot />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </PanelCard>
+      ) : null}
 
-      <PanelCard title="Sıcaklık Değişimi (°C) — Bugün">
-        <div className="p-3">
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={tempHistory} margin={{ left: 12, right: 20, top: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="saat" tick={axisTick} axisLine={false} tickLine={false} />
-              <YAxis tick={axisTick} axisLine={false} tickLine={false} domain={[15, 22]} tickFormatter={(v) => `${v}°`} />
-              <Tooltip contentStyle={chartTooltipStyle} formatter={(v, name) => [`${Number(v).toFixed(1)}°C`, name]} />
-              <Line type="monotone" dataKey="A-01" stroke="var(--color-teal-500)" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="A-02" stroke="var(--color-navy-900)" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="B-01" stroke="#8b5cf6" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </PanelCard>
+      {readings && readings.length > 0 ? (
+        <PanelCard title="Ölçüm geçmişi">
+          <ul className="divide-y divide-border">
+            {readings.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4.5 py-2.5 text-xs">
+                <span className="font-mono text-muted-foreground">
+                  {new Date(r.occurredAt).toLocaleString("tr")}
+                </span>
+                <span className="flex flex-wrap gap-x-3 text-foreground">
+                  {r.temperatureC !== null ? <span>{Number(r.temperatureC)}°C</span> : null}
+                  {r.dissolvedOxygenMgL !== null ? <span>O₂ {Number(r.dissolvedOxygenMgL)} mg/L</span> : null}
+                  {r.ph !== null ? <span>pH {Number(r.ph)}</span> : null}
+                  {r.ammoniaMgL !== null ? <span>NH₃ {Number(r.ammoniaMgL)} mg/L</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </PanelCard>
+      ) : null}
     </div>
   );
 }
