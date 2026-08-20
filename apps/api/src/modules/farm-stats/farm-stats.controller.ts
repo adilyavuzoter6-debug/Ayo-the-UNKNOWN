@@ -18,3 +18,16 @@ export class FarmStatsController {
     return this.farmStatsService.getStockSummary(tenant.companyId, farmId);
   }
 }
+
+@ApiTags("farm-stats")
+@ApiBearerAuth()
+@Controller({ path: "farms/:farmId/dashboard-kpis", version: "1" })
+export class FarmDashboardKpisController {
+  constructor(private readonly farmStatsService: FarmStatsService) {}
+
+  @Get()
+  @RequirePermission(Permission.FISH_BATCH_READ)
+  get(@Param("farmId") farmId: string, @CurrentTenant() tenant: TenantContext) {
+    return this.farmStatsService.getDashboardKpis(tenant.companyId, farmId);
+  }
+}

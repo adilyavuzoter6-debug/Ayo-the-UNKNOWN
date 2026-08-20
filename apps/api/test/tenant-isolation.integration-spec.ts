@@ -1657,6 +1657,208 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("farm dashboard KPIs", () => {
+    it("GET /farms/:farmId/dashboard-kpis reflects live fish count, biomass, and 7-day mortality rate", async () => {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `KPI-A${Date.now()}`,
+          type: "TANK",
+        },
+      });
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: create.body.data.id, fishCount: 50, reason: "OXYGEN" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/dashboard-kpis`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      expect(res.body.data.fishCount).toBeGreaterThanOrEqual(950);
+      expect(res.body.data.biomassKg).toBeGreaterThan(0);
+      expect(res.body.data.activeBatchesCount).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.mortalityRate7dPct).toBeGreaterThan(0);
+      expect(res.body.data).toHaveProperty("avgFcr");
+      expect(res.body.data).toHaveProperty("avgSgrPctPerDay");
+      expect(res.body.data).toHaveProperty("openAlertsCount");
+    });
+  });
+
+  describe("Milestone 8 alert rules — low feed stock, mortality spike, missing daily records", () => {
+    async function createTank(codePrefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    it("consuming feed below the low-stock threshold opens exactly one farm-scoped LOW_FEED_STOCK alert", async () => {
+      const tank = await createTank("ALRT-A");
+      const stockRes = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg: 25 })
+        .expect(201);
+      const inventoryBatchId = stockRes.body.data.id;
+
+      const batchRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 200,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      // 25kg on hand, feed 10kg -> 15kg remaining, below the 20kg threshold.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: batchRes.body.data.id, feedInventoryBatchId: inventoryBatchId, quantityKg: 10 })
+        .expect(201);
+
+      const alertsRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const lowStockAlerts = alertsRes.body.data.filter(
+        (a: { type: string; farmId: string | null }) =>
+          a.type === "LOW_FEED_STOCK" && a.farmId === companyA.farmId,
+      );
+      expect(lowStockAlerts).toHaveLength(1);
+
+      // A second small feeding shouldn't spam a duplicate open alert.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: batchRes.body.data.id, feedInventoryBatchId: inventoryBatchId, quantityKg: 1 })
+        .expect(201);
+      const alertsAfterRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        alertsAfterRes.body.data.filter(
+          (a: { type: string; farmId: string | null }) =>
+            a.type === "LOW_FEED_STOCK" && a.farmId === companyA.farmId,
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("a single mortality event over 5% of the tank's live population opens a MORTALITY_SPIKE alert; a smaller one doesn't", async () => {
+      const tankSmall = await createTank("ALRT-B1");
+      const smallBatch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tankSmall.id,
+          fishCount: 100,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      // 2% mortality — below the 5% threshold, no alert.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankSmall.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: smallBatch.body.data.id, fishCount: 2, reason: "UNKNOWN" })
+        .expect(201);
+
+      const noSpikeRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        noSpikeRes.body.data.some(
+          (a: { type: string; tankId: string | null }) =>
+            a.type === "MORTALITY_SPIKE" && a.tankId === tankSmall.id,
+        ),
+      ).toBe(false);
+
+      const tankBig = await createTank("ALRT-B2");
+      const bigBatch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tankBig.id,
+          fishCount: 100,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      // 10% mortality — over the 5% threshold, opens an alert.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankBig.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: bigBatch.body.data.id, fishCount: 10, reason: "DISEASE" })
+        .expect(201);
+
+      const spikeRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        spikeRes.body.data.some(
+          (a: { type: string; tankId: string | null }) =>
+            a.type === "MORTALITY_SPIKE" && a.tankId === tankBig.id,
+        ),
+      ).toBe(true);
+    });
+
+    it("a stocked tank with no feeding/water-quality record today gets a MISSING_DAILY_RECORDS alert on the next alerts fetch", async () => {
+      const tank = await createTank("ALRT-C");
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 50,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const alertsRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(
+        alertsRes.body.data.some(
+          (a: { type: string; tankId: string | null }) =>
+            a.type === "MISSING_DAILY_RECORDS" && a.tankId === tank.id,
+        ),
+      ).toBe(true);
+    });
+  });
+
   describe("Clerk webhook signature verification", () => {
     const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET!;
 

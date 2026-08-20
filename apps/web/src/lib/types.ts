@@ -337,14 +337,20 @@ export interface FeedingEvent {
   feedProduct: FeedProduct;
 }
 
-export type AlertType = "BIOMASS_CAPACITY" | "MANUAL";
+export type AlertType =
+  | "BIOMASS_CAPACITY"
+  | "LOW_FEED_STOCK"
+  | "MORTALITY_SPIKE"
+  | "MISSING_DAILY_RECORDS"
+  | "MANUAL";
 export type AlertSeverity = "LOW" | "MEDIUM" | "HIGH";
 export type AlertStatus = "OPEN" | "RESOLVED";
 
 export interface Alert {
   id: string;
   companyId: string;
-  tankId: string;
+  farmId: string | null;
+  tankId: string | null;
   type: AlertType;
   severity: AlertSeverity;
   message: string;
@@ -352,6 +358,17 @@ export interface Alert {
   resolvedAt: string | null;
   resolvedById: string | null;
   createdAt: string;
+}
+
+export interface FarmDashboardKpis {
+  biomassKg: number;
+  fishCount: number;
+  activeBatchesCount: number;
+  avgFcr: number | null;
+  avgSgrPctPerDay: number | null;
+  mortalityRate7dPct: number;
+  todayFeedKg: number;
+  openAlertsCount: number;
 }
 
 export interface FarmStockSummary {

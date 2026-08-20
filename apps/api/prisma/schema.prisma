@@ -146,6 +146,7 @@ model Farm {
   sections   FarmSection[]
   scopedTo   MembershipFarmScope[]
   warehouses Warehouse[]
+  alerts     Alert[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -693,6 +694,9 @@ model FeedingEvent {
 
 enum AlertType {
   BIOMASS_CAPACITY
+  LOW_FEED_STOCK
+  MORTALITY_SPIKE
+  MISSING_DAILY_RECORDS
   MANUAL
 }
 
@@ -707,13 +711,17 @@ enum AlertStatus {
   RESOLVED
 }
 
-/// Manually raised or system-raised (BIOMASS_CAPACITY) issue on a tank. Unlike the ledger
-/// tables above this is mutable (resolved), so it keeps updatedAt like the rest of the
-/// mutable entities in this schema.
+/// Manually raised or system-raised issue, scoped to a tank (BIOMASS_CAPACITY,
+/// MORTALITY_SPIKE, MISSING_DAILY_RECORDS) or a farm as a whole (LOW_FEED_STOCK — a warehouse's
+/// stock isn't tied to one tank). At least one of tankId/farmId is always set; both nullable
+/// per docs/architecture/04-database-schema.md §4.7's canonical Alert shape. Unlike the ledger
+/// tables above this is mutable (resolved), so it keeps updatedAt like the rest of the mutable
+/// entities in this schema.
 model Alert {
   id           String        @id @default(cuid())
   companyId    String
-  tankId       String
+  farmId       String?
+  tankId       String?
   type         AlertType
   severity     AlertSeverity
   message      String
@@ -723,9 +731,11 @@ model Alert {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  tank Tank @relation(fields: [tankId], references: [id])
+  farm Farm? @relation(fields: [farmId], references: [id])
+  tank Tank? @relation(fields: [tankId], references: [id])
 
   @@index([companyId, tankId])
+  @@index([companyId, farmId])
   @@index([companyId, status])
   @@map("alerts")
 }

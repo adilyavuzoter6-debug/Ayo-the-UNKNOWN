@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { AlertsService } from "../alerts/alerts.service";
 import { FeedInventoryProjectionService } from "./feed-inventory-projection.service";
 import type { ReceiveStockDto } from "./dto/receive-stock.dto";
 import type { CreateAdjustmentDto } from "./dto/create-adjustment.dto";
@@ -12,6 +13,7 @@ export class FeedInventoryService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly alertsService: AlertsService,
     private readonly projection: FeedInventoryProjectionService,
   ) {}
 
@@ -138,6 +140,7 @@ export class FeedInventoryService {
     });
 
     await this.projection.recompute(companyId, feedInventoryBatchId);
+    await this.alertsService.evaluateLowFeedStockRule(companyId, feedInventoryBatchId);
 
     await this.auditService.record({
       companyId,

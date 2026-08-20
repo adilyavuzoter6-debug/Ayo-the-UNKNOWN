@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { AlertsService } from "../alerts/alerts.service";
 import { BatchProjectionService } from "../fish-batches/batch-projection.service";
 import type { CreateMortalityEventDto } from "./dto/create-mortality-event.dto";
 
@@ -9,6 +10,7 @@ export class MortalityService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly alertsService: AlertsService,
     private readonly projection: BatchProjectionService,
   ) {}
 
@@ -72,6 +74,7 @@ export class MortalityService {
     });
 
     await this.projection.recompute(companyId, dto.batchId);
+    await this.alertsService.evaluateMortalitySpikeRule(companyId, tankId, dto.fishCount, liveCount);
 
     await this.auditService.record({
       companyId,
