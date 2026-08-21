@@ -2419,4 +2419,51 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(updated?.fullName).toBe("Real User");
     });
   });
+
+  describe("trial expiry enforcement", () => {
+    it("blocks a TRIAL company once its 30-day window has passed (403)", async () => {
+      const tenant = await seedTenant(prisma, "trial-expired");
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      await prisma.company.update({
+        where: { id: tenant.companyId },
+        data: { trialEndsAt: yesterday },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(tenant.ownerToken));
+      expect(res.status).toBe(403);
+    });
+
+    it("still allows access while a TRIAL company's window is in the future", async () => {
+      const tenant = await seedTenant(prisma, "trial-active");
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      await prisma.company.update({
+        where: { id: tenant.companyId },
+        data: { trialEndsAt: nextWeek },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(tenant.ownerToken));
+      expect(res.status).toBe(200);
+    });
+
+    it("never blocks a company once it's off the TRIAL tier, even with a past trialEndsAt", async () => {
+      const tenant = await seedTenant(prisma, "trial-converted");
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      await prisma.company.update({
+        where: { id: tenant.companyId },
+        data: { trialEndsAt: yesterday, planTier: "STARTER" },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/farms")
+        .set("Authorization", auth(tenant.ownerToken));
+      expect(res.status).toBe(200);
+    });
+  });
 });

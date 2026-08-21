@@ -58,12 +58,26 @@ export class TenantContextGuard implements CanActivate {
     const membership = requestedCompanyId
       ? await this.prisma.companyMembership.findFirst({
           where: { userId: authUser.id, companyId: requestedCompanyId, status: "ACTIVE" },
+          include: { company: { select: { planTier: true, trialEndsAt: true } } },
         })
       : await this.uniqueActiveMembership(authUser.id);
 
     if (!membership) {
       throw new ForbiddenException(
         "No active membership found for the requested company context.",
+      );
+    }
+
+    // No paid tier exists to convert into yet (iyzico integration pending), so this only ever
+    // fires for TRIAL companies past their 30-day window — a paid planTier bypasses this check
+    // by construction once billing lands.
+    if (
+      membership.company.planTier === "TRIAL" &&
+      membership.company.trialEndsAt &&
+      membership.company.trialEndsAt < new Date()
+    ) {
+      throw new ForbiddenException(
+        "Deneme süreniz sona erdi. Hesabınızı etkinleştirmek için bizimle iletişime geçin.",
       );
     }
 
@@ -85,6 +99,7 @@ export class TenantContextGuard implements CanActivate {
   private async uniqueActiveMembership(userId: string) {
     const memberships = await this.prisma.companyMembership.findMany({
       where: { userId, status: "ACTIVE" },
+      include: { company: { select: { planTier: true, trialEndsAt: true } } },
       take: 2,
     });
     return memberships.length === 1 ? memberships[0] : undefined;
