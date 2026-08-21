@@ -116,7 +116,14 @@ export function LogFeedingDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Parti seçin" />
+                        <SelectValue placeholder="Parti seçin">
+                          {(v: string) => {
+                            const a = allocations.find((x) => x.batchId === v);
+                            return a
+                              ? `${a.batch.lotCode} (${a.estimatedCount.toLocaleString("tr")} balık)`
+                              : undefined;
+                          }}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -141,7 +148,14 @@ export function LogFeedingDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Yem lotu seçin" />
+                        <SelectValue placeholder="Yem lotu seçin">
+                          {(v: string) => {
+                            const b = availableLots.find((x) => x.id === v);
+                            return b
+                              ? `${b.feedProduct.name} — ${Number(b.balance?.quantityOnHandKg ?? 0).toLocaleString("tr")} kg`
+                              : undefined;
+                          }}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

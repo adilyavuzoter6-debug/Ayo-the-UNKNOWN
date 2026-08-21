@@ -81,7 +81,9 @@ export default function WaterQualityPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="Çiftlik seçin" />
+              <SelectValue placeholder="Çiftlik seçin">
+                {(v: string) => farms?.find((f) => f.id === v)?.name}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {(farms ?? []).map((f) => (
@@ -93,7 +95,9 @@ export default function WaterQualityPage() {
           </Select>
           <Select value={tankId} onValueChange={(v) => setSelectedTankId(v ?? "")}>
             <SelectTrigger className="w-32">
-              <SelectValue placeholder="Havuz seçin" />
+              <SelectValue placeholder="Havuz seçin">
+                {(v: string) => tanks?.find((t) => t.id === v)?.code}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {(tanks ?? []).map((t) => (

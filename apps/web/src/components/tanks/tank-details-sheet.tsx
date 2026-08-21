@@ -172,7 +172,9 @@ export function TankDetailsSheet({
                         <Select value={field.value} onValueChange={field.onChange}>
                           <FormControl>
                             <SelectTrigger className="w-full">
-                              <SelectValue />
+                              <SelectValue>
+                                {(v: TankType) => TANK_TYPE_LABEL[v]}
+                              </SelectValue>
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -198,7 +200,9 @@ export function TankDetailsSheet({
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger className="w-full">
-                            <SelectValue />
+                            <SelectValue>
+                              {(v: TankStatus) => TANK_STATUS_LABEL[v]}
+                            </SelectValue>
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>

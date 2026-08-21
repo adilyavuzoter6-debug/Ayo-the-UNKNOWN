@@ -125,7 +125,14 @@ export function RecordHarvestDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Parti seçin" />
+                        <SelectValue placeholder="Parti seçin">
+                          {(v: string) => {
+                            const a = allocations.find((x) => x.batchId === v);
+                            return a
+                              ? `${a.batch.lotCode} (${a.estimatedCount.toLocaleString("tr")} balık)`
+                              : undefined;
+                          }}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -151,7 +158,9 @@ export function RecordHarvestDialog({
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue />
+                          <SelectValue>
+                            {(v: string) => (v === "PLANNED" ? "Planlanan" : "Gerçekleşti")}
+                          </SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -172,7 +181,9 @@ export function RecordHarvestDialog({
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue />
+                          <SelectValue>
+                            {(v: string) => (v === "PARTIAL" ? "Kısmi" : "Tam")}
+                          </SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>

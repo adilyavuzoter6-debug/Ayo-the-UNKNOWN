@@ -103,7 +103,9 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue />
+                          <SelectValue>
+                            {(v: CostCategory) => COST_CATEGORY_LABEL[v]}
+                          </SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -142,7 +144,9 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Genel çiftlik gideri" />
+                        <SelectValue placeholder="Genel çiftlik gideri">
+                          {(v: string) => batches.find((b) => b.id === v)?.lotCode}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

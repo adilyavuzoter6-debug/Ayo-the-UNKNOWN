@@ -123,7 +123,12 @@ export function CreateFishBatchDialog({ farmId, tankId }: { farmId: string; tank
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Tür seçin" />
+                        <SelectValue placeholder="Tür seçin">
+                          {(v: string) => {
+                            const s = species?.find((x) => x.id === v);
+                            return s ? `${s.name}${s.strain ? ` (${s.strain})` : ""}` : undefined;
+                          }}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

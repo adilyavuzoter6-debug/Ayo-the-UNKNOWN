@@ -103,7 +103,9 @@ export function InviteMemberDialog() {
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue />
+                        <SelectValue>
+                          {(v: Role) => ROLE_LABEL[v]}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

@@ -143,7 +143,9 @@ export function SplitBatchDialog({
                       <Select value={f.value} onValueChange={f.onChange}>
                         <FormControl>
                           <SelectTrigger className="h-8 w-full text-xs">
-                            <SelectValue placeholder="Seçin" />
+                            <SelectValue placeholder="Seçin">
+                              {(v: string) => tanks?.find((t) => t.id === v)?.code}
+                            </SelectValue>
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>

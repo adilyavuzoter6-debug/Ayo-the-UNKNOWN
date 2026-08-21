@@ -144,7 +144,9 @@ export function ReceiveStockDialog() {
                   >
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Çiftlik seçin" />
+                        <SelectValue placeholder="Çiftlik seçin">
+                          {(v: string) => farms?.find((f) => f.id === v)?.name}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -171,7 +173,9 @@ export function ReceiveStockDialog() {
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Depo seçin" />
+                            <SelectValue placeholder="Depo seçin">
+                              {(v: string) => warehouses?.find((w) => w.id === v)?.name}
+                            </SelectValue>
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -215,7 +219,9 @@ export function ReceiveStockDialog() {
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Ürün seçin" />
+                        <SelectValue placeholder="Ürün seçin">
+                          {(v: string) => feedProducts?.find((p) => p.id === v)?.name}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

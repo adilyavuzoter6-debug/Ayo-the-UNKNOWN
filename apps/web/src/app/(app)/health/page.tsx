@@ -86,7 +86,9 @@ export default function HealthPage() {
         </div>
         <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
           <SelectTrigger className="w-48">
-            <SelectValue placeholder="Çiftlik seçin" />
+            <SelectValue placeholder="Çiftlik seçin">
+              {(v: string) => farms?.find((f) => f.id === v)?.name}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {(farms ?? []).map((f) => (
@@ -105,7 +107,9 @@ export default function HealthPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4.5 py-2.5">
           <Select value={tankId} onValueChange={(v) => setSelectedTankId(v ?? "")}>
             <SelectTrigger className="w-32">
-              <SelectValue placeholder="Havuz seçin" />
+              <SelectValue placeholder="Havuz seçin">
+                {(v: string) => tanks?.find((t) => t.id === v)?.code}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {(tanks ?? []).map((t) => (

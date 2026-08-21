@@ -74,7 +74,9 @@ export function InspectionReportSection() {
             <Label className="mb-1 block text-[11px] text-muted-foreground">Çiftlik</Label>
             <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
               <SelectTrigger className="w-44">
-                <SelectValue placeholder="Çiftlik seçin" />
+                <SelectValue placeholder="Çiftlik seçin">
+                  {(v: string) => farms?.find((f) => f.id === v)?.name}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {(farms ?? []).map((f) => (

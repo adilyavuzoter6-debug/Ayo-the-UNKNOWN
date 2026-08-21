@@ -155,7 +155,14 @@ export function MergeBatchesDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Parti seçin" />
+                        <SelectValue placeholder="Parti seçin">
+                          {(v: string) => {
+                            const b = candidates.find((x) => x.id === v);
+                            return b
+                              ? `${b.lotCode} (${b.currentState?.estimatedCount.toLocaleString("tr")} balık)`
+                              : undefined;
+                          }}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -219,7 +226,9 @@ export function MergeBatchesDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Havuz seçin" />
+                        <SelectValue placeholder="Havuz seçin">
+                          {(v: string) => tanks?.find((t) => t.id === v)?.code}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

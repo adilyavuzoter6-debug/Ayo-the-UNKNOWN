@@ -116,7 +116,9 @@ export function TransferBatchDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Havuz seçin" />
+                        <SelectValue placeholder="Havuz seçin">
+                          {(v: string) => destinationTanks.find((t) => t.id === v)?.code}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

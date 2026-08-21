@@ -159,7 +159,9 @@ export function RecordWeightSampleDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue />
+                        <SelectValue>
+                          {(v: string) => (v === "AGGREGATE" ? "Toplu (ortalama)" : "Tekil ölçüm")}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

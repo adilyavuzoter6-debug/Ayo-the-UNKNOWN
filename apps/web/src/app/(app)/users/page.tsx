@@ -104,7 +104,9 @@ export default function UsersPage() {
                         onValueChange={(v) => handleRoleChange(m.id, v)}
                       >
                         <SelectTrigger className="w-44">
-                          <SelectValue />
+                          <SelectValue>
+                            {(v: Role) => ROLE_LABEL[v]}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {INVITABLE_ROLES.map((role) => (

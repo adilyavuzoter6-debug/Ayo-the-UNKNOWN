@@ -142,7 +142,9 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
           <SelectTrigger className="w-48">
-            <SelectValue placeholder="Çiftlik seçin" />
+            <SelectValue placeholder="Çiftlik seçin">
+              {(v: string) => farms?.find((f) => f.id === v)?.name}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {(farms ?? []).map((f) => (

@@ -128,7 +128,7 @@ export function CreateTankDialog({ farmId, sectionId }: { farmId: string; sectio
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger className="w-full">
-                          <SelectValue />
+                          <SelectValue>{(v: TankType) => TANK_TYPE_LABEL[v]}</SelectValue>
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>

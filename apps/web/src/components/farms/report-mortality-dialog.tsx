@@ -172,7 +172,9 @@ export function ReportMortalityDialog({
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Neden seçin" />
+                        <SelectValue placeholder="Neden seçin">
+                          {(v: MortalityReason) => REASON_LABELS[v]}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
