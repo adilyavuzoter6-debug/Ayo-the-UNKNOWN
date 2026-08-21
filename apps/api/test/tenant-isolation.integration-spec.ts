@@ -1970,7 +1970,7 @@ describe("Tenant isolation & authorization (integration)", () => {
       );
       expect(critical).toHaveLength(1);
       expect(critical[0].severity).toBe("HIGH");
-      expect(critical[0].message).toContain("dissolved oxygen");
+      expect(critical[0].message).toContain("çözünmüş oksijen");
 
       // A second breaching reading shouldn't spam a duplicate open alert.
       await request(app.getHttpServer())

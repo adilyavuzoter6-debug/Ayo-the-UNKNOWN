@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { AlertStatus, WaterQualityReading } from "@prisma/client";
+import type { Alert, AlertStatus, WaterQualityReading } from "@prisma/client";
+import { Permission, ROLE_PERMISSIONS } from "@aquai/types";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { EmailService } from "../notifications/email.service";
 
 const BIOMASS_ALERT_THRESHOLD_RATIO = 0.9;
 const LOW_FEED_STOCK_THRESHOLD_KG = 20;
@@ -11,11 +13,29 @@ const PH_CRITICAL_LOW = 6.0;
 const PH_CRITICAL_HIGH = 9.0;
 const TEMPERATURE_CRITICAL_HIGH_C = 22.0;
 
+const WEB_APP_URL = process.env.WEB_APP_URL ?? "https://piscatiotechnologies.com";
+
+const ALERT_TYPE_LABEL_TR: Record<Alert["type"], string> = {
+  BIOMASS_CAPACITY: "Biyokütle kapasitesi",
+  LOW_FEED_STOCK: "Düşük yem stoğu",
+  MORTALITY_SPIKE: "Ölüm artışı",
+  MISSING_DAILY_RECORDS: "Eksik günlük kayıt",
+  WATER_QUALITY_CRITICAL: "Kritik su kalitesi",
+  MANUAL: "Manuel uyarı",
+};
+
+const ALERT_SEVERITY_LABEL_TR: Record<Alert["severity"], string> = {
+  LOW: "Düşük",
+  MEDIUM: "Orta",
+  HIGH: "Yüksek",
+};
+
 @Injectable()
 export class AlertsService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly emailService: EmailService,
   ) {}
 
   private async assertFarmInTenant(companyId: string, farmId: string) {
@@ -26,6 +46,33 @@ export class AlertsService {
       throw new NotFoundException("Farm not found.");
     }
     return farm;
+  }
+
+  /**
+   * Fire-and-forget: emails every active company member who can view alerts (ALERT_READ).
+   * Never throws — a delivery failure must not roll back or fail the alert-creation write it's
+   * attached to (EmailService itself already swallows its own errors; this is one more layer of
+   * safety in case a future change to the recipient query throws instead).
+   */
+  private async notifyMembersByEmail(companyId: string, alert: Alert): Promise<void> {
+    try {
+      const memberships = await this.tenantPrisma.forTenant(companyId).companyMembership.findMany({
+        where: { status: "ACTIVE" },
+        include: { user: true },
+      });
+      const recipients = memberships
+        .filter((m) => ROLE_PERMISSIONS[m.role].includes(Permission.ALERT_READ))
+        .map((m) => m.user.email);
+
+      const subject = `[${ALERT_SEVERITY_LABEL_TR[alert.severity]}] ${ALERT_TYPE_LABEL_TR[alert.type]}`;
+      const html = `
+        <p>${alert.message}</p>
+        <p><a href="${WEB_APP_URL}/dashboard">Uygulamada görüntüle</a></p>
+      `;
+      await this.emailService.send(recipients, subject, html);
+    } catch {
+      // Best-effort — recipient lookup or send failures must never affect the caller.
+    }
   }
 
   async listForFarm(companyId: string, farmId: string, status?: AlertStatus) {
@@ -118,7 +165,7 @@ export class AlertsService {
         tankId,
         type: "BIOMASS_CAPACITY",
         severity: "HIGH",
-        message: `Tank ${tank.code} biomass (${biomassKg.toFixed(1)} kg) has reached ${(ratio * 100).toFixed(0)}% of its ${maxBiomassKg.toFixed(1)} kg capacity.`,
+        message: `${tank.code} tankının biyokütlesi (${biomassKg.toFixed(1)} kg), ${maxBiomassKg.toFixed(1)} kg kapasitesinin %${(ratio * 100).toFixed(0)}'ine ulaştı.`,
       },
     });
 
@@ -129,6 +176,7 @@ export class AlertsService {
       entityId: alert.id,
       newValue: { type: alert.type, tankId, severity: alert.severity },
     });
+    await this.notifyMembersByEmail(companyId, alert);
   }
 
   /**
@@ -169,7 +217,7 @@ export class AlertsService {
         farmId,
         type: "LOW_FEED_STOCK",
         severity: "MEDIUM",
-        message: `${batch.feedProduct.name} stock in ${batch.warehouse.name} is low (${onHandKg.toFixed(1)} kg remaining).`,
+        message: `${batch.warehouse.name} deposundaki ${batch.feedProduct.name} stoğu azaldı (${onHandKg.toFixed(1)} kg kaldı).`,
       },
     });
 
@@ -180,6 +228,7 @@ export class AlertsService {
       entityId: alert.id,
       newValue: { type: alert.type, farmId, severity: alert.severity },
     });
+    await this.notifyMembersByEmail(companyId, alert);
   }
 
   /**
@@ -219,7 +268,7 @@ export class AlertsService {
         tankId,
         type: "MORTALITY_SPIKE",
         severity: "HIGH",
-        message: `Tank ${tank?.code ?? tankId} reported ${fishCount} mortalities in one event — ${(rate * 100).toFixed(1)}% of its live population.`,
+        message: `${tank?.code ?? tankId} tankında tek seferde ${fishCount} balık öldü — canlı stoğun %${(rate * 100).toFixed(1)}'i.`,
       },
     });
 
@@ -230,6 +279,7 @@ export class AlertsService {
       entityId: alert.id,
       newValue: { type: alert.type, tankId, severity: alert.severity },
     });
+    await this.notifyMembersByEmail(companyId, alert);
   }
 
   /**
@@ -251,19 +301,19 @@ export class AlertsService {
       reading.dissolvedOxygenMgL !== null ? Number(reading.dissolvedOxygenMgL) : null;
     if (dissolvedOxygenMgL !== null && dissolvedOxygenMgL < DISSOLVED_OXYGEN_CRITICAL_LOW_MGL) {
       breaches.push(
-        `dissolved oxygen ${dissolvedOxygenMgL.toFixed(1)} mg/L (below ${DISSOLVED_OXYGEN_CRITICAL_LOW_MGL} mg/L)`,
+        `çözünmüş oksijen ${dissolvedOxygenMgL.toFixed(1)} mg/L (${DISSOLVED_OXYGEN_CRITICAL_LOW_MGL} mg/L altında)`,
       );
     }
 
     const ph = reading.ph !== null ? Number(reading.ph) : null;
     if (ph !== null && (ph < PH_CRITICAL_LOW || ph > PH_CRITICAL_HIGH)) {
-      breaches.push(`pH ${ph.toFixed(2)} (outside ${PH_CRITICAL_LOW}-${PH_CRITICAL_HIGH})`);
+      breaches.push(`pH ${ph.toFixed(2)} (${PH_CRITICAL_LOW}-${PH_CRITICAL_HIGH} aralığı dışında)`);
     }
 
     const temperatureC = reading.temperatureC !== null ? Number(reading.temperatureC) : null;
     if (temperatureC !== null && temperatureC > TEMPERATURE_CRITICAL_HIGH_C) {
       breaches.push(
-        `temperature ${temperatureC.toFixed(1)}°C (above ${TEMPERATURE_CRITICAL_HIGH_C}°C)`,
+        `sıcaklık ${temperatureC.toFixed(1)}°C (${TEMPERATURE_CRITICAL_HIGH_C}°C üzerinde)`,
       );
     }
 
@@ -286,7 +336,7 @@ export class AlertsService {
         tankId,
         type: "WATER_QUALITY_CRITICAL",
         severity: "HIGH",
-        message: `Tank ${tank?.code ?? tankId} water quality is critical: ${breaches.join("; ")}.`,
+        message: `${tank?.code ?? tankId} tankında su kalitesi kritik seviyede: ${breaches.join("; ")}.`,
       },
     });
 
@@ -297,6 +347,7 @@ export class AlertsService {
       entityId: alert.id,
       newValue: { type: alert.type, tankId, severity: alert.severity },
     });
+    await this.notifyMembersByEmail(companyId, alert);
   }
 
   /**
@@ -344,7 +395,7 @@ export class AlertsService {
           tankId: tank.id,
           type: "MISSING_DAILY_RECORDS",
           severity: "LOW",
-          message: `Tank ${tank.code} has no feeding or water quality record today.`,
+          message: `${tank.code} tankında bugün yemleme ya da su kalitesi kaydı girilmedi.`,
         },
       });
 
@@ -355,6 +406,7 @@ export class AlertsService {
         entityId: alert.id,
         newValue: { type: alert.type, tankId: tank.id, severity: alert.severity },
       });
+      await this.notifyMembersByEmail(companyId, alert);
     }
   }
 }
