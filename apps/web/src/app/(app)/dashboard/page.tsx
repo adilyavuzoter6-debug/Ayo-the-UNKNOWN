@@ -104,7 +104,7 @@ function ActivityPanel() {
         <div className="p-4">
           <Skeleton className="h-16 rounded" />
         </div>
-      ) : data && data.items.length > 0 ? (
+      ) : data?.items && data.items.length > 0 ? (
         <div className="flex flex-col">
           {data.items.map((entry) => (
             <div key={entry.id} className="flex items-start gap-2 border-b border-border px-4.5 py-2.5 last:border-b-0">
