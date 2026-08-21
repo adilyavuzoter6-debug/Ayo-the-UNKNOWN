@@ -53,13 +53,14 @@ function fmt(n: number, digits = 1): string {
   return n.toLocaleString("tr", { maximumFractionDigits: digits });
 }
 
-export function InspectionReportSection() {
+export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: string } = {}) {
   const { data: farms } = useFarms();
   const [selectedFarmId, setSelectedFarmId] = React.useState("");
   const farmId =
-    selectedFarmId && farms?.some((f) => f.id === selectedFarmId)
+    lockedFarmId ??
+    (selectedFarmId && farms?.some((f) => f.id === selectedFarmId)
       ? selectedFarmId
-      : (farms?.[0]?.id ?? "");
+      : (farms?.[0]?.id ?? ""));
 
   const [periodStart, setPeriodStart] = React.useState(isoDaysAgo(180));
   const [periodEnd, setPeriodEnd] = React.useState(isoDaysAgo(0));
@@ -70,23 +71,25 @@ export function InspectionReportSection() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3 print:hidden">
         <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <Label className="mb-1 block text-[11px] text-muted-foreground">Çiftlik</Label>
-            <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Çiftlik seçin">
-                  {(v: string) => farms?.find((f) => f.id === v)?.name}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {(farms ?? []).map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {lockedFarmId ? null : (
+            <div>
+              <Label className="mb-1 block text-[11px] text-muted-foreground">Çiftlik</Label>
+              <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="Çiftlik seçin">
+                    {(v: string) => farms?.find((f) => f.id === v)?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(farms ?? []).map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div>
             <Label className="mb-1 block text-[11px] text-muted-foreground">Başlangıç</Label>
             <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />

@@ -55,7 +55,7 @@ export default function OnboardingPage() {
           <div className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Waves className="size-5" />
           </div>
-          <span className="text-xl font-semibold tracking-tight">AQUAI</span>
+          <span className="text-xl font-semibold tracking-tight">Piscatio</span>
         </div>
 
         {!isLoading && companies && companies.length > 0 ? (

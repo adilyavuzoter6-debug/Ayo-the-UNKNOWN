@@ -25,7 +25,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AQUAI — Aquaculture Farm Management",
+  title: "Piscatio — Aquaculture Farm Management",
   description: "Multi-tenant farm management platform for aquaculture operations.",
 };
 

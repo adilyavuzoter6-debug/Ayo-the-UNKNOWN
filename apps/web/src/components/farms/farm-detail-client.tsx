@@ -3,23 +3,26 @@
 import type * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Fish, MapPin, Sprout, Weight, Wheat } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Fish, MapPin, Sprout, Users, Weight, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
-import { PlaceholderPage } from "@/components/shared/placeholder-page";
 import { CreateSectionDialog } from "@/components/farms/create-section-dialog";
 import { SectionCard } from "@/components/farms/section-card";
 import { StocksTab } from "@/components/farms/stocks-tab";
 import { EditFarmDialog } from "@/components/farms/edit-farm-dialog";
 import { DeleteFarmDialog } from "@/components/farms/delete-farm-dialog";
+import { WaterQualityPanel } from "@/components/water-quality/water-quality-panel";
+import { InspectionReportSection } from "@/components/reports/inspection-report-section";
 import { useFarm } from "@/hooks/use-farms";
 import { useFarmSections } from "@/hooks/use-farm-sections";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useFarmStockSummary } from "@/hooks/use-farm-stock-summary";
+import { useCompanyMembers } from "@/hooks/use-members";
 import { TANK_TYPE_LABEL } from "@/lib/tanks";
+import { ROLE_LABEL } from "@/lib/roles";
 import type { Farm, TankStatus } from "@/lib/types";
 
 const TANK_STATUS_KIND: Record<TankStatus, StatusKind> = {
@@ -124,16 +127,16 @@ export function FarmDetailClient({ farmId }: { farmId: string }) {
         </TabsContent>
 
         <TabsContent value="staff" className="mt-4">
-          <PlaceholderPage title="Personel" />
+          <FarmStaffTab />
         </TabsContent>
         <TabsContent value="water" className="mt-4">
-          <PlaceholderPage title="Su Kalitesi" />
+          <WaterQualityPanel farmId={farmId} />
         </TabsContent>
         <TabsContent value="stocks" className="mt-4">
           <StocksTab farmId={farmId} />
         </TabsContent>
         <TabsContent value="reports" className="mt-4">
-          <PlaceholderPage title="Raporlar" />
+          <InspectionReportSection farmId={farmId} />
         </TabsContent>
         <TabsContent value="settings" className="mt-4">
           <FarmSettingsTab farm={farm} />
@@ -191,6 +194,60 @@ function FarmSettingsTab({ farm }: { farm: Farm }) {
             onDeleted={() => router.push("/farms")}
           />
         </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Company membership isn't scoped per-farm in the data model — everyone with company access
+ * can see every farm — so this lists the whole company's team rather than a farm-specific
+ * roster that doesn't exist yet. Read-only here; role changes happen on the Kullanıcılar page. */
+function FarmStaffTab() {
+  const { data: members, isLoading } = useCompanyMembers();
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-14 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!members || members.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-2 py-14 text-center">
+          <Users className="size-6 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Henüz kullanıcı yok.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Şirket genelindeki tüm kullanıcılar — çiftliğe özel personel ataması şu an desteklenmiyor.
+        Rol değişiklikleri için{" "}
+        <Link href="/users" className="text-teal-500 hover:underline">
+          Kullanıcılar
+        </Link>{" "}
+        sayfasına gidin.
+      </p>
+      <Card className="divide-y divide-border py-0">
+        {members.map((m) => (
+          <div key={m.id} className="flex items-center justify-between gap-3 px-4.5 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">{m.user.fullName}</p>
+              <p className="truncate text-xs text-muted-foreground">{m.user.email}</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+              {ROLE_LABEL[m.role]}
+            </span>
+          </div>
+        ))}
       </Card>
     </div>
   );

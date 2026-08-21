@@ -35,7 +35,7 @@ export function AppSidebarContent({
         </div>
         {!collapsed && (
           <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap text-white">
-            Marin<span className="text-teal-400">AI</span>
+            Piscatio
           </span>
         )}
       </Link>
