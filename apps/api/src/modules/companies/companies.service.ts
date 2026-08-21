@@ -24,6 +24,9 @@ export class CompaniesService {
    * calling controller route.
    */
   async createWithOwner(input: CreateCompanyDto, ownerUserId: string): Promise<Company> {
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 30);
+
     const company = await this.prisma.$transaction(async (tx) => {
       const created = await tx.company.create({
         data: {
@@ -31,6 +34,7 @@ export class CompaniesService {
           legalName: input.legalName,
           countryCode: input.countryCode.toUpperCase(),
           timezone: input.timezone,
+          trialEndsAt,
         },
       });
 

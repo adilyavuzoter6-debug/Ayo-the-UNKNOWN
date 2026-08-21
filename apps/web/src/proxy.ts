@@ -3,9 +3,9 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 // Everything is private by default (docs/architecture/01-system-architecture.md §1.2 "Auth" —
 // every route requires a valid Clerk session unless explicitly public), except the marketing
-// landing page at "/" (exact — not a wildcard, so /dashboard etc. stay protected) and
-// sign-in/sign-up.
-const isPublicRoute = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)"]);
+// landing page at "/" (exact — not a wildcard, so /dashboard etc. stay protected), "/pricing",
+// and sign-in/sign-up.
+const isPublicRoute = createRouteMatcher(["/", "/pricing", "/sign-in(.*)", "/sign-up(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return;

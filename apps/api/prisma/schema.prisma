@@ -26,6 +26,11 @@ model Company {
   timezone    String
   planTier    PlanTier      @default(TRIAL)
   status      CompanyStatus @default(ACTIVE)
+  // 30 days from creation (set in CompaniesService.createWithOwner). Payment isn't wired up
+  // yet (iyzico integration pending — Stripe doesn't support payouts to Turkey), so this is
+  // tracked but not yet enforced: nothing blocks access when it passes. Once billing lands,
+  // the gate reads this the same way it'll read a real subscription's current period end.
+  trialEndsAt DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   deletedAt   DateTime?
@@ -38,8 +43,11 @@ model Company {
   @@map("companies")
 }
 
+/// STARTER/STANDARD/PROFESSIONAL are the 3 public self-serve tiers (pricing page); ENTERPRISE
+/// is reserved for a future custom/contact-us tier, not currently purchasable anywhere.
 enum PlanTier {
   TRIAL
+  STARTER
   STANDARD
   PROFESSIONAL
   ENTERPRISE

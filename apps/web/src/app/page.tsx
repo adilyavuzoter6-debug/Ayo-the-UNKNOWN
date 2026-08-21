@@ -80,6 +80,12 @@ export default async function RootPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/pricing"
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+            >
+              Fiyatlandırma
+            </Link>
             <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
               Giriş Yap
             </Link>

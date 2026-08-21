@@ -8,8 +8,9 @@ export interface Company {
   legalName: string | null;
   countryCode: string;
   timezone: string;
-  planTier: "TRIAL" | "STANDARD" | "PROFESSIONAL" | "ENTERPRISE";
+  planTier: "TRIAL" | "STARTER" | "STANDARD" | "PROFESSIONAL" | "ENTERPRISE";
   status: "ACTIVE" | "SUSPENDED" | "CANCELLED";
+  trialEndsAt: string | null;
   createdAt: string;
 }
 
