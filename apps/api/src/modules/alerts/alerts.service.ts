@@ -88,6 +88,19 @@ export class AlertsService {
     });
   }
 
+  /** Company-wide alert feed (all farms) — same on-read evaluation as listForFarm, just not scoped to one farm. */
+  async listForCompany(companyId: string, status?: AlertStatus) {
+    const farms = await this.tenantPrisma
+      .forTenant(companyId)
+      .farm.findMany({ where: { deletedAt: null }, select: { id: true } });
+    await Promise.all(farms.map((f) => this.evaluateMissingDailyRecordsRule(companyId, f.id)));
+
+    return this.tenantPrisma.forTenant(companyId).alert.findMany({
+      where: { status },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
   async findById(companyId: string, alertId: string) {
     const alert = await this.tenantPrisma
       .forTenant(companyId)

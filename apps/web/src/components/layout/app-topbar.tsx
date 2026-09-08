@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { AlertTriangle, Bell, ChevronDown, HelpCircle, Menu, Search } from "lucide-react";
@@ -9,11 +10,14 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { AppSidebarContent } from "@/components/layout/app-sidebar";
 import { CompanySwitcher } from "@/components/layout/company-switcher";
 import { resolveNavTitle } from "@/lib/nav-items";
+import { useCompanyAlerts } from "@/hooks/use-alerts";
 
 export function AppTopbar() {
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const pathname = usePathname();
   const title = resolveNavTitle(pathname);
+  const { data: openAlerts } = useCompanyAlerts("OPEN");
+  const criticalCount = openAlerts?.filter((a) => a.severity === "HIGH").length ?? 0;
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
@@ -64,13 +68,15 @@ export function AppTopbar() {
         <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full border border-card bg-destructive" />
       </button>
 
-      <button
-        type="button"
-        className="hidden items-center gap-1.5 rounded-md border border-warning/40 bg-warning/15 px-2.5 py-1.5 text-xs font-semibold text-warning sm:flex"
-      >
-        <AlertTriangle className="size-3.5" />
-        3 Kritik Uyarı
-      </button>
+      {criticalCount > 0 ? (
+        <Link
+          href="/alerts"
+          className="hidden items-center gap-1.5 rounded-md border border-warning/40 bg-warning/15 px-2.5 py-1.5 text-xs font-semibold text-warning transition-colors hover:bg-warning/25 sm:flex"
+        >
+          <AlertTriangle className="size-3.5" />
+          {criticalCount} Kritik Uyarı
+        </Link>
+      ) : null}
 
       <button
         type="button"

@@ -2,18 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle2,
-  Fish,
-  Scale,
-  TrendingUp,
-  Wheat,
-} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, AlertTriangle, Fish, Scale, TrendingUp, Wheat } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { PanelCard } from "@/components/shared/panel-card";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -22,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AlertRow } from "@/components/alerts/alert-row";
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmDashboardKpis } from "@/hooks/use-dashboard-kpis";
 import { useFarmAlerts, useResolveAlert } from "@/hooks/use-alerts";
@@ -33,15 +26,10 @@ function fmt(n: number, digits = 0) {
   return n.toLocaleString("tr", { maximumFractionDigits: digits, minimumFractionDigits: digits });
 }
 
-const ALERT_SEVERITY_STYLE: Record<string, { icon: typeof AlertCircle; text: string; bg: string }> = {
-  HIGH: { icon: AlertCircle, text: "text-destructive", bg: "bg-destructive/5" },
-  MEDIUM: { icon: AlertTriangle, text: "text-warning", bg: "bg-warning/10" },
-  LOW: { icon: AlertTriangle, text: "text-muted-foreground", bg: "bg-muted/40" },
-};
-
 function AlertsPanel({ farmId }: { farmId: string }) {
+  const router = useRouter();
   const { data: alerts, isLoading } = useFarmAlerts(farmId, "OPEN");
-  const resolveAlert = useResolveAlert(farmId);
+  const resolveAlert = useResolveAlert();
 
   async function handleResolve(alertId: string) {
     try {
@@ -53,40 +41,21 @@ function AlertsPanel({ farmId }: { farmId: string }) {
   }
 
   return (
-    <PanelCard title="Açık Uyarılar" action="Tümü" onAction={() => {}}>
+    <PanelCard title="Açık Uyarılar" action="Tümü" onAction={() => router.push("/alerts")}>
       {isLoading ? (
         <div className="p-4">
           <Skeleton className="h-16 rounded" />
         </div>
       ) : alerts && alerts.length > 0 ? (
         <div className="flex flex-col">
-          {alerts.map((a) => {
-            const style = ALERT_SEVERITY_STYLE[a.severity] ?? ALERT_SEVERITY_STYLE.LOW!;
-            const AlertIcon = style.icon;
-            return (
-              <div
-                key={a.id}
-                className={`flex items-start gap-2.5 border-b border-border px-4.5 py-2.5 last:border-b-0 ${style.bg}`}
-              >
-                <AlertIcon className={`mt-0.5 size-3.5 shrink-0 ${style.text}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs leading-snug text-foreground">{a.message}</div>
-                  <div className="mt-0.5 text-[11px] text-muted-foreground/80">
-                    {new Date(a.createdAt).toLocaleString("tr")}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  disabled={resolveAlert.isPending}
-                  onClick={() => handleResolve(a.id)}
-                  aria-label="Çözüldü"
-                >
-                  <CheckCircle2 className="size-3.5" />
-                </Button>
-              </div>
-            );
-          })}
+          {alerts.map((a) => (
+            <AlertRow
+              key={a.id}
+              alert={a}
+              onResolve={() => handleResolve(a.id)}
+              resolving={resolveAlert.isPending}
+            />
+          ))}
         </div>
       ) : (
         <p className="px-4.5 py-8 text-center text-sm text-muted-foreground">Açık uyarı yok.</p>

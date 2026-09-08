@@ -31,6 +31,12 @@ export class FarmAlertsController {
 export class AlertsController {
   constructor(private readonly alertsService: AlertsService) {}
 
+  @Get()
+  @RequirePermission(Permission.ALERT_READ)
+  list(@Query("status") status: AlertStatus | undefined, @CurrentTenant() tenant: TenantContext) {
+    return this.alertsService.listForCompany(tenant.companyId, status);
+  }
+
   @Patch(":id/resolve")
   @RequirePermission(Permission.ALERT_RESOLVE)
   resolve(

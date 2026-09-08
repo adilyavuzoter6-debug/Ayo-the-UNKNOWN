@@ -386,6 +386,35 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(codes).not.toContain(companyB.farmCode);
     });
 
+    it("GET /alerts — company-wide feed aggregates every farm in the tenant but never another tenant's alert", async () => {
+      const companyBAlert = await prisma.alert.create({
+        data: {
+          companyId: companyB.companyId,
+          farmId: companyB.farmId,
+          type: "MANUAL",
+          severity: "HIGH",
+          message: "Company B alert — must never leak into A's feed",
+        },
+      });
+      const companyAAlert = await prisma.alert.create({
+        data: {
+          companyId: companyA.companyId,
+          farmId: companyA.farmId,
+          type: "MANUAL",
+          severity: "HIGH",
+          message: "Company A alert",
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/alerts")
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(200);
+      const ids = res.body.data.map((a: { id: string }) => a.id);
+      expect(ids).toContain(companyAAlert.id);
+      expect(ids).not.toContain(companyBAlert.id);
+    });
+
     it("GET /farms/:farmId/tanks — Company B's farm id, authed as A → empty, not another tenant's tanks", async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/farms/${companyB.farmId}/tanks`)

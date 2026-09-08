@@ -12,6 +12,7 @@ import {
   Users,
   Settings,
   Wallet,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,6 +26,7 @@ export interface NavItem {
 /** Main sidebar navigation, in display order. Kept separate from `settingsNavItem`. */
 export const NAV_ITEMS: NavItem[] = [
   { id: "dashboard", href: "/dashboard", label: "Genel Bakış", icon: LayoutDashboard },
+  { id: "alerts", href: "/alerts", label: "Uyarılar", icon: AlertTriangle },
   { id: "farms", href: "/farms", label: "Çiftlikler", icon: Building2 },
   { id: "production", href: "/production", label: "Üretim", icon: Fish },
   { id: "feeding", href: "/feeding", label: "Yemleme", icon: Wheat },

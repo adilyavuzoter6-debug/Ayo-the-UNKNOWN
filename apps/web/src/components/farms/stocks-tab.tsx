@@ -65,7 +65,7 @@ export function StocksTab({ farmId }: { farmId: string }) {
 
 function OpenAlertsSection({ farmId }: { farmId: string }) {
   const { data: alerts, isLoading } = useFarmAlerts(farmId, "OPEN");
-  const resolveAlert = useResolveAlert(farmId);
+  const resolveAlert = useResolveAlert();
 
   if (isLoading || !alerts || alerts.length === 0) {
     return null;
