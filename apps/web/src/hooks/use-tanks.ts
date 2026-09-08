@@ -15,6 +15,16 @@ export function useFarmTanks(farmId: string) {
   });
 }
 
+export function useTank(tankId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  return useQuery({
+    queryKey: ["tanks", companyId, tankId],
+    queryFn: () => api.get<Tank>(`/tanks/${tankId}`),
+    enabled: !!companyId && !!tankId,
+  });
+}
+
 export function useSectionTanks(sectionId: string) {
   const api = useApiClient();
   const { companyId } = useActiveCompany();

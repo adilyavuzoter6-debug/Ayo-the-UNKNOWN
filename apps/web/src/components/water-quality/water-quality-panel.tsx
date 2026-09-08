@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RecordWaterQualityDialog } from "@/components/water-quality/record-water-quality-dialog";
+import { MetricTile } from "@/components/shared/metric-tile";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useTankWaterQualityReadings } from "@/hooks/use-water-quality";
 
@@ -23,18 +24,6 @@ const chartTooltipStyle = {
   fontSize: 12,
 };
 const axisTick = { fontSize: 11, fill: "var(--color-muted-foreground)" };
-
-function Metric({ label, value, unit }: { label: string; value: string | null; unit: string }) {
-  return (
-    <div className="border-r border-b border-border px-4.5 py-4 last:border-r-0">
-      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-      <div className="mt-0.5 font-mono text-[22px] font-bold text-foreground">
-        {value !== null ? Number(value).toString() : "—"}
-        {value !== null ? <span className="ml-0.5 text-sm font-normal text-muted-foreground">{unit}</span> : null}
-      </div>
-    </div>
-  );
-}
 
 /** Tank picker + readings/chart, scoped to one farm — used standalone on /water-quality (with
  * its own farm picker wrapped around it) and embedded in a farm's own "Su Kalitesi" tab. */
@@ -99,14 +88,14 @@ export function WaterQualityPanel({ farmId }: { farmId: string }) {
       ) : latest ? (
         <PanelCard title={`Son Ölçüm — ${selectedTank?.code}`}>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Sıcaklık" value={latest.temperatureC} unit="°C" />
-            <Metric label="Çözünmüş O₂" value={latest.dissolvedOxygenMgL} unit="mg/L" />
-            <Metric label="pH" value={latest.ph} unit="" />
-            <Metric label="Tuzluluk" value={latest.salinityPpt} unit="‰" />
-            <Metric label="Amonyak" value={latest.ammoniaMgL} unit="mg/L" />
-            <Metric label="Nitrit" value={latest.nitriteMgL} unit="mg/L" />
-            <Metric label="Nitrat" value={latest.nitrateMgL} unit="mg/L" />
-            <Metric label="Akış" value={latest.flowRateM3H} unit="m³/sa" />
+            <MetricTile label="Sıcaklık" value={latest.temperatureC} unit="°C" />
+            <MetricTile label="Çözünmüş O₂" value={latest.dissolvedOxygenMgL} unit="mg/L" />
+            <MetricTile label="pH" value={latest.ph} />
+            <MetricTile label="Tuzluluk" value={latest.salinityPpt} unit="‰" />
+            <MetricTile label="Amonyak" value={latest.ammoniaMgL} unit="mg/L" />
+            <MetricTile label="Nitrit" value={latest.nitriteMgL} unit="mg/L" />
+            <MetricTile label="Nitrat" value={latest.nitrateMgL} unit="mg/L" />
+            <MetricTile label="Akış" value={latest.flowRateM3H} unit="m³/sa" />
           </div>
         </PanelCard>
       ) : (

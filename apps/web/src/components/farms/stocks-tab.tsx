@@ -18,7 +18,9 @@ import { MergeBatchesDialog } from "@/components/farms/merge-batches-dialog";
 import { LogFeedingDialog } from "@/components/farms/log-feeding-dialog";
 import { ReportMortalityDialog } from "@/components/farms/report-mortality-dialog";
 import { RecordWeightSampleDialog } from "@/components/farms/record-weight-sample-dialog";
+import { CapacityBar } from "@/components/tanks/capacity-bar";
 import { ApiError } from "@/lib/api-error";
+import { TANK_TYPE_LABEL } from "@/lib/tanks";
 import type { Tank, TankStatus } from "@/lib/types";
 
 const TANK_STATUS_KIND: Record<TankStatus, StatusKind> = {
@@ -119,11 +121,32 @@ function TankStockCard({ farmId, tank }: { farmId: string; tank: Tank }) {
   const { data: allocations, isLoading: batchesLoading } = useTankFishBatches(tank.id);
   const { data: feedingEvents, isLoading: feedLoading } = useTankFeedingEvents(tank.id);
 
+  const totalBiomassKg = (allocations ?? []).reduce((sum, a) => {
+    const avgWeightG = Number(
+      a.batch.currentState?.estimatedAvgWeightG ?? a.batch.initialAvgWeightG,
+    );
+    return sum + (a.estimatedCount * avgWeightG) / 1000;
+  }, 0);
+  const maxBiomassKg = tank.maxBiomassKg ? Number(tank.maxBiomassKg) : null;
+
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
-        <span className="font-mono text-sm font-bold text-navy-900">{tank.code}</span>
-        <StatusBadge status={TANK_STATUS_KIND[tank.status]} />
+      <div className="border-b border-border px-3.5 py-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <Link
+            href={`/farms/${farmId}/tanks/${tank.id}`}
+            className="flex items-center gap-1.5 hover:text-teal-500"
+          >
+            <span className="font-mono text-sm font-bold text-navy-900">{tank.code}</span>
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {TANK_TYPE_LABEL[tank.type]}
+            </span>
+          </Link>
+          <StatusBadge status={TANK_STATUS_KIND[tank.status]} />
+        </div>
+        {!batchesLoading && allocations && allocations.length > 0 ? (
+          <CapacityBar biomassKg={totalBiomassKg} maxBiomassKg={maxBiomassKg} className="mt-2" />
+        ) : null}
       </div>
 
       <CardContent className="space-y-3 py-3.5 text-xs">

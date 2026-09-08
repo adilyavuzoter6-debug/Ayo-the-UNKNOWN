@@ -35,19 +35,8 @@ import {
 } from "@/components/ui/select";
 import { useReportMortality } from "@/hooks/use-mortality-events";
 import { ApiError } from "@/lib/api-error";
+import { MORTALITY_REASON_LABEL as REASON_LABELS } from "@/lib/tanks";
 import type { MortalityReason } from "@/lib/types";
-
-const REASON_LABELS: Record<MortalityReason, string> = {
-  UNKNOWN: "Bilinmiyor",
-  DISEASE: "Hastalık",
-  OXYGEN: "Oksijen yetersizliği",
-  TEMPERATURE: "Sıcaklık",
-  TRANSFER_STRESS: "Transfer stresi",
-  PHYSICAL_DAMAGE: "Fiziksel hasar",
-  PREDATOR: "Yırtıcı",
-  FEED_RELATED: "Yemle ilişkili",
-  OTHER: "Diğer",
-};
 
 function buildSchema(maxCount: number) {
   return z.object({
