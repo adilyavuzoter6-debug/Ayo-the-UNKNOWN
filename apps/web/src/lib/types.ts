@@ -56,6 +56,11 @@ export interface FishSpecies {
   name: string;
   strain: string | null;
   createdAt: string;
+  /** Null = uses the app's default (trout-tuned) alert threshold instead. */
+  criticalDoMgL: string | null;
+  criticalPhLow: string | null;
+  criticalPhHigh: string | null;
+  criticalTempHighC: string | null;
 }
 
 export type BatchStatus = "ACTIVE" | "PARTIALLY_HARVESTED" | "HARVESTED" | "CLOSED";
@@ -232,6 +237,8 @@ export interface WaterQualityReading {
   createdById: string | null;
   notes: string | null;
   createdAt: string;
+  /** Derived server-side (Weiss 1970) — null if temperature or DO wasn't recorded. */
+  dissolvedOxygenSaturationPct: number | null;
 }
 
 export type HarvestType = "PLANNED" | "ACTUAL";

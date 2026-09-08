@@ -30,6 +30,41 @@ import { useCreateTreatment } from "@/hooks/use-treatments";
 import { ApiError } from "@/lib/api-error";
 import type { BatchTankAllocation } from "@/lib/types";
 
+/**
+ * Pre-fills the product name only — withdrawal period is left for the user to enter from the
+ * actual product label, since the real number depends on formulation, water temperature, and
+ * the country's regulatory approval, and getting it wrong is a food-safety issue. `withdrawalHint`
+ * is shown as reference text next to the field, never written into it.
+ */
+interface TreatmentPreset {
+  productName: string;
+  dosageHint?: string;
+  withdrawalHint: string;
+}
+
+const MEDICATION_PRESETS: TreatmentPreset[] = [
+  {
+    productName: "Florfenicol %20 (premiks)",
+    dosageHint: "örn. 10 mg/kg canlı ağırlık/gün, 10 gün",
+    withdrawalHint: "Yaygın referans ~15 gün — suya ve ürün etiketine göre değişir.",
+  },
+  {
+    productName: "Oksitetrasiklin HCl",
+    dosageHint: "örn. 55-83 mg/kg canlı ağırlık/gün",
+    withdrawalHint: "Yaygın referans 21-30 gün — suya ve ürün etiketine göre değişir.",
+  },
+  {
+    productName: "Sülfadiazin-Trimetoprim",
+    dosageHint: "örn. 30 mg/kg canlı ağırlık/gün",
+    withdrawalHint: "Genelde derece-gün bazlı hesaplanır — ürün etiketini kontrol edin.",
+  },
+];
+
+const VACCINATION_PRESETS: TreatmentPreset[] = [
+  { productName: "Yersinia ruckeri (ERM) aşısı", withdrawalHint: "Genelde arınma süresi gerekmez." },
+  { productName: "Vibriosis aşısı", withdrawalHint: "Genelde arınma süresi gerekmez." },
+];
+
 const schema = z.object({
   batchId: z.string().min(1, "Bir parti seçin"),
   type: z.enum(["MEDICATION", "VACCINATION"]),
@@ -63,6 +98,17 @@ export function RecordTreatmentDialog({
   });
 
   const type = useWatch({ control: form.control, name: "type" });
+  const presets = type === "VACCINATION" ? VACCINATION_PRESETS : MEDICATION_PRESETS;
+  const [selectedPresetName, setSelectedPresetName] = React.useState("");
+  const selectedPreset = presets.find((p) => p.productName === selectedPresetName);
+
+  function applyPreset(productName: string) {
+    setSelectedPresetName(productName);
+    const preset = presets.find((p) => p.productName === productName);
+    if (preset) {
+      form.setValue("productName", preset.productName);
+    }
+  }
 
   async function onSubmit(values: FormValues) {
     try {
@@ -173,11 +219,32 @@ export function RecordTreatmentDialog({
                     <FormControl>
                       <Input type="number" min={1} step={1} {...field} />
                     </FormControl>
+                    {selectedPreset ? (
+                      <p className="text-[11px] text-muted-foreground">{selectedPreset.withdrawalHint}</p>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+
+            <FormItem>
+              <FormLabel>Ön ayar (opsiyonel)</FormLabel>
+              <Select value={selectedPresetName} onValueChange={(v) => applyPreset(v ?? "")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Yaygın bir ürün seçin veya elle girin">
+                    {(v: string) => presets.find((p) => p.productName === v)?.productName}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {presets.map((p) => (
+                    <SelectItem key={p.productName} value={p.productName}>
+                      {p.productName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormItem>
 
             <FormField
               control={form.control}
@@ -200,7 +267,10 @@ export function RecordTreatmentDialog({
                 <FormItem>
                   <FormLabel>Doz (opsiyonel)</FormLabel>
                   <FormControl>
-                    <Input placeholder="örn. 10 mg/kg biyokütle" {...field} />
+                    <Input
+                      placeholder={selectedPreset?.dosageHint ?? "örn. 10 mg/kg biyokütle"}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

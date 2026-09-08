@@ -90,6 +90,15 @@ export function WaterQualityPanel({ farmId }: { farmId: string }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
             <MetricTile label="Sıcaklık" value={latest.temperatureC} unit="°C" />
             <MetricTile label="Çözünmüş O₂" value={latest.dissolvedOxygenMgL} unit="mg/L" />
+            <MetricTile
+              label="O₂ Doygunluğu"
+              value={
+                latest.dissolvedOxygenSaturationPct !== null
+                  ? Math.round(latest.dissolvedOxygenSaturationPct)
+                  : null
+              }
+              unit="%"
+            />
             <MetricTile label="pH" value={latest.ph} />
             <MetricTile label="Tuzluluk" value={latest.salinityPpt} unit="‰" />
             <MetricTile label="Amonyak" value={latest.ammoniaMgL} unit="mg/L" />

@@ -248,6 +248,15 @@ model FishSpecies {
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
+  // Species-specific overrides for AlertsService.evaluateWaterQualityCriticalRule — null means
+  // "use the module's default trout-tuned constants" (see WATER_QUALITY_DEFAULT_THRESHOLDS),
+  // so existing species keep today's behavior until someone opts a species into its own numbers
+  // (e.g. a salmon species with a lower critical temperature than trout).
+  criticalDoMgL     Decimal? @db.Decimal(5, 2)
+  criticalPhLow     Decimal? @db.Decimal(4, 2)
+  criticalPhHigh    Decimal? @db.Decimal(4, 2)
+  criticalTempHighC Decimal? @db.Decimal(5, 2)
+
   batches FishBatch[]
 
   @@map("fish_species")

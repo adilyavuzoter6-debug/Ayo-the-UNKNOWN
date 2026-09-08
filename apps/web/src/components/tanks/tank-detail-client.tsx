@@ -96,6 +96,8 @@ export function TankDetailClient({ farmId, tankId }: { farmId: string; tankId: s
     return sum + (a.estimatedCount * avgWeightG) / 1000;
   }, 0);
   const maxBiomassKg = tank.maxBiomassKg ? Number(tank.maxBiomassKg) : null;
+  const volumeM3 = tank.volumeM3 ? Number(tank.volumeM3) : null;
+  const densityKgPerM3 = volumeM3 && volumeM3 > 0 ? totalBiomassKg / volumeM3 : null;
   const latestReading = readings?.[0];
 
   return (
@@ -131,13 +133,14 @@ export function TankDetailClient({ farmId, tankId }: { farmId: string; tankId: s
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat label="Canlı Balık" value={totalFishCount.toLocaleString("tr")} />
         <Stat label="Biyokütle" value={`${totalBiomassKg.toFixed(1)} kg`} accent />
         <Stat
-          label="Hacim"
-          value={tank.volumeM3 ? `${Number(tank.volumeM3).toLocaleString("tr")} m³` : "—"}
+          label="Stoklama Yoğunluğu"
+          value={densityKgPerM3 !== null ? `${densityKgPerM3.toFixed(1)} kg/m³` : "—"}
         />
+        <Stat label="Hacim" value={volumeM3 ? `${volumeM3.toLocaleString("tr")} m³` : "—"} />
         <Stat label="Aktif Parti" value={String(allocations?.length ?? 0)} />
       </div>
 
@@ -206,9 +209,18 @@ export function TankDetailClient({ farmId, tankId }: { farmId: string; tankId: s
           <Skeleton className="h-20 rounded-lg" />
         ) : latestReading ? (
           <PanelCard title={`Son ölçüm — ${new Date(latestReading.occurredAt).toLocaleString("tr")}`}>
-            <div className="grid grid-cols-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5">
               <MetricTile label="Sıcaklık" value={latestReading.temperatureC} unit="°C" />
               <MetricTile label="Çözünmüş O₂" value={latestReading.dissolvedOxygenMgL} unit="mg/L" />
+              <MetricTile
+                label="O₂ Doygunluğu"
+                value={
+                  latestReading.dissolvedOxygenSaturationPct !== null
+                    ? Math.round(latestReading.dissolvedOxygenSaturationPct)
+                    : null
+                }
+                unit="%"
+              />
               <MetricTile label="pH" value={latestReading.ph} />
               <MetricTile label="Tuzluluk" value={latestReading.salinityPpt} unit="‰" />
             </div>

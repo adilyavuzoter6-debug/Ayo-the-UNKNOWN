@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
@@ -6,6 +6,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { CreateFishSpeciesDto } from "./dto/create-fish-species.dto";
+import { UpdateFishSpeciesDto } from "./dto/update-fish-species.dto";
 import { FishSpeciesService } from "./fish-species.service";
 
 @ApiTags("fish-species")
@@ -28,5 +29,16 @@ export class FishSpeciesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.fishSpeciesService.create(tenant.companyId, user.id, dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission(Permission.FISH_SPECIES_UPDATE)
+  update(
+    @Param("id") id: string,
+    @Body() dto: UpdateFishSpeciesDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fishSpeciesService.update(tenant.companyId, id, user.id, dto);
   }
 }

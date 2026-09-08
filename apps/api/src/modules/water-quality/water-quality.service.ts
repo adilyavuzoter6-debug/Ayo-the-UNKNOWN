@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import type { WaterQualityReading } from "@prisma/client";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { AlertsService } from "../alerts/alerts.service";
+import { calculateDoSaturationPct } from "./dissolved-oxygen";
 import type { CreateWaterQualityReadingDto } from "./dto/create-water-quality-reading.dto";
 
 const METRIC_FIELDS = [
@@ -31,6 +33,20 @@ export class WaterQualityService {
       throw new NotFoundException("Tank not found.");
     }
     return tank;
+  }
+
+  /** Derived at read time, not stored — always reflects the current calculateDoSaturationPct formula. */
+  private withDoSaturation<T extends Pick<WaterQualityReading, "temperatureC" | "dissolvedOxygenMgL" | "salinityPpt">>(
+    reading: T,
+  ): T & { dissolvedOxygenSaturationPct: number | null } {
+    return {
+      ...reading,
+      dissolvedOxygenSaturationPct: calculateDoSaturationPct(
+        reading.temperatureC !== null ? Number(reading.temperatureC) : null,
+        reading.dissolvedOxygenMgL !== null ? Number(reading.dissolvedOxygenMgL) : null,
+        reading.salinityPpt !== null ? Number(reading.salinityPpt) : null,
+      ),
+    };
   }
 
   async create(
@@ -76,15 +92,16 @@ export class WaterQualityService {
 
     await this.alertsService.evaluateWaterQualityCriticalRule(companyId, tankId, reading);
 
-    return reading;
+    return this.withDoSaturation(reading);
   }
 
   async listForTank(companyId: string, tankId: string) {
     await this.assertTankInTenant(companyId, tankId);
 
-    return this.tenantPrisma.forTenant(companyId).waterQualityReading.findMany({
+    const readings = await this.tenantPrisma.forTenant(companyId).waterQualityReading.findMany({
       where: { tankId },
       orderBy: { occurredAt: "desc" },
     });
+    return readings.map((reading) => this.withDoSaturation(reading));
   }
 }

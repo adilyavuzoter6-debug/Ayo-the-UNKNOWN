@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Wheat } from "lucide-react";
@@ -34,7 +34,9 @@ import {
 } from "@/components/ui/select";
 import { useLogFeeding } from "@/hooks/use-feeding-events";
 import { useInventoryBatches } from "@/hooks/use-feed-inventory";
+import { useTankWaterQualityReadings } from "@/hooks/use-water-quality";
 import { ApiError } from "@/lib/api-error";
+import { estimateFeedingRate } from "@/lib/feeding-calculator";
 import type { BatchTankAllocation } from "@/lib/types";
 
 const schema = z.object({
@@ -56,6 +58,7 @@ export function LogFeedingDialog({
 }) {
   const [open, setOpen] = React.useState(false);
   const { data: inventoryBatches } = useInventoryBatches();
+  const { data: readings } = useTankWaterQualityReadings(tankId);
   const logFeeding = useLogFeeding(farmId, tankId);
 
   const availableLots = (inventoryBatches ?? []).filter(
@@ -71,6 +74,27 @@ export function LogFeedingDialog({
       occurredAt: new Date().toISOString().slice(0, 10),
     },
   });
+
+  const selectedBatchId = useWatch({ control: form.control, name: "batchId" });
+  const selectedAllocation = allocations.find((a) => a.batchId === selectedBatchId);
+  const latestTempC = readings?.[0]?.temperatureC !== undefined && readings?.[0]?.temperatureC !== null
+    ? Number(readings[0].temperatureC)
+    : null;
+  const feedingEstimate = selectedAllocation
+    ? estimateFeedingRate(
+        Number(
+          selectedAllocation.batch.currentState?.estimatedAvgWeightG ??
+            selectedAllocation.batch.initialAvgWeightG,
+        ),
+        (selectedAllocation.estimatedCount *
+          Number(
+            selectedAllocation.batch.currentState?.estimatedAvgWeightG ??
+              selectedAllocation.batch.initialAvgWeightG,
+          )) /
+          1000,
+        latestTempC,
+      )
+    : null;
 
   async function onSubmit(values: FormValues) {
     try {
@@ -204,6 +228,30 @@ export function LogFeedingDialog({
                 )}
               />
             </div>
+
+            {feedingEstimate ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+                <span>
+                  Kaba tahmini öneri: <span className="font-mono font-medium text-foreground">
+                    {feedingEstimate.suggestedKgPerDay.toFixed(2)} kg/gün
+                  </span>{" "}
+                  ({latestTempC?.toFixed(0)}°C su, biyokütlenin %
+                  {feedingEstimate.bodyWeightPct.toFixed(1)}&apos;i) — kesin oran için yem
+                  üreticisinin tablosuna bakın.
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() =>
+                    form.setValue("quantityKg", Number(feedingEstimate.suggestedKgPerDay.toFixed(2)))
+                  }
+                >
+                  Kullan
+                </Button>
+              </div>
+            ) : null}
 
             <DialogFooter>
               <Button type="submit" disabled={logFeeding.isPending}>

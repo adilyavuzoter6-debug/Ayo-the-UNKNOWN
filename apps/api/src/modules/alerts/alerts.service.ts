@@ -296,37 +296,84 @@ export class AlertsService {
   }
 
   /**
+   * The most conservative (protective) threshold across every species currently stocked in the
+   * tank, falling back to the trout-tuned module defaults for any species that hasn't set its
+   * own numbers (see FishSpecies.criticalDoMgL etc. in schema.prisma) — so a tank holding two
+   * species gets alerted at whichever one is more sensitive, and an empty tank or a species with
+   * no overrides behaves exactly as before this feature existed.
+   */
+  private async resolveWaterQualityThresholds(companyId: string, tankId: string) {
+    const tankStates = await this.tenantPrisma.forTenant(companyId).batchTankState.findMany({
+      where: { tankId, estimatedCount: { gt: 0 } },
+      include: { batch: { include: { species: true } } },
+    });
+    const species = tankStates.map((s) => s.batch.species);
+
+    if (species.length === 0) {
+      return {
+        criticalDoMgL: DISSOLVED_OXYGEN_CRITICAL_LOW_MGL,
+        criticalPhLow: PH_CRITICAL_LOW,
+        criticalPhHigh: PH_CRITICAL_HIGH,
+        criticalTempHighC: TEMPERATURE_CRITICAL_HIGH_C,
+      };
+    }
+
+    return {
+      criticalDoMgL: Math.max(
+        ...species.map((s) =>
+          s.criticalDoMgL !== null ? Number(s.criticalDoMgL) : DISSOLVED_OXYGEN_CRITICAL_LOW_MGL,
+        ),
+      ),
+      criticalPhLow: Math.max(
+        ...species.map((s) => (s.criticalPhLow !== null ? Number(s.criticalPhLow) : PH_CRITICAL_LOW)),
+      ),
+      criticalPhHigh: Math.min(
+        ...species.map((s) => (s.criticalPhHigh !== null ? Number(s.criticalPhHigh) : PH_CRITICAL_HIGH)),
+      ),
+      criticalTempHighC: Math.min(
+        ...species.map((s) =>
+          s.criticalTempHighC !== null ? Number(s.criticalTempHighC) : TEMPERATURE_CRITICAL_HIGH_C,
+        ),
+      ),
+    };
+  }
+
+  /**
    * Called from WaterQualityService.create() right after a reading is recorded. Unlike the
-   * other rules this needs no extra DB read — the just-written reading already carries every
-   * value it needs — so it's a pure evaluate-on-write check against literature-backed safe
-   * ranges for rainbow trout (dissolved oxygen ≥ 6 mg/L, pH 6-9, temperature ≤ 22°C). A single
-   * reading breaching any of them is urgent enough to raise immediately, not average out over
-   * time the way the doc's fuller rolling-baseline rules do.
+   * other rules this needs no extra DB read of the reading itself — the just-written row already
+   * carries every value it needs — so it's a pure evaluate-on-write check against
+   * literature-backed safe ranges, defaulted for rainbow trout (dissolved oxygen ≥ 6 mg/L, pH
+   * 6-9, temperature ≤ 22°C) and overridable per species. A single reading breaching any of them
+   * is urgent enough to raise immediately, not average out over time the way the doc's fuller
+   * rolling-baseline rules do.
    */
   async evaluateWaterQualityCriticalRule(
     companyId: string,
     tankId: string,
     reading: Pick<WaterQualityReading, "temperatureC" | "dissolvedOxygenMgL" | "ph">,
   ): Promise<void> {
+    const thresholds = await this.resolveWaterQualityThresholds(companyId, tankId);
     const breaches: string[] = [];
 
     const dissolvedOxygenMgL =
       reading.dissolvedOxygenMgL !== null ? Number(reading.dissolvedOxygenMgL) : null;
-    if (dissolvedOxygenMgL !== null && dissolvedOxygenMgL < DISSOLVED_OXYGEN_CRITICAL_LOW_MGL) {
+    if (dissolvedOxygenMgL !== null && dissolvedOxygenMgL < thresholds.criticalDoMgL) {
       breaches.push(
-        `çözünmüş oksijen ${dissolvedOxygenMgL.toFixed(1)} mg/L (${DISSOLVED_OXYGEN_CRITICAL_LOW_MGL} mg/L altında)`,
+        `çözünmüş oksijen ${dissolvedOxygenMgL.toFixed(1)} mg/L (${thresholds.criticalDoMgL} mg/L altında)`,
       );
     }
 
     const ph = reading.ph !== null ? Number(reading.ph) : null;
-    if (ph !== null && (ph < PH_CRITICAL_LOW || ph > PH_CRITICAL_HIGH)) {
-      breaches.push(`pH ${ph.toFixed(2)} (${PH_CRITICAL_LOW}-${PH_CRITICAL_HIGH} aralığı dışında)`);
+    if (ph !== null && (ph < thresholds.criticalPhLow || ph > thresholds.criticalPhHigh)) {
+      breaches.push(
+        `pH ${ph.toFixed(2)} (${thresholds.criticalPhLow}-${thresholds.criticalPhHigh} aralığı dışında)`,
+      );
     }
 
     const temperatureC = reading.temperatureC !== null ? Number(reading.temperatureC) : null;
-    if (temperatureC !== null && temperatureC > TEMPERATURE_CRITICAL_HIGH_C) {
+    if (temperatureC !== null && temperatureC > thresholds.criticalTempHighC) {
       breaches.push(
-        `sıcaklık ${temperatureC.toFixed(1)}°C (${TEMPERATURE_CRITICAL_HIGH_C}°C üzerinde)`,
+        `sıcaklık ${temperatureC.toFixed(1)}°C (${thresholds.criticalTempHighC}°C üzerinde)`,
       );
     }
 

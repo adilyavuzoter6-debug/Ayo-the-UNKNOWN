@@ -3,6 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 import { HeartPulse, Skull, Syringe } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -18,20 +28,69 @@ import { useFarms } from "@/hooks/use-farms";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useTankFishBatches } from "@/hooks/use-fish-batches";
 import { useTankTreatments } from "@/hooks/use-treatments";
-import { useFarmMortalityLog } from "@/hooks/use-farm-mortality-log";
+import { useFarmMortalityLog, type MortalityLogEntry } from "@/hooks/use-farm-mortality-log";
+import { MORTALITY_REASON_LABEL as REASON_LABEL } from "@/lib/tanks";
 import type { MortalityReason } from "@/lib/types";
 
-const REASON_LABEL: Record<MortalityReason, string> = {
-  UNKNOWN: "Bilinmiyor",
-  DISEASE: "Hastalık",
-  OXYGEN: "Oksijen yetersizliği",
-  TEMPERATURE: "Sıcaklık",
-  TRANSFER_STRESS: "Transfer stresi",
-  PHYSICAL_DAMAGE: "Fiziksel hasar",
-  PREDATOR: "Yırtıcı",
-  FEED_RELATED: "Yemle ilişkili",
-  OTHER: "Diğer",
-};
+const TREND_WEEKS = 12;
+const TREND_SERIES_COLORS = [
+  "var(--color-destructive)",
+  "var(--color-warning)",
+  "#8b5cf6",
+  "var(--color-muted-foreground)",
+];
+
+/** Buckets entries into ISO-week-aligned columns, keeping only the top 3 reasons as their own
+ * series (everything else folds into "Diğer") so the chart stays readable with a short legend. */
+function buildMortalityTrend(entries: MortalityLogEntry[]) {
+  const weekStart = (d: Date) => {
+    const copy = new Date(d);
+    const day = copy.getDay();
+    const diff = (day + 6) % 7; // Monday-start week
+    copy.setDate(copy.getDate() - diff);
+    copy.setHours(0, 0, 0, 0);
+    return copy;
+  };
+
+  const cutoff = weekStart(new Date());
+  cutoff.setDate(cutoff.getDate() - (TREND_WEEKS - 1) * 7);
+  const relevant = entries.filter((e) => new Date(e.occurredAt) >= cutoff);
+
+  const totalsByReason = relevant.reduce<Record<string, number>>((acc, e) => {
+    acc[e.reason] = (acc[e.reason] ?? 0) + e.fishCount;
+    return acc;
+  }, {});
+  const topReasons = Object.entries(totalsByReason)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([reason]) => reason as MortalityReason);
+  const seriesKeys = [...topReasons, "OTHER"] as const;
+
+  const weeks: { start: Date; label: string }[] = [];
+  for (let i = 0; i < TREND_WEEKS; i++) {
+    const start = new Date(cutoff);
+    start.setDate(start.getDate() + i * 7);
+    weeks.push({ start, label: start.toLocaleDateString("tr", { day: "2-digit", month: "2-digit" }) });
+  }
+
+  const data = weeks.map(({ start, label }) => {
+    const weekEnd = new Date(start);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const row: Record<string, number | string> = { week: label };
+    for (const key of seriesKeys) row[key] = 0;
+
+    for (const e of relevant) {
+      const occurredAt = new Date(e.occurredAt);
+      if (occurredAt >= start && occurredAt < weekEnd) {
+        const key = topReasons.includes(e.reason) ? e.reason : "OTHER";
+        row[key] = (row[key] as number) + e.fishCount;
+      }
+    }
+    return row;
+  });
+
+  return { data, seriesKeys };
+}
 
 function withdrawalEndsAt(startedAt: string, endedAt: string | null, withdrawalPeriodDays: number | null) {
   if (withdrawalPeriodDays === null) return null;
@@ -73,6 +132,8 @@ export default function HealthPage() {
     return acc;
   }, {});
   const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
+
+  const mortalityTrend = buildMortalityTrend(entries);
 
   return (
     <div className="space-y-6">
@@ -172,6 +233,54 @@ export default function HealthPage() {
           </p>
         )}
       </PanelCard>
+
+      {farmId && !isLoading && entries.length > 0 ? (
+        <PanelCard title={`Ölüm Trendi (son ${TREND_WEEKS} hafta)`}>
+          <div className="p-3">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={mortalityTrend.data} margin={{ left: 12, right: 12, top: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis
+                  dataKey="week"
+                  tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
+                  axisLine={{ stroke: "var(--color-border)" }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={32}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--color-card)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(value, key) => [
+                    Number(value).toLocaleString("tr"),
+                    key === "OTHER" ? "Diğer" : REASON_LABEL[key as MortalityReason],
+                  ]}
+                />
+                <Legend
+                  formatter={(key: string) => (key === "OTHER" ? "Diğer" : REASON_LABEL[key as MortalityReason])}
+                  wrapperStyle={{ fontSize: 11 }}
+                />
+                {mortalityTrend.seriesKeys.map((key, i) => (
+                  <Bar
+                    key={key}
+                    dataKey={key}
+                    stackId="mortality"
+                    fill={TREND_SERIES_COLORS[i % TREND_SERIES_COLORS.length]}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </PanelCard>
+      ) : null}
 
       <PanelCard title="Ölüm kayıtları">
         {!farmId ? (

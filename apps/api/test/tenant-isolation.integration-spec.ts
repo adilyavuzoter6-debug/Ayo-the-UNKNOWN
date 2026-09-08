@@ -31,6 +31,7 @@ describe("Tenant isolation & authorization (integration)", () => {
   let roleTokens: Record<Role, string>;
   let speciesId: string;
   let matrixBatchId: string;
+  let matrixSpeciesId: string;
   let feedProductId: string;
   let warehouseId: string;
   let companyBWarehouseId: string;
@@ -70,6 +71,12 @@ describe("Tenant isolation & authorization (integration)", () => {
       },
     });
     matrixBatchId = matrixBatch.id;
+
+    // Same rationale as matrixBatch above, for the authorization matrix's FISH_SPECIES_UPDATE check.
+    const matrixSpecies = await prisma.fishSpecies.create({
+      data: { companyId: companyA.companyId, name: "Matrix Species Fixture" },
+    });
+    matrixSpeciesId = matrixSpecies.id;
   });
 
   afterAll(async () => {
@@ -515,6 +522,14 @@ describe("Tenant isolation & authorization (integration)", () => {
             .get(`/api/v1/farms/${companyA.farmId}/inspection-report`)
             .query({ periodStart: "2026-01-01", periodEnd: "2026-12-31" })
             .set("Authorization", auth(t)),
+      },
+      {
+        permission: Permission.FISH_SPECIES_UPDATE,
+        request: (t) =>
+          request(app.getHttpServer())
+            .patch(`/api/v1/fish-species/${matrixSpeciesId}`)
+            .set("Authorization", auth(t))
+            .send({ criticalTempHighC: 20 }),
       },
       {
         permission: Permission.FISH_BATCH_READ,
@@ -2017,6 +2032,94 @@ describe("Tenant isolation & authorization (integration)", () => {
             a.type === "WATER_QUALITY_CRITICAL" && a.tankId === tank.id,
         ),
       ).toHaveLength(1);
+    });
+  });
+
+  describe("fish species — thresholds & tenant isolation", () => {
+    async function createOwnSpecies(token: string, name: string, extra: Record<string, unknown> = {}) {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-species")
+        .set("Authorization", auth(token))
+        .send({ name, ...extra })
+        .expect(201);
+      return res.body.data as { id: string; companyId: string | null };
+    }
+
+    it("PATCH updates a company's own species, including its water-quality thresholds", async () => {
+      const species = await createOwnSpecies(companyA.ownerToken, `Somon-${Date.now()}`);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/fish-species/${species.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ criticalTempHighC: 18, criticalDoMgL: 7 })
+        .expect(200);
+
+      expect(Number(res.body.data.criticalTempHighC)).toBe(18);
+      expect(Number(res.body.data.criticalDoMgL)).toBe(7);
+    });
+
+    it("PATCH on a global reference species (companyId: null) -> 404, not a silent shared-data edit", async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/fish-species/${speciesId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ criticalTempHighC: 10 })
+        .expect(404);
+    });
+
+    it("PATCH on Company B's own species, authed as A -> 404", async () => {
+      const speciesB = await createOwnSpecies(companyB.ownerToken, `B-Species-${Date.now()}`);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/fish-species/${speciesB.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ criticalTempHighC: 10 })
+        .expect(404);
+    });
+
+    it("a species-specific critical temperature overrides the module default for a tank stocked with it", async () => {
+      const sensitiveSpecies = await createOwnSpecies(companyA.ownerToken, `Sensitive-${Date.now()}`, {
+        criticalTempHighC: 18,
+      });
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `ALRT-SPECIES-${Date.now()}`,
+          type: "TANK",
+        },
+      });
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId: sensitiveSpecies.id,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 100,
+          avgWeightG: 50,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      // 19°C is under the module default (22°C) but over this species' own override (18°C).
+      const readingRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/water-quality-readings`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ temperatureC: 19, dissolvedOxygenMgL: 8 })
+        .expect(201);
+
+      expect(readingRes.body.data).toHaveProperty("dissolvedOxygenSaturationPct");
+      expect(readingRes.body.data.dissolvedOxygenSaturationPct).toBeGreaterThan(0);
+
+      const alertsRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/alerts?status=OPEN`)
+        .set("Authorization", auth(companyA.ownerToken));
+      const critical = alertsRes.body.data.filter(
+        (a: { type: string; tankId: string | null }) =>
+          a.type === "WATER_QUALITY_CRITICAL" && a.tankId === tank.id,
+      );
+      expect(critical).toHaveLength(1);
+      expect(critical[0].message).toContain("sıcaklık");
     });
   });
 

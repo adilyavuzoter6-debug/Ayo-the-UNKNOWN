@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SpeciesSection } from "@/components/settings/species-section";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useCurrentCompany } from "@/hooks/use-companies";
 
@@ -40,6 +41,8 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <SpeciesSection />
     </div>
   );
 }

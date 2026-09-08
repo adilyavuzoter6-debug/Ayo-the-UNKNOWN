@@ -10,13 +10,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { TrendingUp } from "lucide-react";
+import { CalendarClock, TrendingUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBatchFcr, useBatchSgr } from "@/hooks/use-batch-performance";
 import { ApiError } from "@/lib/api-error";
+import { projectHarvestDate } from "@/lib/growth-projection";
 
 function isoDaysAgo(days: number): string {
   const date = new Date();
@@ -27,8 +28,12 @@ function isoDaysAgo(days: number): string {
 export function BatchPerformanceSection({ batchId }: { batchId: string }) {
   const [periodStart, setPeriodStart] = React.useState(isoDaysAgo(30));
   const [periodEnd, setPeriodEnd] = React.useState(isoDaysAgo(0));
+  const [targetWeightG, setTargetWeightG] = React.useState("300");
 
   const { data: sgrSeries, isLoading: sgrLoading } = useBatchSgr(batchId);
+  const forecast = sgrSeries
+    ? projectHarvestDate(sgrSeries, Number(targetWeightG) || 0)
+    : null;
   const {
     data: fcr,
     isLoading: fcrLoading,
@@ -77,6 +82,47 @@ export function BatchPerformanceSection({ batchId }: { batchId: string }) {
           ) : (
             <p className="py-10 text-center text-sm text-muted-foreground">
               SGR hesaplamak için en az iki ağırlık örneklemesi gerekiyor.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 py-4">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <CalendarClock className="size-3.5" /> Hasat tahmini
+          </div>
+          <div>
+            <Label className="mb-1 block text-[11px] text-muted-foreground">
+              Hedef ortalama ağırlık (g)
+            </Label>
+            <Input
+              type="number"
+              min="1"
+              step="1"
+              className="max-w-32"
+              value={targetWeightG}
+              onChange={(e) => setTargetWeightG(e.target.value)}
+            />
+          </div>
+          {sgrLoading ? (
+            <Skeleton className="h-16 rounded" />
+          ) : forecast ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+              <div className="mb-0.5 text-[11px] text-muted-foreground">Tahmini hasat tarihi</div>
+              <div className="font-mono text-lg font-semibold text-teal-500">
+                {forecast.projectedDate.toLocaleDateString("tr")}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Şu an ~{forecast.currentWeightG.toFixed(0)} g ({new Date(forecast.asOf).toLocaleDateString("tr")}{" "}
+                itibarıyla), son ölçümlere göre ortalama %{forecast.avgSgrPctPerDay.toFixed(2)}/gün büyüme
+                hızıyla ~{forecast.daysToTarget} gün sonra. Son büyüme hızına dayalı kaba bir
+                tahmindir — su sıcaklığı ve yönetime göre değişebilir.
+              </p>
+            </div>
+          ) : (
+            <p className="py-2 text-xs text-muted-foreground">
+              Tahmin için en az iki ağırlık örneklemesi ve hedeften düşük güncel ağırlık gerekiyor.
             </p>
           )}
         </CardContent>
