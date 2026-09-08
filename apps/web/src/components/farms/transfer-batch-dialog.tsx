@@ -49,12 +49,15 @@ export function TransferBatchDialog({
   fromTankId,
   lotCode,
   liveCount,
+  trigger,
 }: {
   farmId: string;
   batchId: string;
   fromTankId: string;
   lotCode: string;
   liveCount: number;
+  /** Defaults to the icon-only button used inline in a batch row. */
+  trigger?: React.ReactElement;
 }) {
   const [open, setOpen] = React.useState(false);
   const { data: tanks } = useFarmTanks(farmId);
@@ -91,9 +94,11 @@ export function TransferBatchDialog({
     >
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Transfer et">
-            <ArrowRightLeft className="size-3.5" />
-          </Button>
+          trigger ?? (
+            <Button variant="ghost" size="icon-sm" aria-label="Transfer et">
+              <ArrowRightLeft className="size-3.5" />
+            </Button>
+          )
         }
       />
       <DialogContent className="sm:max-w-sm">
