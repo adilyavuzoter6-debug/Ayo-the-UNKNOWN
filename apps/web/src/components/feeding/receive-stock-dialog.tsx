@@ -32,21 +32,44 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { useFarms } from "@/hooks/use-farms";
 import { useCreateWarehouse, useFarmWarehouses } from "@/hooks/use-warehouses";
 import { useFeedProducts } from "@/hooks/use-feed-products";
 import { useReceiveStock } from "@/hooks/use-feed-inventory";
 import { ApiError } from "@/lib/api-error";
 
-const schema = z.object({
-  farmId: z.string().min(1, "Bir çiftlik seçin"),
-  warehouseId: z.string().min(1, "Bir depo seçin"),
-  feedProductId: z.string().min(1, "Bir ürün seçin"),
-  quantityKg: z.coerce.number().positive(),
-  supplierLotCode: z.string().trim().max(60).optional(),
-  expiryDate: z.string().optional(),
-  unitCostPerKg: z.coerce.number().positive().optional(),
-});
+/** Remembered client-side only — a UX convenience so the rate doesn't need retyping every
+ * purchase, not a source of truth for anything (no backend concept of an exchange rate exists;
+ * every cost entry this app tracks is stored in TRY, so a dollar-priced purchase is converted
+ * to TRY at entry time using whatever rate the user provides here). */
+const USD_TRY_RATE_STORAGE_KEY = "aquai.usdTryRate";
+
+const schema = z
+  .object({
+    farmId: z.string().min(1, "Bir çiftlik seçin"),
+    warehouseId: z.string().min(1, "Bir depo seçin"),
+    feedProductId: z.string().min(1, "Bir ürün seçin"),
+    quantityKg: z.coerce.number().positive(),
+    supplierLotCode: z.string().trim().max(60).optional(),
+    expiryDate: z.string().optional(),
+    unitCostCurrency: z.enum(["TRY", "USD"]),
+    unitCostAmount: z.coerce.number().positive().optional(),
+    exchangeRate: z.coerce.number().positive().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      values.unitCostCurrency === "USD" &&
+      values.unitCostAmount !== undefined &&
+      !values.exchangeRate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dolar kuru gerekli",
+        path: ["exchangeRate"],
+      });
+    }
+  });
 type FormValues = z.infer<typeof schema>;
 
 export function ReceiveStockDialog() {
@@ -64,17 +87,38 @@ export function ReceiveStockDialog() {
       quantityKg: undefined,
       supplierLotCode: "",
       expiryDate: "",
-      unitCostPerKg: undefined,
+      unitCostCurrency: "TRY",
+      unitCostAmount: undefined,
+      exchangeRate: undefined,
     },
   });
 
+  React.useEffect(() => {
+    const stored = window.localStorage.getItem(USD_TRY_RATE_STORAGE_KEY);
+    if (stored) {
+      form.setValue("exchangeRate", Number(stored));
+    }
+    // Only on mount — a user-edited rate this session shouldn't be clobbered by a later re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const farmId = useWatch({ control: form.control, name: "farmId" });
   const warehouseId = useWatch({ control: form.control, name: "warehouseId" });
+  const unitCostCurrency = useWatch({ control: form.control, name: "unitCostCurrency" });
+  const unitCostAmount = useWatch({ control: form.control, name: "unitCostAmount" });
+  const exchangeRate = useWatch({ control: form.control, name: "exchangeRate" });
   const { data: warehouses } = useFarmWarehouses(farmId);
   const createWarehouse = useCreateWarehouse(farmId);
   // useReceiveStock is bound to whichever warehouse is currently selected — re-renders (and
   // therefore rebinds) whenever `warehouseId` changes because it's watched above.
   const receiveStock = useReceiveStock(warehouseId || "");
+
+  const convertedTryPerKg =
+    unitCostCurrency === "USD" && unitCostAmount && exchangeRate
+      ? unitCostAmount * exchangeRate
+      : unitCostCurrency === "TRY"
+        ? unitCostAmount
+        : undefined;
 
   async function onAddWarehouse() {
     if (!newWarehouseName.trim() || !farmId) return;
@@ -90,13 +134,25 @@ export function ReceiveStockDialog() {
 
   async function onSubmit(values: FormValues) {
     try {
+      const unitCostPerKg =
+        values.unitCostAmount === undefined
+          ? undefined
+          : values.unitCostCurrency === "USD"
+            ? values.unitCostAmount * values.exchangeRate!
+            : values.unitCostAmount;
+
       await receiveStock.mutateAsync({
         feedProductId: values.feedProductId,
         quantityKg: values.quantityKg,
         supplierLotCode: values.supplierLotCode || undefined,
         expiryDate: values.expiryDate || undefined,
-        unitCostPerKg: values.unitCostPerKg,
+        unitCostPerKg,
       });
+
+      if (values.unitCostCurrency === "USD" && values.exchangeRate) {
+        window.localStorage.setItem(USD_TRY_RATE_STORAGE_KEY, String(values.exchangeRate));
+      }
+
       toast.success("Stok alımı kaydedildi.");
       form.reset();
       setOpen(false);
@@ -237,33 +293,85 @@ export function ReceiveStockDialog() {
               )}
             />
 
-            <div className="grid grid-cols-2 gap-3">
-              <FormField
-                control={form.control}
-                name="quantityKg"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Miktar (kg)</FormLabel>
-                    <FormControl>
-                      <Input type="number" min={0} step="0.01" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="unitCostPerKg"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Birim maliyet (opsiyonel)</FormLabel>
-                    <FormControl>
-                      <Input type="number" min={0} step="0.01" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <FormField
+              control={form.control}
+              name="quantityKg"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Miktar (kg)</FormLabel>
+                  <FormControl>
+                    <Input type="number" min={0} step="0.01" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="space-y-2.5 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between">
+                <FormLabel>Birim maliyet (opsiyonel)</FormLabel>
+                <div className="flex overflow-hidden rounded-md border border-border text-xs">
+                  {(["TRY", "USD"] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => form.setValue("unitCostCurrency", c)}
+                      className={cn(
+                        "px-2.5 py-1 font-medium transition-colors",
+                        unitCostCurrency === c
+                          ? "bg-teal-500 text-white"
+                          : "bg-transparent text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {c === "TRY" ? "₺" : "$"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="unitCostAmount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-[11px] text-muted-foreground">
+                        Tutar ({unitCostCurrency === "USD" ? "$" : "₺"}/kg)
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="number" min={0} step="0.01" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {unitCostCurrency === "USD" ? (
+                  <FormField
+                    control={form.control}
+                    name="exchangeRate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-[11px] text-muted-foreground">
+                          Kur (1$ = ? ₺)
+                        </FormLabel>
+                        <FormControl>
+                          <Input type="number" min={0} step="0.01" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+              </div>
+
+              {unitCostCurrency === "USD" && convertedTryPerKg !== undefined ? (
+                <p className="text-[11px] text-muted-foreground">
+                  ≈ <span className="font-mono font-medium text-foreground">
+                    {convertedTryPerKg.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg
+                  </span>{" "}
+                  olarak maliyete yansıyacak.
+                </p>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
