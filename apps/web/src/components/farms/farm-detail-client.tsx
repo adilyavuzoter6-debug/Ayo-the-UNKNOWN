@@ -12,6 +12,7 @@ import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
 import { CreateSectionDialog } from "@/components/farms/create-section-dialog";
 import { SectionCard } from "@/components/farms/section-card";
 import { StocksTab } from "@/components/farms/stocks-tab";
+import { FarmForecastTab } from "@/components/farms/farm-forecast-tab";
 import { EditFarmDialog } from "@/components/farms/edit-farm-dialog";
 import { DeleteFarmDialog } from "@/components/farms/delete-farm-dialog";
 import { WaterQualityPanel } from "@/components/water-quality/water-quality-panel";
@@ -38,6 +39,7 @@ const DETAIL_TABS = [
   { value: "staff", label: "Personel" },
   { value: "water", label: "Su Kalitesi" },
   { value: "stocks", label: "Stoklar" },
+  { value: "forecast", label: "Tahmin" },
   { value: "reports", label: "Raporlar" },
   { value: "settings", label: "Ayarlar" },
 ];
@@ -134,6 +136,9 @@ export function FarmDetailClient({ farmId }: { farmId: string }) {
         </TabsContent>
         <TabsContent value="stocks" className="mt-4">
           <StocksTab farmId={farmId} />
+        </TabsContent>
+        <TabsContent value="forecast" className="mt-4">
+          <FarmForecastTab farmId={farmId} />
         </TabsContent>
         <TabsContent value="reports" className="mt-4">
           <InspectionReportSection farmId={farmId} />
