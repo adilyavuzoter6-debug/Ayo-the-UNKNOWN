@@ -20,7 +20,7 @@ import {
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useCreateCompany, useMyCompanies } from "@/hooks/use-companies";
 import { ApiError } from "@/lib/api-error";
-import { Waves } from "lucide-react";
+import { Logo } from "@/components/shared/logo";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -51,11 +51,8 @@ export default function OnboardingPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md space-y-6">
-        <div className="flex items-center justify-center gap-2">
-          <div className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Waves className="size-5" />
-          </div>
-          <span className="text-xl font-semibold tracking-tight">Piscatio</span>
+        <div className="flex items-center justify-center">
+          <Logo size={36} />
         </div>
 
         {!isLoading && companies && companies.length > 0 ? (

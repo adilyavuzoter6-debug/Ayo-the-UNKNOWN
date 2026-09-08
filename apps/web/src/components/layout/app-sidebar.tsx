@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, Waves } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/shared/logo";
 import { ALL_NAV_ITEMS, SETTINGS_NAV_ITEM } from "@/lib/nav-items";
 
 function isActive(pathname: string | null, href: string) {
@@ -30,14 +31,7 @@ export function AppSidebarContent({
           collapsed ? "justify-center px-0" : "px-5",
         )}
       >
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-teal-500">
-          <Waves className="size-4 text-white" strokeWidth={2.5} />
-        </div>
-        {!collapsed && (
-          <span className="font-display text-lg font-bold tracking-tight whitespace-nowrap text-white">
-            Piscatio
-          </span>
-        )}
+        <Logo size={28} wordmark={!collapsed} wordmarkClassName="text-white" />
       </Link>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden py-2">

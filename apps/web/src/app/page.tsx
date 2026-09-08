@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import {
-  Waves,
   Fish,
   Wheat,
   HeartPulse,
@@ -16,6 +15,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { Logo } from "@/components/shared/logo";
 import { cn } from "@/lib/utils";
 
 const FEATURES = [
@@ -71,14 +71,7 @@ export default async function RootPage() {
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 md:px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-md bg-teal-500">
-              <Waves className="size-4.5 text-white" strokeWidth={2.5} />
-            </div>
-            <span className="font-display text-lg font-bold tracking-tight text-foreground">
-              Piscatio
-            </span>
-          </div>
+          <Logo size={32} wordmarkClassName="text-foreground" />
           <div className="flex items-center gap-2">
             <Link
               href="/pricing"

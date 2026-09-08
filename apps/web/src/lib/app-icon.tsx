@@ -1,32 +1,25 @@
 import type { ReactElement } from "react";
 
-/** Exact path data from lucide-react's "Waves" icon (viewBox 0 0 24 24) — matches the mark used in AppSidebar/landing page. */
-const WAVE_PATHS = [
-  "M2 12q2.5 2 5 0t5 0 5 0 5 0",
-  "M2 19q2.5 2 5 0t5 0 5 0 5 0",
-  "M2 5q2.5 2 5 0t5 0 5 0 5 0",
-];
+/** Piscatio's brand colors (mirrors the CSS custom properties in globals.css — this file renders
+ * outside the page's stylesheet via next/og's ImageResponse, so the values are duplicated here
+ * rather than referenced; keep in sync with --teal-500/--navy-900 if the palette changes). */
+const BRAND_TEAL = "#00b4d8";
+const BRAND_NAVY = "#0d2d5e";
 
-function WavesGlyph({ size }: { size: number }): ReactElement {
+/** A custom fish mark (not a stock icon) — nose right, tail fanned left, with a navy eye dot. */
+function FishGlyph({ size }: { size: number }): ReactElement {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="white"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {WAVE_PATHS.map((d) => (
-        <path key={d} d={d} />
-      ))}
+    <svg width={size} height={size} viewBox="0 0 24 24">
+      <path
+        fill="white"
+        d="M19 12 C15 4 9 4 4 9 L0 6 L5 12 L0 18 L4 15 C9 20 15 20 19 12 Z"
+      />
+      <circle cx="13.6" cy="9.7" r="1.15" fill={BRAND_NAVY} />
     </svg>
   );
 }
 
-/** Rounded teal tile matching the in-app logo mark (favicon, apple-touch-icon, non-maskable manifest icons). */
+/** Rounded gradient tile matching the in-app logo mark (favicon, apple-touch-icon, non-maskable manifest icons). */
 export function AppIconMark({ size, radius }: { size: number; radius?: number }): ReactElement {
   return (
     <div
@@ -36,11 +29,11 @@ export function AppIconMark({ size, radius }: { size: number; radius?: number })
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#14b8a6",
+        background: `linear-gradient(135deg, ${BRAND_TEAL}, ${BRAND_NAVY})`,
         borderRadius: radius ?? Math.round(size * 0.22),
       }}
     >
-      <WavesGlyph size={Math.round(size * 0.6)} />
+      <FishGlyph size={Math.round(size * 0.62)} />
     </div>
   );
 }
@@ -58,10 +51,10 @@ export function MaskableAppIcon({ size }: { size: number }): ReactElement {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#14b8a6",
+        background: `linear-gradient(135deg, ${BRAND_TEAL}, ${BRAND_NAVY})`,
       }}
     >
-      <WavesGlyph size={Math.round(size * 0.5)} />
+      <FishGlyph size={Math.round(size * 0.5)} />
     </div>
   );
 }

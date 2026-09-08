@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { Waves, Check, Clock } from "lucide-react";
+import { Check, Clock } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { Logo } from "@/components/shared/logo";
 import { cn } from "@/lib/utils";
 
 const TIERS = [
@@ -57,13 +58,8 @@ export default async function PricingPage() {
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 md:px-6">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-md bg-teal-500">
-              <Waves className="size-4.5 text-white" strokeWidth={2.5} />
-            </div>
-            <span className="font-display text-lg font-bold tracking-tight text-foreground">
-              Piscatio
-            </span>
+          <Link href="/">
+            <Logo size={32} wordmarkClassName="text-foreground" />
           </Link>
           <div className="flex items-center gap-2">
             <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
