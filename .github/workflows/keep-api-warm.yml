@@ -1,9 +1,15 @@
 name: Keep API warm
 
-# Render's free web-service plan sleeps after 15 minutes of no traffic, then takes ~30-50s to
-# wake on the next request — which made the app feel like it was hanging right after sign-up
-# (the onboarding page's first call to our API landed on a cold instance). Pinging the health
-# endpoint well within that 15-minute window keeps the instance always warm, for $0.
+# Render's free web-service plan sleeps after 15 minutes of no traffic, then takes ~50-90s to
+# wake on the next request — which makes the app look frozen on "Loading your workspace".
+#
+# MEASURED 2026-09-28: this does NOT actually solve that. GitHub heavily throttles scheduled
+# workflows on shared runners — despite the */10 schedule (144 runs/day), the real history is
+# ~12 runs/day at 2-6 hour gaps, so the service is asleep for the vast majority of the day and
+# most real visits still hit a cold start. Raising the frequency doesn't help; GitHub drops the
+# extra runs too. Kept because an occasional ping costs nothing, but the actual fixes are either
+# Render's paid Starter plan (no spin-down at all) or an external pinger with a real scheduler
+# (cron-job.org / UptimeRobot, 5-minute checks, free).
 on:
   schedule:
     - cron: "*/10 * * * *"
