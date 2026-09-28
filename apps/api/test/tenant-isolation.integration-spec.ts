@@ -2123,6 +2123,98 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("platform-admin console — the one deliberate cross-tenant surface", () => {
+    it("GET /admin/companies is denied to a normal company owner (403), however senior they are in their own tenant", async () => {
+      await request(app.getHttpServer())
+        .get("/api/v1/admin/companies")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(403);
+    });
+
+    it("GET /admin/companies is denied to every non-PLATFORM_ADMIN role", async () => {
+      for (const role of ["FARM_MANAGER", "VETERINARIAN", "ACCOUNTANT", "WORKER", "READ_ONLY"] as const) {
+        const res = await request(app.getHttpServer())
+          .get("/api/v1/admin/companies")
+          .set("Authorization", auth(roleTokens[role]));
+        expect([role, res.status]).toEqual([role, 403]);
+      }
+    });
+
+    it("GET /admin/me reports the caller's platform-admin status without granting anything", async () => {
+      const normal = await request(app.getHttpServer())
+        .get("/api/v1/admin/me")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(normal.body.data.isPlatformAdmin).toBe(false);
+
+      const admin = await request(app.getHttpServer())
+        .get("/api/v1/admin/me")
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .expect(200);
+      expect(admin.body.data.isPlatformAdmin).toBe(true);
+    });
+
+    it("a PLATFORM_ADMIN sees every tenant, with live stock rolled up per company", async () => {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyB.companyId,
+          farmSectionId: companyB.sectionId,
+          code: `ADMIN-B-${Date.now()}`,
+          type: "TANK",
+        },
+      });
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyB.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 400,
+          avgWeightG: 250,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/admin/companies")
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .expect(200);
+
+      const ids = res.body.data.map((c: { id: string }) => c.id);
+      expect(ids).toContain(companyA.companyId);
+      expect(ids).toContain(companyB.companyId);
+
+      const rowB = res.body.data.find((c: { id: string }) => c.id === companyB.companyId);
+      expect(rowB.liveFishCount).toBeGreaterThanOrEqual(400);
+      expect(rowB.liveBiomassKg).toBeGreaterThan(0);
+      // 400 fish at 250g -> 100kg -> the derived average weight must come back as grams again.
+      expect(rowB.avgWeightG).toBeGreaterThan(0);
+      expect(rowB.memberCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it("GET /admin/companies/:id returns another tenant's batches with count and average weight", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/admin/companies/${companyB.companyId}`)
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .expect(200);
+
+      expect(res.body.data.company.id).toBe(companyB.companyId);
+      expect(Array.isArray(res.body.data.batches)).toBe(true);
+      const stocked = res.body.data.batches.find((b: { liveCount: number }) => b.liveCount > 0);
+      expect(stocked).toBeDefined();
+      expect(stocked.avgWeightG).toBeGreaterThan(0);
+      expect(stocked.speciesName).toBeTruthy();
+    });
+
+    it("GET /admin/companies/:id is still denied to a non-admin, even for their own company", async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/admin/companies/${companyA.companyId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(403);
+    });
+  });
+
   describe("company member management", () => {
     it("inviting a user creates a pending invitation that can be listed and revoked", async () => {
       const inviteRes = await request(app.getHttpServer())

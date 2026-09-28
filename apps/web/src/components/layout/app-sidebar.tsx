@@ -3,9 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/logo";
+import { useIsPlatformAdmin } from "@/hooks/use-admin";
 import { ALL_NAV_ITEMS, SETTINGS_NAV_ITEM } from "@/lib/nav-items";
 
 function isActive(pathname: string | null, href: string) {
@@ -20,6 +21,10 @@ export function AppSidebarContent({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  // Cheap, cached (5 min) and safe for every user: the endpoint only reports whether the caller
+  // is an admin, it grants nothing — the console's own routes are guarded server-side.
+  const { data: adminStatus } = useIsPlatformAdmin();
+  const isPlatformAdmin = adminStatus?.isPlatformAdmin === true;
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -58,6 +63,26 @@ export function AppSidebarContent({
           );
         })}
       </nav>
+
+      {isPlatformAdmin ? (
+        <div className={cn("border-t border-sidebar-border py-2", collapsed ? "px-0" : "px-2")}>
+          <Link
+            href="/admin"
+            onClick={onNavigate}
+            title={collapsed ? "Platform Yönetimi" : undefined}
+            className={cn(
+              "flex items-center gap-3 rounded-md py-2.5 text-sm transition-colors",
+              collapsed ? "justify-center px-0" : "px-3",
+              isActive(pathname, "/admin")
+                ? "bg-teal-500/15 font-semibold text-white"
+                : "text-white/55 hover:text-white/85",
+            )}
+          >
+            <ShieldCheck className="size-[18px] shrink-0" strokeWidth={isActive(pathname, "/admin") ? 2 : 1.5} />
+            {!collapsed && <span className="whitespace-nowrap">Platform Yönetimi</span>}
+          </Link>
+        </div>
+      ) : null}
 
       <div className={cn("border-t border-sidebar-border py-2", collapsed ? "px-0" : "px-2")}>
         {(() => {

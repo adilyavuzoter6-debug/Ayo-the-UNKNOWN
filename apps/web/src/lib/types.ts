@@ -531,3 +531,65 @@ export interface InspectionReport {
   }[];
   totalFeedKg: number;
 }
+
+/** Platform-admin console (cross-tenant, PLATFORM_ADMIN only). */
+export interface AdminCompanyRow {
+  id: string;
+  name: string;
+  legalName: string | null;
+  countryCode: string;
+  planTier: Company["planTier"];
+  status: string;
+  trialEndsAt: string | null;
+  createdAt: string;
+  memberCount: number;
+  farmCount: number;
+  activeBatchCount: number;
+  liveFishCount: number;
+  liveBiomassKg: number;
+  avgWeightG: number | null;
+  harvestedBiomassKg: number;
+  harvestedFishCount: number;
+}
+
+export interface AdminCompanyDetail {
+  company: {
+    id: string;
+    name: string;
+    legalName: string | null;
+    countryCode: string;
+    timezone: string;
+    planTier: Company["planTier"];
+    status: string;
+    trialEndsAt: string | null;
+    createdAt: string;
+  };
+  members: {
+    id: string;
+    role: Role;
+    joinedAt: string | null;
+    email: string;
+    fullName: string;
+  }[];
+  farms: { id: string; name: string; code: string; status: string; sectionCount: number }[];
+  batches: {
+    id: string;
+    lotCode: string;
+    status: BatchStatus;
+    speciesName: string;
+    farmEntryDate: string;
+    initialCount: number;
+    liveCount: number;
+    avgWeightG: number | null;
+    biomassKg: number;
+  }[];
+  harvests: {
+    id: string;
+    harvestedAt: string | null;
+    lotCode: string;
+    fishCount: number | null;
+    biomassKg: number | null;
+    avgWeightG: number | null;
+    customer: string | null;
+  }[];
+}
