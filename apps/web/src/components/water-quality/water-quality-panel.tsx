@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { RecordWaterQualityDialog } from "@/components/water-quality/record-water-quality-dialog";
 import { MetricTile } from "@/components/shared/metric-tile";
+import { assessDissolvedOxygen } from "@/lib/dissolved-oxygen-status";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useTankWaterQualityReadings } from "@/hooks/use-water-quality";
 
@@ -98,6 +99,12 @@ export function WaterQualityPanel({ farmId }: { farmId: string }) {
                   : null
               }
               unit="%"
+              note={
+                assessDissolvedOxygen(
+                  latest.dissolvedOxygenSaturationPct,
+                  latest.dissolvedOxygenMgL !== null ? Number(latest.dissolvedOxygenMgL) : null,
+                ) ?? undefined
+              }
             />
             <MetricTile label="pH" value={latest.ph} />
             <MetricTile label="Tuzluluk" value={latest.salinityPpt} unit="‰" />

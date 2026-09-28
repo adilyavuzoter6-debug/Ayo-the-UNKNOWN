@@ -18,6 +18,7 @@ import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
 import { PanelCard } from "@/components/shared/panel-card";
 import { MetricTile } from "@/components/shared/metric-tile";
 import { CapacityBar } from "@/components/tanks/capacity-bar";
+import { assessDissolvedOxygen } from "@/lib/dissolved-oxygen-status";
 import { TankDetailsSheet } from "@/components/tanks/tank-details-sheet";
 import { useTank } from "@/hooks/use-tanks";
 import { useTankFishBatches } from "@/hooks/use-fish-batches";
@@ -220,6 +221,14 @@ export function TankDetailClient({ farmId, tankId }: { farmId: string; tankId: s
                     : null
                 }
                 unit="%"
+                note={
+                  assessDissolvedOxygen(
+                    latestReading.dissolvedOxygenSaturationPct,
+                    latestReading.dissolvedOxygenMgL !== null
+                      ? Number(latestReading.dissolvedOxygenMgL)
+                      : null,
+                  ) ?? undefined
+                }
               />
               <MetricTile label="pH" value={latestReading.ph} />
               <MetricTile label="Tuzluluk" value={latestReading.salinityPpt} unit="‰" />

@@ -3,10 +3,13 @@ export function MetricTile({
   label,
   value,
   unit,
+  note,
 }: {
   label: string;
   value: string | number | null;
   unit?: string;
+  /** Optional verdict line under the number, e.g. whether a reading is in a safe band. */
+  note?: { label: string; className: string };
 }) {
   const display = value !== null ? Number(value).toString() : null;
   return (
@@ -18,6 +21,9 @@ export function MetricTile({
           <span className="ml-0.5 text-sm font-normal text-muted-foreground">{unit}</span>
         ) : null}
       </div>
+      {display !== null && note ? (
+        <div className={`mt-0.5 text-[11px] font-medium ${note.className}`}>{note.label}</div>
+      ) : null}
     </div>
   );
 }
