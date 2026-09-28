@@ -65,6 +65,11 @@ model User {
   email          String    @unique
   fullName       String
   locale         String    @default("en")
+  // Grants the cross-tenant platform-admin console (PlatformAdminGuard). Deliberately a flag on
+  // the global User rather than a CompanyMembership role: "platform admin" isn't scoped to a
+  // company, and modelling it as a membership would have meant inventing a phantom company to
+  // hold it. Settable only by a direct database write — no API route writes this field.
+  isPlatformAdmin Boolean  @default(false)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?

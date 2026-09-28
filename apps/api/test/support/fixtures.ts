@@ -144,6 +144,9 @@ export async function seedRoleMemberships(
         authProviderId: token,
         email: `${token}@test.aquai.local`,
         fullName: `Role ${role}`,
+        // The cross-tenant console is gated on this global flag, not on the membership role —
+        // the PLATFORM_ADMIN fixture carries both so it stands in for a real platform operator.
+        isPlatformAdmin: role === "PLATFORM_ADMIN",
       },
     });
     await prisma.companyMembership.create({

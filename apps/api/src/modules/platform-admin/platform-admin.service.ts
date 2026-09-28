@@ -13,13 +13,13 @@ import { PrismaService } from "../../prisma/prisma.service";
 export class PlatformAdminService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** True when the caller holds PLATFORM_ADMIN anywhere — lets the client decide whether to show the console at all. */
+  /** Lets the client decide whether to show the console at all; the console's routes are guarded independently. */
   async isPlatformAdmin(userId: string): Promise<boolean> {
-    const membership = await this.prisma.companyMembership.findFirst({
-      where: { userId, role: "PLATFORM_ADMIN", status: "ACTIVE" },
-      select: { id: true },
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { isPlatformAdmin: true },
     });
-    return membership !== null;
+    return user?.isPlatformAdmin === true;
   }
 
   /** One row per tenant: the "cari" overview — who is producing what, and how much is standing in their tanks right now. */

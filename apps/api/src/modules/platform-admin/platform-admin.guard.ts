@@ -9,10 +9,9 @@ import type { AuthenticatedUser } from "../../common/types/request-context";
  * resolved from the caller's membership in ONE company (TenantContextGuard), which is meaningless
  * for a route that spans every company.
  *
- * "Platform admin" means holding the PLATFORM_ADMIN role on any ACTIVE membership. That role is
- * deliberately excluded from both InviteUserDto and UpdateMemberRoleDto's allowlists, so it can
- * only ever be granted by a direct database write — a company owner cannot mint one through the
- * API and escalate themselves into everyone else's data.
+ * "Platform admin" is the global User.isPlatformAdmin flag, not a company role: no API route
+ * writes that column, so it can only ever be granted by a direct database write — a company
+ * owner cannot mint one through the API and escalate into everyone else's data.
  */
 @Injectable()
 export class PlatformAdminGuard implements CanActivate {
@@ -28,11 +27,11 @@ export class PlatformAdminGuard implements CanActivate {
       throw new ForbiddenException("No authenticated user resolved.");
     }
 
-    const membership = await this.prisma.companyMembership.findFirst({
-      where: { userId: authUser.id, role: "PLATFORM_ADMIN", status: "ACTIVE" },
-      select: { id: true },
+    const user = await this.prisma.user.findFirst({
+      where: { id: authUser.id, deletedAt: null },
+      select: { isPlatformAdmin: true },
     });
-    if (!membership) {
+    if (!user?.isPlatformAdmin) {
       throw new ForbiddenException("Platform administrator access required.");
     }
 
