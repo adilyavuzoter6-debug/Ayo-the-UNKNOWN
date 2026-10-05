@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CapacityBar } from "@/components/tanks/capacity-bar";
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import type { TankStatus } from "@/lib/types";
@@ -84,11 +85,23 @@ export default function ProductionPage() {
               return sum + (a.estimatedCount * avgWeightG) / 1000;
             }, 0);
 
+            const maxBiomassKg = tank.maxBiomassKg ? Number(tank.maxBiomassKg) : null;
+
             return (
               <Card key={tank.id} className="gap-0 overflow-hidden py-0">
-                <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
-                  <span className="font-mono text-sm font-bold text-navy-900">{tank.code}</span>
-                  <StatusBadge status={TANK_STATUS_KIND[tank.status]} />
+                <div className="border-b border-border px-3.5 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Link
+                      href={`/farms/${farmId}/tanks/${tank.id}`}
+                      className="font-mono text-sm font-bold text-navy-900 hover:text-teal-500"
+                    >
+                      {tank.code}
+                    </Link>
+                    <StatusBadge status={TANK_STATUS_KIND[tank.status]} />
+                  </div>
+                  {allocations.length > 0 ? (
+                    <CapacityBar biomassKg={totalBiomassKg} maxBiomassKg={maxBiomassKg} className="mt-2" />
+                  ) : null}
                 </div>
                 <CardContent className="space-y-2 py-3.5 text-xs">
                   {allocations.length === 0 ? (
