@@ -36,7 +36,9 @@ export default function StocksPage() {
         </p>
       </div>
 
-      {isLoading ? (
+      {isLoading || batches === undefined ? (
+        // See dashboard/page.tsx — undefined (not loaded yet, e.g. while companyId itself is
+        // still resolving) must not be read as "zero batches exist".
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-28 rounded-lg" />

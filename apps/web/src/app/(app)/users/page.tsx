@@ -78,7 +78,7 @@ export default function UsersPage() {
       </div>
 
       <PanelCard title={`Aktif Kullanıcılar${members ? ` (${members.length})` : ""}`}>
-        {membersLoading ? (
+        {membersLoading || members === undefined ? (
           <div className="p-4">
             <Skeleton className="h-32 rounded" />
           </div>

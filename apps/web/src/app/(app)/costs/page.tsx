@@ -86,7 +86,14 @@ export default function CostsPage() {
         </div>
       </div>
 
-      {!farmId ? (
+      {farms === undefined ? (
+        // See dashboard/page.tsx — undefined (not loaded yet) must not be read as "no farms".
+        <PanelCard title="Maliyet Özeti">
+          <div className="p-4">
+            <Skeleton className="h-16 rounded" />
+          </div>
+        </PanelCard>
+      ) : !farmId ? (
         <PanelCard title="Maliyet Özeti">
           <p className="flex items-center gap-2 px-4.5 py-10 text-sm text-muted-foreground">
             <Wallet className="size-4" /> Bir çiftlik seçin.

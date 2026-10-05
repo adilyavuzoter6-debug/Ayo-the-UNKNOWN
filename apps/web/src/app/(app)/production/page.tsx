@@ -62,7 +62,15 @@ export default function ProductionPage() {
         </Select>
       </div>
 
-      {!farmId ? (
+      {farms === undefined ? (
+        // See dashboard/page.tsx — undefined (not loaded yet, for any reason) is distinct from
+        // a confirmed-empty farms list, and must not show the "go create a farm" message.
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 rounded-lg" />
+          ))}
+        </div>
+      ) : !farmId ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             Henüz bir çiftlik yok.

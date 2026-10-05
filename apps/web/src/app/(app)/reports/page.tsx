@@ -56,7 +56,7 @@ export default function ReportsPage() {
         title={`Denetim Kaydı${data?.total != null ? ` (${data.total.toLocaleString("tr")})` : ""}`}
         className="print:hidden"
       >
-        {isLoading ? (
+        {isLoading || data === undefined ? (
           <div className="p-4">
             <Skeleton className="h-64 rounded" />
           </div>

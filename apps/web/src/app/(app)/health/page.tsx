@@ -283,7 +283,11 @@ export default function HealthPage() {
       ) : null}
 
       <PanelCard title="Ölüm kayıtları">
-        {!farmId ? (
+        {farms === undefined ? (
+          <div className="p-4">
+            <Skeleton className="h-48 rounded" />
+          </div>
+        ) : !farmId ? (
           <p className="flex items-center gap-2 px-4.5 py-10 text-sm text-muted-foreground">
             <HeartPulse className="size-4" /> Kayıtları görmek için bir çiftlik seçin.
           </p>

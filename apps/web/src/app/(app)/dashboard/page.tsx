@@ -131,7 +131,21 @@ export default function DashboardPage() {
         ) : null}
       </div>
 
-      {!farmId ? (
+      {farms === undefined ? (
+        // Still resolving — whether because the request is in flight or because it hasn't been
+        // allowed to start yet (useFarms is `enabled: !!companyId`, and companyId itself loads
+        // asynchronously from the active-company context). Either way `data` stays undefined
+        // until a real response lands, so this is the one check that can't be confused with a
+        // tenant that genuinely has zero farms — that state is `farms.length === 0`, never
+        // `undefined`. Rendering the "no farms, go create one" message here instead would flash
+        // a wrong, alarming message during every slow load (worse on Render's free-tier cold
+        // start, where the API can take 50-90s to answer the very first request).
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-lg" />
+          ))}
+        </div>
+      ) : !farmId ? (
         <PanelCard title="Genel Bakış">
           <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">
             Henüz bir çiftlik yok — önce Çiftlikler sayfasından bir çiftlik oluştur.

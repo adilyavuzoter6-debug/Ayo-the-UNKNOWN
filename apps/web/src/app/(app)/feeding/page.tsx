@@ -32,7 +32,7 @@ export default function FeedingPage() {
           <CreateFeedProductDialog />
         </div>
 
-        {productsLoading ? (
+        {productsLoading || products === undefined ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-20 rounded-lg" />
@@ -73,7 +73,7 @@ export default function FeedingPage() {
           <ReceiveStockDialog />
         </div>
 
-        {batchesLoading ? (
+        {batchesLoading || batches === undefined ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-14 rounded-lg" />

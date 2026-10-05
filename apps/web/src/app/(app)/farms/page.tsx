@@ -50,7 +50,11 @@ export default function FarmsPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {isLoading || farms === undefined ? (
+        // `isLoading` alone misses the window where the query is disabled because companyId
+        // hasn't resolved yet from the active-company context (enabled: !!companyId means
+        // isLoading reads false, not true, while disabled) — checking data directly closes that
+        // gap, so a slow load never gets misread as "zero farms exist".
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-56 rounded-lg" />

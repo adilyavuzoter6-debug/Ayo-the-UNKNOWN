@@ -63,7 +63,7 @@ export default function AlertsPage() {
       </Select>
 
       <PanelCard title="Uyarılar">
-        {isLoading ? (
+        {isLoading || alerts === undefined ? (
           <div className="p-4">
             <Skeleton className="h-16 rounded" />
           </div>

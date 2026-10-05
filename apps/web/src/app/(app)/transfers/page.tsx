@@ -136,7 +136,14 @@ export default function TransfersPage() {
         </Select>
       </div>
 
-      {!farmId ? (
+      {farms === undefined ? (
+        // See dashboard/page.tsx — undefined (not loaded yet) must not be read as "no farms".
+        <PanelCard title="Transferler">
+          <div className="p-4">
+            <Skeleton className="h-16 rounded" />
+          </div>
+        </PanelCard>
+      ) : !farmId ? (
         <PanelCard title="Transferler">
           <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">
             Henüz bir çiftlik yok — önce Çiftlikler sayfasından bir çiftlik oluşturun.
