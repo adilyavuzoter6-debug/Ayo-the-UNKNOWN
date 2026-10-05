@@ -1,7 +1,17 @@
 # Keep-warm worker
 
-Pings the API's health endpoint every 5 minutes so Render's free plan never spins the
-service down (15 minutes idle → ~50-90s cold start on the next real visit).
+Pings the API's `/health/db` endpoint every 5 minutes so Render's free plan never spins the
+service down (15 minutes idle → ~50-90s cold start on the next real visit) **and** so Neon's
+serverless Postgres compute never autosuspends either.
+
+These are two independent sleep timers. MEASURED 2026-10-05: pinging plain `/health` (which
+does not touch the database) kept the Render container awake but did nothing for Neon — a
+direct timed query showed ~1.9s on the first query after Neon's own idle suspend vs ~200ms
+once warm, and that showed up as the app still feeling slow to load even with the worker
+running. `/health/db` runs a trivial `SELECT 1` through Prisma, which resets Neon's idle timer
+too. (Render's own `healthCheckPath` in `render.yaml` intentionally stays on plain `/health` —
+tying Render's own liveness check to Neon's availability would restart a perfectly healthy
+container during a transient DB blip.)
 
 This exists because `.github/workflows/keep-api-warm.yml` does **not** work: GitHub throttles
 scheduled workflows on shared runners hard — measured 2026-09-28, it ran ~12 times a day at
@@ -28,7 +38,8 @@ requests/day allowance.
 
 Any external uptime monitor does the same job: create a monitor at
 [cron-job.org](https://cron-job.org) or [UptimeRobot](https://uptimerobot.com) pointing at
-`https://aquai-api.onrender.com/api/v1/health` on a 5-minute interval.
+`https://aquai-api.onrender.com/api/v1/health/db` (not plain `/health` — see above) on a
+5-minute interval.
 
 ## Note on Render's free allowance
 

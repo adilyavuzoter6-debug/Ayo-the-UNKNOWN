@@ -19,5 +19,5 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping API health endpoint
-        run: curl -fsS https://aquai-api.onrender.com/api/v1/health
+      - name: Ping API health endpoint (DB-touching, keeps Neon compute awake too)
+        run: curl -fsS https://aquai-api.onrender.com/api/v1/health/db

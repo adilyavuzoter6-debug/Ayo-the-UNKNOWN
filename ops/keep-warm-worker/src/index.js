@@ -1,4 +1,8 @@
-const HEALTH_URL = "https://aquai-api.onrender.com/api/v1/health";
+// /health/db (not plain /health) deliberately: Neon's serverless Postgres autosuspends its
+// compute on its own idle timer, independent of whether the Render web service is awake.
+// Pinging a DB-free route keeps the container warm but does nothing to stop Neon's cold start,
+// which showed up as a ~2s delay on every page that actually queries data.
+const HEALTH_URL = "https://aquai-api.onrender.com/api/v1/health/db";
 
 export default {
   async scheduled(_event, _env, ctx) {
