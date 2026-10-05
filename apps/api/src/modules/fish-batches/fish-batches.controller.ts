@@ -103,3 +103,29 @@ export class TankFishBatchesController {
     return this.fishBatchesService.listForTank(tenant.companyId, tankId);
   }
 }
+
+@ApiTags("fish-batches")
+@ApiBearerAuth()
+@Controller({ path: "farms/:farmId/fish-batches", version: "1" })
+export class FarmFishBatchesController {
+  constructor(private readonly fishBatchesService: FishBatchesService) {}
+
+  @Get()
+  @RequirePermission(Permission.FISH_BATCH_READ)
+  list(@Param("farmId") farmId: string, @CurrentTenant() tenant: TenantContext) {
+    return this.fishBatchesService.listForFarm(tenant.companyId, farmId);
+  }
+}
+
+@ApiTags("fish-batches")
+@ApiBearerAuth()
+@Controller({ path: "farms/:farmId/transfers", version: "1" })
+export class FarmTransfersController {
+  constructor(private readonly fishBatchesService: FishBatchesService) {}
+
+  @Get()
+  @RequirePermission(Permission.BATCH_MOVEMENT_READ)
+  list(@Param("farmId") farmId: string, @CurrentTenant() tenant: TenantContext) {
+    return this.fishBatchesService.listTransfersForFarm(tenant.companyId, farmId);
+  }
+}

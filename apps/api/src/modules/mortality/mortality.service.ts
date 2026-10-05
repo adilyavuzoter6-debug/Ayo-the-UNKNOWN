@@ -96,4 +96,24 @@ export class MortalityService {
       orderBy: { occurredAt: "desc" },
     });
   }
+
+  /**
+   * Every mortality event across every tank in the farm, in one query — replaces the frontend
+   * fanning out N requests (one per tank) through useQueries. Tank is included directly so the
+   * frontend doesn't need a second lookup to label each row.
+   */
+  async listForFarm(companyId: string, farmId: string) {
+    const farm = await this.tenantPrisma
+      .forTenant(companyId)
+      .farm.findFirst({ where: { id: farmId, deletedAt: null } });
+    if (!farm) {
+      throw new NotFoundException("Farm not found.");
+    }
+
+    return this.tenantPrisma.forTenant(companyId).mortalityEvent.findMany({
+      where: { tank: { farmSection: { farmId } } },
+      include: { tank: true },
+      orderBy: { occurredAt: "desc" },
+    });
+  }
 }

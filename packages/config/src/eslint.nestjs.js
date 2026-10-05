@@ -42,6 +42,9 @@ module.exports = [
       // PlatformAdminGuard instead of the tenant-scoped permission chain, and read-only.
       "**/modules/platform-admin/platform-admin.service.ts",
       "**/modules/platform-admin/platform-admin.guard.ts",
+      // health/db runs a bare `SELECT 1` with no companyId involved at all — there is no tenant
+      // to scope it to.
+      "**/app.controller.ts",
     ],
     rules: {
       "no-restricted-syntax": "off",

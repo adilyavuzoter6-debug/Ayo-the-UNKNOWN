@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
 import { useFarmTanks } from "@/hooks/use-tanks";
@@ -12,8 +12,11 @@ export interface TankProductionRow {
   isLoading: boolean;
 }
 
-/** Cross-tank production overview for one farm — each tank's batch allocations, fetched in
- * parallel. Built entirely from existing per-tank endpoints (no new backend aggregate). */
+/**
+ * Cross-tank production overview for one farm. The tank list and the farm-wide allocation list
+ * are two independent, parallel requests (both only need farmId) grouped together client-side —
+ * replaces the old N+1 shape (wait for tanks, then fan out one allocations request per tank).
+ */
 export function useFarmProductionOverview(farmId: string): {
   rows: TankProductionRow[];
   isLoading: boolean;
@@ -21,23 +24,28 @@ export function useFarmProductionOverview(farmId: string): {
   const api = useApiClient();
   const { companyId } = useActiveCompany();
   const { data: tanks, isLoading: tanksLoading } = useFarmTanks(farmId);
-
-  const allocationQueries = useQueries({
-    queries: (tanks ?? []).map((tank) => ({
-      queryKey: ["fish-batches", "tank", companyId, tank.id],
-      queryFn: () => api.get<BatchTankAllocation[]>(`/tanks/${tank.id}/fish-batches`),
-      enabled: !!companyId && !!tank.id,
-    })),
+  const { data: allocations, isLoading: allocationsLoading } = useQuery({
+    queryKey: ["farm-fish-batches", companyId, farmId],
+    queryFn: () => api.get<BatchTankAllocation[]>(`/farms/${farmId}/fish-batches`),
+    enabled: !!companyId && !!farmId,
   });
 
-  const rows: TankProductionRow[] = (tanks ?? []).map((tank, i) => ({
+  const allocationsByTankId = new Map<string, BatchTankAllocation[]>();
+  (allocations ?? []).forEach((allocation) => {
+    const list = allocationsByTankId.get(allocation.tankId) ?? [];
+    list.push(allocation);
+    allocationsByTankId.set(allocation.tankId, list);
+  });
+
+  const stillLoadingAllocations = allocationsLoading || allocations === undefined;
+  const rows: TankProductionRow[] = (tanks ?? []).map((tank) => ({
     tank,
-    allocations: allocationQueries[i]?.data ?? [],
-    isLoading: allocationQueries[i]?.isLoading ?? true,
+    allocations: allocationsByTankId.get(tank.id) ?? [],
+    isLoading: stillLoadingAllocations,
   }));
 
   return {
     rows,
-    isLoading: tanksLoading || allocationQueries.some((q) => q.isLoading),
+    isLoading: tanksLoading || stillLoadingAllocations,
   };
 }

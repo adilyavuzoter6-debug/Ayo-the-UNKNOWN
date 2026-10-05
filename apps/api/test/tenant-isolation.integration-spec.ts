@@ -2710,4 +2710,172 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe("farm-wide aggregate endpoints (replace the frontend's per-tank fan-out)", () => {
+    it("GET /farms/:farmId/fish-batches — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/fish-batches`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/mortality-events — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/transfers — Company B's farm id, authed as A → 404", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/transfers`)
+        .set("Authorization", auth(companyA.ownerToken));
+      expect(res.status).toBe(404);
+    });
+
+    it("GET /farms/:farmId/fish-batches — aggregates allocations across every tank in the farm, not just one", async () => {
+      const [tankOne, tankTwo] = await Promise.all([
+        prisma.tank.create({
+          data: {
+            companyId: companyA.companyId,
+            farmSectionId: companyA.sectionId,
+            code: `AGG-ONE-${Date.now()}`,
+            type: "TANK",
+          },
+        }),
+        prisma.tank.create({
+          data: {
+            companyId: companyA.companyId,
+            farmSectionId: companyA.sectionId,
+            code: `AGG-TWO-${Date.now()}`,
+            type: "TANK",
+          },
+        }),
+      ]);
+
+      await Promise.all(
+        [tankOne, tankTwo].map((tank) =>
+          request(app.getHttpServer())
+            .post("/api/v1/fish-batches")
+            .set("Authorization", auth(companyA.ownerToken))
+            .send({
+              speciesId,
+              lotCode: nextLotCode(),
+              tankId: tank.id,
+              fishCount: 200,
+              avgWeightG: 50,
+              farmEntryDate: "2026-01-01",
+            })
+            .expect(201),
+        ),
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/fish-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const tankIds = res.body.data.map((a: { tankId: string }) => a.tankId);
+      expect(tankIds).toEqual(expect.arrayContaining([tankOne.id, tankTwo.id]));
+    });
+
+    it("GET /farms/:farmId/mortality-events — includes the tank, newest first, across tanks", async () => {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `AGG-MORT-${Date.now()}`,
+          type: "TANK",
+        },
+      });
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 300,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: create.body.data.id, fishCount: 10, reason: "OXYGEN" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const entry = res.body.data.find((e: { batchId: string }) => e.batchId === create.body.data.id);
+      expect(entry).toBeDefined();
+      expect(entry.tank.id).toBe(tank.id);
+      expect(entry.tank.code).toBe(tank.code);
+    });
+
+    it("GET /farms/:farmId/transfers — joins lotCode/fromTankCode/toTankCode and excludes non-TRANSFER movements", async () => {
+      const [fromTank, toTank] = await Promise.all([
+        prisma.tank.create({
+          data: {
+            companyId: companyA.companyId,
+            farmSectionId: companyA.sectionId,
+            code: `AGG-FROM-${Date.now()}`,
+            type: "TANK",
+          },
+        }),
+        prisma.tank.create({
+          data: {
+            companyId: companyA.companyId,
+            farmSectionId: companyA.sectionId,
+            code: `AGG-TO-${Date.now()}`,
+            type: "TANK",
+          },
+        }),
+      ]);
+      const lotCode = nextLotCode();
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode,
+          tankId: fromTank.id,
+          fishCount: 150,
+          avgWeightG: 60,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      const batchId = create.body.data.id;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/movements`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromTankId: fromTank.id, toTankId: toTank.id, fishCount: 100 })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/transfers`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const entries = res.body.data as Array<{
+        batchId: string;
+        movementType: string;
+        lotCode: string;
+        fromTankCode: string | null;
+        toTankCode: string | null;
+      }>;
+      expect(entries.every((e) => e.movementType === "TRANSFER")).toBe(true);
+      const transfer = entries.find((e) => e.batchId === batchId);
+      expect(transfer).toBeDefined();
+      expect(transfer?.lotCode).toBe(lotCode);
+      expect(transfer?.fromTankCode).toBe(fromTank.code);
+      expect(transfer?.toTankCode).toBe(toTank.code);
+    });
+  });
 });

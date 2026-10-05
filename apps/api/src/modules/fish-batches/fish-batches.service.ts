@@ -54,6 +54,75 @@ export class FishBatchesService {
     });
   }
 
+  private async assertFarmInTenant(companyId: string, farmId: string) {
+    const farm = await this.tenantPrisma
+      .forTenant(companyId)
+      .farm.findFirst({ where: { id: farmId, deletedAt: null } });
+    if (!farm) {
+      throw new NotFoundException("Farm not found.");
+    }
+    return farm;
+  }
+
+  /**
+   * Every allocation across every tank in the farm, in one query — replaces the frontend
+   * fanning out N requests (one per tank) through useQueries. Same shape as listForTank, just
+   * farm-scoped via the Tank -> FarmSection -> Farm chain (same `tank: { farmSection: { farmId
+   * } }` pattern FarmStatsService already uses for its own farm-wide rollups).
+   */
+  async listForFarm(companyId: string, farmId: string) {
+    await this.assertFarmInTenant(companyId, farmId);
+    return this.tenantPrisma.forTenant(companyId).batchTankState.findMany({
+      where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId }, deletedAt: null } },
+      include: { batch: { include: { species: true } } },
+    });
+  }
+
+  /**
+   * Every TRANSFER movement for batches currently stocked in this farm, newest first, with
+   * lot/tank codes pre-joined. Replaces the frontend's 3-level waterfall (tanks -> per-tank
+   * allocations -> per-batch movements, up to dozens of sequential round trips) with 3 queries
+   * run server-side in one request. fromTank/toTank are looked up separately (not a declared
+   * Prisma relation on BatchMovement) because a transfer's source tank can be outside this farm.
+   */
+  async listTransfersForFarm(companyId: string, farmId: string) {
+    await this.assertFarmInTenant(companyId, farmId);
+    const client = this.tenantPrisma.forTenant(companyId);
+
+    const allocations = await client.batchTankState.findMany({
+      where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId } } },
+      select: { batchId: true, batch: { select: { lotCode: true } } },
+    });
+    const batchIds = Array.from(new Set(allocations.map((a) => a.batchId)));
+    if (batchIds.length === 0) {
+      return [];
+    }
+    const lotCodeByBatchId = new Map(allocations.map((a) => [a.batchId, a.batch.lotCode]));
+
+    const movements = await client.batchMovement.findMany({
+      where: { batchId: { in: batchIds }, movementType: "TRANSFER" },
+      orderBy: { occurredAt: "desc" },
+    });
+
+    const tankIds = Array.from(
+      new Set(
+        movements.flatMap((m) => [m.fromTankId, m.toTankId]).filter((id): id is string => !!id),
+      ),
+    );
+    const tanks =
+      tankIds.length > 0
+        ? await client.tank.findMany({ where: { id: { in: tankIds } }, select: { id: true, code: true } })
+        : [];
+    const tankCodeById = new Map(tanks.map((t) => [t.id, t.code]));
+
+    return movements.map((m) => ({
+      ...m,
+      lotCode: lotCodeByBatchId.get(m.batchId) ?? "—",
+      fromTankCode: m.fromTankId ? (tankCodeById.get(m.fromTankId) ?? null) : null,
+      toTankCode: m.toTankId ? (tankCodeById.get(m.toTankId) ?? null) : null,
+    }));
+  }
+
   async create(companyId: string, userId: string, dto: CreateFishBatchDto) {
     await this.assertTankInTenant(companyId, dto.tankId);
 

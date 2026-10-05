@@ -31,3 +31,16 @@ export class MortalityEventsController {
     return this.mortalityService.listForTank(tenant.companyId, tankId);
   }
 }
+
+@ApiTags("mortality")
+@ApiBearerAuth()
+@Controller({ path: "farms/:farmId/mortality-events", version: "1" })
+export class FarmMortalityEventsController {
+  constructor(private readonly mortalityService: MortalityService) {}
+
+  @Get()
+  @RequirePermission(Permission.MORTALITY_EVENT_READ)
+  list(@Param("farmId") farmId: string, @CurrentTenant() tenant: TenantContext) {
+    return this.mortalityService.listForFarm(tenant.companyId, farmId);
+  }
+}
