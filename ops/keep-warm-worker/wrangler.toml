@@ -2,9 +2,12 @@ name = "piscatio-keep-warm"
 main = "src/index.js"
 compatibility_date = "2026-01-01"
 
-# Every 5 minutes. Render's free plan sleeps a service after 15 minutes without inbound
-# traffic, so a 5-minute beat leaves room for a missed run without the instance dropping off.
+# Every 3 minutes. Render's free plan sleeps a service after 15 minutes without inbound
+# traffic, so this leaves huge margin there. The tighter constraint is Neon: its serverless
+# Postgres compute autosuspends after its own idle timer (default 5 minutes), and the ping now
+# hits /health/db specifically to reset that timer too (see README) — 3 minutes gives margin
+# against a missed run instead of racing the 5-minute edge exactly.
 # Cloudflare runs cron triggers on its own scheduler (not the shared-runner queue GitHub
 # Actions uses), which is the whole reason this exists instead of a workflow.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/3 * * * *"]
