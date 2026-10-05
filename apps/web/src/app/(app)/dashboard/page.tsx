@@ -146,7 +146,14 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            <KpiCard icon={Fish} color="#0d2d5e" label="Toplam Canlı Balık" value={fmt(kpis.fishCount)} sub="canlı stok" />
+            <KpiCard
+              icon={Fish}
+              color="#0d2d5e"
+              label="Toplam Canlı Balık"
+              value={fmt(kpis.fishCount)}
+              sub="canlı stok"
+              href="/stocks"
+            />
             <KpiCard
               icon={Scale}
               color="#00b4d8"
@@ -154,6 +161,7 @@ export default function DashboardPage() {
               value={fmt(kpis.biomassKg / 1000, 2)}
               unit="t"
               sub={`${kpis.activeBatchesCount} aktif parti`}
+              href="/stocks"
             />
             <KpiCard
               icon={TrendingUp}
@@ -161,6 +169,7 @@ export default function DashboardPage() {
               label="FCR (30 gün)"
               value={kpis.avgFcr !== null ? fmt(kpis.avgFcr, 2) : "—"}
               sub={kpis.avgFcr !== null ? "ortalama" : "veri yok"}
+              href="/production"
             />
             <KpiCard
               icon={TrendingUp}
@@ -169,8 +178,17 @@ export default function DashboardPage() {
               value={kpis.avgSgrPctPerDay !== null ? fmt(kpis.avgSgrPctPerDay, 2) : "—"}
               unit={kpis.avgSgrPctPerDay !== null ? "%/gün" : undefined}
               sub={kpis.avgSgrPctPerDay !== null ? "büyüme oranı" : "en az 2 örnekleme gerekir"}
+              href="/production"
             />
-            <KpiCard icon={Wheat} color="#f59e0b" label="Bugünkü Yem" value={fmt(kpis.todayFeedKg, 1)} unit="kg" sub="bugün verilen" />
+            <KpiCard
+              icon={Wheat}
+              color="#f59e0b"
+              label="Bugünkü Yem"
+              value={fmt(kpis.todayFeedKg, 1)}
+              unit="kg"
+              sub="bugün verilen"
+              href="/feeding"
+            />
             <KpiCard
               icon={AlertTriangle}
               color="#ef4444"
@@ -178,9 +196,24 @@ export default function DashboardPage() {
               value={fmt(kpis.mortalityRate7dPct, 2)}
               unit="%"
               sub="canlı stoğa oranla"
+              href="/health"
             />
-            <KpiCard icon={AlertCircle} color="#ef4444" label="Açık Uyarılar" value={fmt(kpis.openAlertsCount)} sub="çözülmeyi bekliyor" />
-            <KpiCard icon={Fish} color="#0d2d5e" label="Aktif Parti" value={fmt(kpis.activeBatchesCount)} sub="bu çiftlikte" />
+            <KpiCard
+              icon={AlertCircle}
+              color="#ef4444"
+              label="Açık Uyarılar"
+              value={fmt(kpis.openAlertsCount)}
+              sub="çözülmeyi bekliyor"
+              href="/alerts"
+            />
+            <KpiCard
+              icon={Fish}
+              color="#0d2d5e"
+              label="Aktif Parti"
+              value={fmt(kpis.activeBatchesCount)}
+              sub="bu çiftlikte"
+              href="/production"
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

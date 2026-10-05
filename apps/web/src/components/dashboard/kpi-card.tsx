@@ -1,4 +1,5 @@
-import { TrendingDown, TrendingUp, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function KpiCard({
@@ -10,6 +11,7 @@ export function KpiCard({
   change,
   changeDir = "neutral",
   sub,
+  href,
 }: {
   icon: LucideIcon;
   color: string;
@@ -19,12 +21,14 @@ export function KpiCard({
   change?: string;
   changeDir?: "up" | "down" | "neutral";
   sub?: string;
+  /** When set, the whole card becomes a link to the page that explains this number. */
+  href?: string;
 }) {
   const changeColor =
     changeDir === "up" ? "text-success" : changeDir === "down" ? "text-destructive" : "text-muted-foreground";
 
-  return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card px-4.5 py-4">
+  const content = (
+    <>
       <div className="flex items-start justify-between">
         <span className="text-xs font-medium tracking-wide text-muted-foreground">{label}</span>
         <div
@@ -41,20 +45,38 @@ export function KpiCard({
         {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
       {(change || sub) && (
-        <div className="flex items-center gap-1.5">
-          {change && (
-            <span className={cn("flex items-center gap-0.5 text-[11px] font-semibold", changeColor)}>
-              {changeDir === "up" ? (
-                <TrendingUp className="size-2.5" />
-              ) : changeDir === "down" ? (
-                <TrendingDown className="size-2.5" />
-              ) : null}
-              {change}
-            </span>
-          )}
-          {sub && <span className="text-[11px] text-muted-foreground/80">{sub}</span>}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5">
+            {change && (
+              <span className={cn("flex items-center gap-0.5 text-[11px] font-semibold", changeColor)}>
+                {changeDir === "up" ? (
+                  <TrendingUp className="size-2.5" />
+                ) : changeDir === "down" ? (
+                  <TrendingDown className="size-2.5" />
+                ) : null}
+                {change}
+              </span>
+            )}
+            {sub && <span className="text-[11px] text-muted-foreground/80">{sub}</span>}
+          </div>
+          {href && <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />}
         </div>
       )}
-    </div>
+    </>
   );
+
+  const className = cn(
+    "flex flex-col gap-2.5 rounded-lg border border-border bg-card px-4.5 py-4",
+    href && "transition-colors hover:border-teal-500/40 hover:bg-muted/40",
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className={className}>{content}</div>;
 }
