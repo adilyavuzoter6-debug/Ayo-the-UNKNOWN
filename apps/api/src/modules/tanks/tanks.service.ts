@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { naturalSortByCode } from "../../common/utils/natural-sort";
 import type { CreateTankDto } from "./dto/create-tank.dto";
 import type { UpdateTankDto } from "./dto/update-tank.dto";
 
@@ -55,17 +56,19 @@ export class TanksService {
   async listForSection(companyId: string, farmSectionId: string) {
     await this.assertSectionInTenant(companyId, farmSectionId);
 
-    return this.tenantPrisma.forTenant(companyId).tank.findMany({
+    // Sorted in JS, not by the DB's plain ORDER BY code ASC — see natural-sort.ts: a lexicographic
+    // sort puts "A10" between "A1" and "A2", which looks broken once a section passes nine tanks.
+    const tanks = await this.tenantPrisma.forTenant(companyId).tank.findMany({
       where: { farmSectionId, deletedAt: null },
-      orderBy: { code: "asc" },
     });
+    return naturalSortByCode(tanks);
   }
 
   async listForFarm(companyId: string, farmId: string) {
-    return this.tenantPrisma.forTenant(companyId).tank.findMany({
+    const tanks = await this.tenantPrisma.forTenant(companyId).tank.findMany({
       where: { deletedAt: null, farmSection: { farmId } },
-      orderBy: { code: "asc" },
     });
+    return naturalSortByCode(tanks);
   }
 
   async findById(companyId: string, tankId: string) {

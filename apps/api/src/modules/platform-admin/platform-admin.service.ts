@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { naturalSortByCode } from "../../common/utils/natural-sort";
 
 /**
  * Cross-tenant read models for the platform-admin console — the deliberate exception to
@@ -139,7 +140,6 @@ export class PlatformAdminService {
           status: true,
           _count: { select: { sections: true } },
         },
-        orderBy: { code: "asc" },
       }),
       this.prisma.fishBatch.findMany({
         where: { companyId, deletedAt: null },
@@ -181,7 +181,7 @@ export class PlatformAdminService {
         email: m.user.email,
         fullName: m.user.fullName,
       })),
-      farms: farms.map((f) => ({
+      farms: naturalSortByCode(farms).map((f) => ({
         id: f.id,
         name: f.name,
         code: f.code,
