@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import type { Request, Response } from "express";
+import { Prisma } from "@prisma/client";
 import { ApiErrorCode } from "@aquai/types";
 
 const STATUS_TO_CODE: Partial<Record<number, ApiErrorCode>> = {
@@ -17,6 +18,24 @@ const STATUS_TO_CODE: Partial<Record<number, ApiErrorCode>> = {
   [HttpStatus.BAD_REQUEST]: ApiErrorCode.VALIDATION_FAILED,
   [HttpStatus.CONFLICT]: ApiErrorCode.CONFLICT,
   [HttpStatus.TOO_MANY_REQUESTS]: ApiErrorCode.RATE_LIMITED,
+};
+
+/**
+ * Prisma's P2002 ("Unique constraint failed") carries the violated column list in
+ * `meta.target`, e.g. `["companyId", "farmSectionId", "code"]`. Without this map, that error
+ * reached the client as the raw driver message — "Invalid `prisma.tank.create()` invocation:
+ * Unique constraint failed on the fields: (...)" — which is both unreadable in Turkish and a
+ * 500, when it's really a 409 the user caused by reusing a code. Keyed by the target fields
+ * sorted + joined, matching every @@unique in schema.prisma as of this writing; an unmapped
+ * combination still gets a Turkish 409 via the fallback below, just a generic one.
+ */
+const UNIQUE_CONSTRAINT_MESSAGES: Record<string, string> = {
+  "code,companyId": "Bu kod bu şirkette zaten kullanılıyor.",
+  "code,companyId,farmSectionId": "Bu kod bu bölümde zaten kullanılıyor — başka bir kod deneyin.",
+  "companyId,lotCode": "Bu lot kodu zaten kullanılıyor.",
+  "companyId,userId": "Bu kullanıcı zaten şirketin bir üyesi.",
+  "farmId,membershipId": "Bu çiftlik zaten bu üyeye atanmış.",
+  "batchId,snapshotDate,tankId": "Bu tarih için zaten bir biyokütle anlık görüntüsü var.",
 };
 
 /**
@@ -34,6 +53,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const requestId =
       (request.headers["x-request-id"] as string | undefined) ?? randomUUID();
+
+    if (exception instanceof Prisma.PrismaClientKnownRequestError && exception.code === "P2002") {
+      const target = exception.meta?.target;
+      const key = Array.isArray(target) ? [...target].sort().join(",") : String(target ?? "");
+      const message = UNIQUE_CONSTRAINT_MESSAGES[key] ?? "Bu kayıt zaten mevcut.";
+      this.logger.warn(`[${requestId}] P2002 on (${key}) — ${message}`);
+      response.status(HttpStatus.CONFLICT).json({
+        error: { code: ApiErrorCode.CONFLICT, message, details: undefined, requestId },
+      });
+      return;
+    }
 
     const isHttpException = exception instanceof HttpException;
     const status = isHttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;

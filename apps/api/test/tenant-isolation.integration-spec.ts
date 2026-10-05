@@ -478,6 +478,26 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(res.body.error.code).toBe("VALIDATION_FAILED");
       expect(res.body.error.requestId).toBeTruthy();
     });
+
+    it("a duplicate tank code in the same section → 409 with a Turkish message, not a raw Prisma error", async () => {
+      const dupeCode = `DUPE${Date.now()}`;
+      await request(app.getHttpServer())
+        .post(`/api/v1/farm-sections/${companyA.sectionId}/tanks`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ code: dupeCode, type: "TANK" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farm-sections/${companyA.sectionId}/tanks`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ code: dupeCode, type: "TANK" });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe("CONFLICT");
+      expect(res.body.error.message).not.toMatch(/prisma/i);
+      expect(res.body.error.message).toContain("zaten kullanılıyor");
+      expect(res.body.error.requestId).toBeTruthy();
+    });
   });
 
   describe("authorization matrix — parametrized off the app's own ROLE_PERMISSIONS map", () => {
