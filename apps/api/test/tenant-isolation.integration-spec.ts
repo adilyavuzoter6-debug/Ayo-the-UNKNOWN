@@ -2440,6 +2440,128 @@ describe("Tenant isolation & authorization (integration)", () => {
         .send({ batchId, type: "ACTUAL", fullness: "FULL" });
       expect(harvestRes.status).toBe(201);
     });
+
+    it("correcting a treatment's withdrawal period changes whether the batch can be harvested", async () => {
+      const tank = await createTank("TRX-EDIT");
+      const batchId = await stockBatch(tank.id, 200, 100);
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+
+      // Withdrawal of 10 days from a dose two days ago: still blocked.
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "MEDICATION",
+          productName: "Oksitetrasiklin (yanlış girilmiş)",
+          startedAt: twoDaysAgo,
+          endedAt: twoDaysAgo,
+          withdrawalPeriodDays: 10,
+        })
+        .expect(201);
+      const treatmentId = created.body.data.id as string;
+
+      const blocked = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" });
+      expect(blocked.status).toBe(400);
+
+      // The label said 10 days; the product actually has 1. Correcting it releases the harvest.
+      const fixed = await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${tank.id}/treatments/${treatmentId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ productName: "Oksitetrasiklin HCl", withdrawalPeriodDays: 1 })
+        .expect(200);
+      expect(fixed.body.data.productName).toBe("Oksitetrasiklin HCl");
+      expect(fixed.body.data.withdrawalPeriodDays).toBe(1);
+      expect(fixed.body.data.startedAt).toBe(new Date(twoDaysAgo).toISOString());
+
+      const allowed = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" });
+      expect(allowed.status).toBe(201);
+    });
+
+    it("refuses a correction whose end date falls before its start, and one aimed at another tank", async () => {
+      const tank = await createTank("TRX-BAD");
+      const other = await createTank("TRX-OTHER");
+      const batchId = await stockBatch(tank.id, 100, 100);
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "VACCINATION", productName: "ERM", startedAt: "2026-03-10" })
+        .expect(201);
+      const treatmentId = created.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${tank.id}/treatments/${treatmentId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ endedAt: "2026-03-01" })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/tanks/${other.id}/treatments/${treatmentId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ productName: "Başka havuz" })
+        .expect(404);
+    });
+
+    it("a treatment recorded by mistake can be removed; removing it lifts its withdrawal block", async () => {
+      const tank = await createTank("TRX-DEL");
+      const other = await createTank("TRX-DEL-OTHER");
+      const batchId = await stockBatch(tank.id, 150, 100);
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "MEDICATION",
+          productName: "Kayıt hatası",
+          startedAt: twoDaysAgo,
+          endedAt: twoDaysAgo,
+          withdrawalPeriodDays: 10,
+        })
+        .expect(201);
+      const treatmentId = created.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" })
+        .expect(400);
+
+      // Another farm's tank cannot delete it.
+      await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${other.id}/treatments/${treatmentId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${tank.id}/treatments/${treatmentId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const list = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${tank.id}/treatments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(list.body.data.some((t: { id: string }) => t.id === treatmentId)).toBe(false);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${tank.id}/treatments/${treatmentId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL" })
+        .expect(201);
+    });
   });
 
   describe("production cost tracking", () => {

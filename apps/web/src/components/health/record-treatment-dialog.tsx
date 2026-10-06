@@ -26,9 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useCreateTreatment } from "@/hooks/use-treatments";
+import { useCreateTreatment, useUpdateTreatment } from "@/hooks/use-treatments";
 import { ApiError } from "@/lib/api-error";
-import type { BatchTankAllocation } from "@/lib/types";
+import type { BatchTankAllocation, Treatment } from "@/lib/types";
 
 /**
  * Pre-fills the product name only — withdrawal period is left for the user to enter from the
@@ -66,7 +66,7 @@ const VACCINATION_PRESETS: TreatmentPreset[] = [
 ];
 
 const schema = z.object({
-  batchId: z.string().min(1, "Bir parti seçin"),
+  batchId: z.string(),
   type: z.enum(["MEDICATION", "VACCINATION"]),
   productName: z.string().trim().min(1, "Ürün adı gerekli").max(200),
   dosage: z.string().optional(),
@@ -77,24 +77,53 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+function valuesFor(treatment: Treatment | undefined): FormValues {
+  if (!treatment) {
+    return { batchId: "", type: "MEDICATION", productName: "", startedAt: todayIso() };
+  }
+  return {
+    batchId: treatment.batchId,
+    type: treatment.type,
+    productName: treatment.productName,
+    dosage: treatment.dosage ?? "",
+    withdrawalPeriodDays: treatment.withdrawalPeriodDays ?? undefined,
+    startedAt: treatment.startedAt.slice(0, 10),
+    endedAt: treatment.endedAt ? treatment.endedAt.slice(0, 10) : "",
+    notes: treatment.notes ?? "",
+  };
+}
+
+/**
+ * Records a treatment or vaccination, or corrects one when `treatment` is given. Corrections don't
+ * change the batch: the treatment stays with the batch it was given to.
+ */
 export function RecordTreatmentDialog({
   tankId,
   allocations,
+  treatment,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   tankId: string;
   allocations: BatchTankAllocation[];
+  treatment?: Treatment;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const createTreatment = useCreateTreatment(tankId);
+  const updateTreatment = useUpdateTreatment(tankId);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      batchId: "",
-      type: "MEDICATION",
-      productName: "",
-      startedAt: new Date().toISOString().slice(0, 10),
-    },
+    defaultValues: valuesFor(treatment),
   });
 
   const type = useWatch({ control: form.control, name: "type" });
@@ -112,19 +141,28 @@ export function RecordTreatmentDialog({
 
   async function onSubmit(values: FormValues) {
     try {
-      await createTreatment.mutateAsync(values);
-      toast.success(
-        values.type === "VACCINATION" ? "Aşı kaydı eklendi." : "Tedavi kaydı eklendi.",
-      );
-      form.reset({
-        batchId: "",
-        type: "MEDICATION",
-        productName: "",
-        startedAt: new Date().toISOString().slice(0, 10),
-      });
+      if (treatment) {
+        await updateTreatment.mutateAsync({
+          id: treatment.id,
+          type: values.type,
+          productName: values.productName,
+          dosage: values.dosage ? values.dosage : null,
+          withdrawalPeriodDays: values.withdrawalPeriodDays ?? null,
+          startedAt: values.startedAt,
+          endedAt: values.endedAt ? values.endedAt : null,
+          notes: values.notes ? values.notes : null,
+        });
+        toast.success("Kayıt güncellendi.");
+      } else {
+        await createTreatment.mutateAsync(values);
+        toast.success(
+          values.type === "VACCINATION" ? "Aşı kaydı eklendi." : "Tedavi kaydı eklendi.",
+        );
+        form.reset(valuesFor(undefined));
+      }
       setOpen(false);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Kayıt eklenirken bir sorun oluştu.");
+      toast.error(error instanceof ApiError ? error.message : "Kayıt kaydedilirken bir sorun oluştu.");
     }
   }
 
@@ -133,58 +171,63 @@ export function RecordTreatmentDialog({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) form.reset();
+        if (!next) form.reset(valuesFor(treatment));
       }}
     >
-      <DialogTrigger
-        render={
-          <Button variant="outline" size="sm">
-            <Syringe className="size-3.5" />
-            Tedavi / Aşı
-          </Button>
-        }
-      />
+      {treatment ? null : (
+        <DialogTrigger
+          render={
+            <Button variant="outline" size="sm">
+              <Syringe className="size-3.5" />
+              Tedavi / Aşı
+            </Button>
+          }
+        />
+      )}
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Tedavi / Aşı kaydı</DialogTitle>
+          <DialogTitle>{treatment ? "Tedavi / Aşı kaydını düzenle" : "Tedavi / Aşı kaydı"}</DialogTitle>
           <DialogDescription>
             Arınma süresi girilirse, süre dolmadan bu parti hasat edilemez.
+            {treatment ? " Düzeltmeden sonra hasat kontrolü yeni süreye göre yapılır." : ""}
           </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="batchId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Parti</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Parti seçin">
-                          {(v: string) => {
-                            const a = allocations.find((x) => x.batchId === v);
-                            return a
-                              ? `${a.batch.lotCode} (${a.estimatedCount.toLocaleString("tr")} balık)`
-                              : undefined;
-                          }}
-                        </SelectValue>
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {allocations.map((a) => (
-                        <SelectItem key={a.batchId} value={a.batchId}>
-                          {a.batch.lotCode} ({a.estimatedCount.toLocaleString("tr")} balık)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {treatment ? null : (
+              <FormField
+                control={form.control}
+                name="batchId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Parti</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Parti seçin">
+                            {(v: string) => {
+                              const a = allocations.find((x) => x.batchId === v);
+                              return a
+                                ? `${a.batch.lotCode} (${a.estimatedCount.toLocaleString("tr")} balık)`
+                                : undefined;
+                            }}
+                          </SelectValue>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {allocations.map((a) => (
+                          <SelectItem key={a.batchId} value={a.batchId}>
+                            {a.batch.lotCode} ({a.estimatedCount.toLocaleString("tr")} balık)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <FormField
@@ -217,7 +260,7 @@ export function RecordTreatmentDialog({
                   <FormItem>
                     <FormLabel>Arınma süresi (gün)</FormLabel>
                     <FormControl>
-                      <Input type="number" min={1} step={1} {...field} />
+                      <Input type="number" min={1} step={1} {...field} value={field.value ?? ""} />
                     </FormControl>
                     {selectedPreset ? (
                       <p className="text-[11px] text-muted-foreground">{selectedPreset.withdrawalHint}</p>
@@ -270,6 +313,7 @@ export function RecordTreatmentDialog({
                     <Input
                       placeholder={selectedPreset?.dosageHint ?? "örn. 10 mg/kg biyokütle"}
                       {...field}
+                      value={field.value ?? ""}
                     />
                   </FormControl>
                   <FormMessage />
@@ -298,7 +342,7 @@ export function RecordTreatmentDialog({
                   <FormItem>
                     <FormLabel>Bitiş (opsiyonel)</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input type="date" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -313,7 +357,7 @@ export function RecordTreatmentDialog({
                 <FormItem>
                   <FormLabel>Not (opsiyonel)</FormLabel>
                   <FormControl>
-                    <Textarea rows={2} {...field} />
+                    <Textarea rows={2} {...field} value={field.value ?? ""} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -321,8 +365,8 @@ export function RecordTreatmentDialog({
             />
 
             <DialogFooter>
-              <Button type="submit" disabled={createTreatment.isPending}>
-                {createTreatment.isPending ? "Kaydediliyor…" : "Kaydet"}
+              <Button type="submit" disabled={createTreatment.isPending || updateTreatment.isPending}>
+                {createTreatment.isPending || updateTreatment.isPending ? "Kaydediliyor…" : "Kaydet"}
               </Button>
             </DialogFooter>
           </form>

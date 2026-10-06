@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { HeartPulse, Skull, Syringe } from "lucide-react";
+import { toast } from "sonner";
+import { HeartPulse, Pencil, Skull, Syringe, Trash2 } from "lucide-react";
+import { ApiError } from "@/lib/api-error";
 import {
   Bar,
   BarChart,
@@ -14,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import { PanelCard } from "@/components/shared/panel-card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/shared/status-badge";
 import {
@@ -28,10 +31,10 @@ import { ReportMortalityDialog } from "@/components/farms/report-mortality-dialo
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useTankFishBatches } from "@/hooks/use-fish-batches";
-import { useTankTreatments } from "@/hooks/use-treatments";
+import { useDeleteTreatment, useTankTreatments } from "@/hooks/use-treatments";
 import { useFarmMortalityLog, type MortalityLogEntry } from "@/hooks/use-farm-mortality-log";
 import { MORTALITY_REASON_LABEL as REASON_LABEL } from "@/lib/tanks";
-import type { BatchTankAllocation, MortalityReason } from "@/lib/types";
+import type { BatchTankAllocation, MortalityReason, Treatment } from "@/lib/types";
 
 const TREND_WEEKS = 12;
 const TREND_SERIES_COLORS = [
@@ -131,6 +134,25 @@ export default function HealthPage() {
     : (mortalityAllocations?.[0]?.batchId ?? "");
   const mortalityAllocation = mortalityAllocations?.find((a) => a.batchId === mortalityBatchId);
   const { data: treatments, isLoading: treatmentsLoading } = useTankTreatments(tankId);
+  const [editingTreatment, setEditingTreatment] = React.useState<Treatment | null>(null);
+  const deleteTreatment = useDeleteTreatment(tankId);
+  const [confirmingTreatmentId, setConfirmingTreatmentId] = React.useState<string | null>(null);
+
+  // Two clicks: the first arms the delete, the second one removes the record.
+  async function onDeleteTreatment(treatment: Treatment) {
+    if (confirmingTreatmentId !== treatment.id) {
+      setConfirmingTreatmentId(treatment.id);
+      return;
+    }
+    try {
+      await deleteTreatment.mutateAsync(treatment.id);
+      toast.success("Kayıt silindi.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Kayıt silinirken bir sorun oluştu.");
+    } finally {
+      setConfirmingTreatmentId(null);
+    }
+  }
 
   const { entries, isLoading } = useFarmMortalityLog(farmId);
 
@@ -237,6 +259,18 @@ export default function HealthPage() {
                     <span className="font-mono text-muted-foreground">
                       {new Date(t.startedAt).toLocaleDateString("tr")}
                     </span>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingTreatment(t)}>
+                      <Pencil className="size-3.5" /> Düzenle
+                    </Button>
+                    <Button
+                      variant={confirmingTreatmentId === t.id ? "destructive" : "ghost"}
+                      size="sm"
+                      disabled={deleteTreatment.isPending}
+                      onClick={() => onDeleteTreatment(t)}
+                    >
+                      <Trash2 className="size-3.5" />
+                      {confirmingTreatmentId === t.id ? "Emin misiniz?" : "Sil"}
+                    </Button>
                   </div>
                 </li>
               );
@@ -248,6 +282,18 @@ export default function HealthPage() {
           </p>
         )}
       </PanelCard>
+
+      {editingTreatment && tankId ? (
+        <RecordTreatmentDialog
+          tankId={tankId}
+          allocations={allocations ?? []}
+          treatment={editingTreatment}
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditingTreatment(null);
+          }}
+        />
+      ) : null}
 
       {farmId && !isLoading && entries.length > 0 ? (
         <PanelCard title={`Ölüm Trendi (son ${TREND_WEEKS} hafta)`}>

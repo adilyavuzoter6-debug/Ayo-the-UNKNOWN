@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import type { CreateTreatmentDto } from "./dto/create-treatment.dto";
+import type { UpdateTreatmentDto } from "./dto/update-treatment.dto";
 
 export interface WithdrawalBlock {
   treatmentId: string;
@@ -67,6 +68,79 @@ export class TreatmentsService {
     });
 
     return treatment;
+  }
+
+  /**
+   * Corrects a recorded treatment. Harvest eligibility reads the treatment on every check, so a corrected
+   * withdrawal period takes effect immediately — the same record is the source of truth either way.
+   */
+  async update(companyId: string, tankId: string, userId: string, treatmentId: string, dto: UpdateTreatmentDto) {
+    await this.assertTankInTenant(companyId, tankId);
+    const client = this.tenantPrisma.forTenant(companyId);
+    const existing = await client.treatment.findFirst({
+      where: { id: treatmentId, tankId, deletedAt: null },
+    });
+    if (!existing) {
+      throw new NotFoundException("Treatment not found.");
+    }
+
+    const startedAt = dto.startedAt !== undefined ? new Date(dto.startedAt) : existing.startedAt;
+    const endedAt =
+      dto.endedAt === undefined ? existing.endedAt : dto.endedAt === null ? null : new Date(dto.endedAt);
+    if (endedAt && endedAt.getTime() < startedAt.getTime()) {
+      throw new BadRequestException("Bitiş tarihi başlangıç tarihinden önce olamaz.");
+    }
+
+    await client.treatment.updateMany({
+      where: { id: treatmentId, tankId, deletedAt: null },
+      data: {
+        type: dto.type ?? existing.type,
+        productName: dto.productName ?? existing.productName,
+        dosage: dto.dosage === undefined ? existing.dosage : dto.dosage,
+        withdrawalPeriodDays:
+          dto.withdrawalPeriodDays === undefined ? existing.withdrawalPeriodDays : dto.withdrawalPeriodDays,
+        startedAt,
+        endedAt,
+        notes: dto.notes === undefined ? existing.notes : dto.notes,
+      },
+    });
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "UPDATE",
+      entityType: "Treatment",
+      entityId: treatmentId,
+      newValue: { tankId, productName: dto.productName ?? existing.productName, withdrawalPeriodDays: dto.withdrawalPeriodDays ?? existing.withdrawalPeriodDays },
+    });
+
+    return client.treatment.findFirst({ where: { id: treatmentId } });
+  }
+
+  /**
+   * Removes a treatment recorded by mistake. Soft-deleted: a treatment that was a real dose stays in the
+   * record for inspection, but stops counting toward withdrawal checks and disappears from the list.
+   */
+  async remove(companyId: string, tankId: string, userId: string, treatmentId: string) {
+    await this.assertTankInTenant(companyId, tankId);
+    const client = this.tenantPrisma.forTenant(companyId);
+    const result = await client.treatment.updateMany({
+      where: { id: treatmentId, tankId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException("Treatment not found.");
+    }
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "DELETE",
+      entityType: "Treatment",
+      entityId: treatmentId,
+      newValue: { tankId },
+    });
+    return { deleted: true };
   }
 
   async listForTank(companyId: string, tankId: string) {
