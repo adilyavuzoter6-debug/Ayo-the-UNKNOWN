@@ -103,7 +103,7 @@ export function SplitBatchDialog({
     >
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Böl">
+          <Button variant="ghost" size="icon-sm" aria-label="Böl" title="Böl — partiyi birden fazla havuza ayır">
             <Split className="size-3.5" />
           </Button>
         }

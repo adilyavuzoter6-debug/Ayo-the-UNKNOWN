@@ -135,7 +135,7 @@ export function RecordWeightSampleDialog({
     >
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Ağırlık örneklemesi kaydet">
+          <Button variant="ghost" size="icon-sm" aria-label="Ağırlık örneklemesi kaydet" title="Tartım — ortalama ağırlık örneği kaydet">
             <Scale className="size-3.5" />
           </Button>
         }

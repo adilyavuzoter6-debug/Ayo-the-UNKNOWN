@@ -129,7 +129,7 @@ export function ReportMortalityDialog({
     >
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Ölüm bildir">
+          <Button variant="ghost" size="icon-sm" aria-label="Ölüm bildir" title="Ölüm bildir — ölen balığın sayısını veya toplam ağırlığını kaydet">
             <Skull className="size-3.5" />
           </Button>
         }

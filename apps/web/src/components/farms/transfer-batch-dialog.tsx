@@ -95,7 +95,7 @@ export function TransferBatchDialog({
       <DialogTrigger
         render={
           trigger ?? (
-            <Button variant="ghost" size="icon-sm" aria-label="Transfer et">
+            <Button variant="ghost" size="icon-sm" aria-label="Transfer et" title="Transfer et — balıkları başka bir havuza taşı">
               <ArrowRightLeft className="size-3.5" />
             </Button>
           )

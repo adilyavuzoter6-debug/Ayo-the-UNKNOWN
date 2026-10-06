@@ -131,7 +131,7 @@ export function MergeBatchesDialog({
     >
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" aria-label="Birleştir" disabled={candidates.length === 0}>
+          <Button variant="ghost" size="icon-sm" aria-label="Birleştir" title="Birleştir — birden fazla partiyi tek partide topla" disabled={candidates.length === 0}>
             <Merge className="size-3.5" />
           </Button>
         }
