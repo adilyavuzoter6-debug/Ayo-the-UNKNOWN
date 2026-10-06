@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { TimezoneSelect } from "@/components/farms/timezone-select";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -125,7 +126,7 @@ export function EditFarmDialog({
                   <FormItem>
                     <FormLabel>Saat dilimi (opsiyonel)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Europe/Istanbul" {...field} />
+                      <TimezoneSelect value={field.value ?? ""} onChange={field.onChange} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
