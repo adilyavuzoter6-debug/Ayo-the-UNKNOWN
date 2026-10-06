@@ -1972,6 +1972,51 @@ describe("Tenant isolation & authorization (integration)", () => {
       ).toBe(true);
     });
 
+    it("concurrent alert fetches raise one MISSING_DAILY_RECORDS alert per tank, and a resolved one is not re-raised the same day", async () => {
+      const tank = await createTank("ALRT-DUP");
+      await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 50,
+          avgWeightG: 80,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+
+      await Promise.all(
+        Array.from({ length: 5 }, () =>
+          request(app.getHttpServer())
+            .get("/api/v1/alerts")
+            .set("Authorization", auth(companyA.ownerToken))
+            .expect(200),
+        ),
+      );
+
+      const raised = await prisma.alert.findMany({
+        where: { tankId: tank.id, type: "MISSING_DAILY_RECORDS" },
+      });
+      expect(raised).toHaveLength(1);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/alerts/${raised[0].id}/resolve`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get("/api/v1/alerts")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const afterResolve = await prisma.alert.findMany({
+        where: { tankId: tank.id, type: "MISSING_DAILY_RECORDS" },
+      });
+      expect(afterResolve).toHaveLength(1);
+    });
+
     it("a stocked tank with no feeding/water-quality record today gets a MISSING_DAILY_RECORDS alert on the next alerts fetch", async () => {
       const tank = await createTank("ALRT-C");
       await request(app.getHttpServer())

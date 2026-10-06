@@ -32,6 +32,8 @@ const ALERT_SEVERITY_LABEL_TR: Record<Alert["severity"], string> = {
 
 @Injectable()
 export class AlertsService {
+  private readonly missingRecordsQueue = new Map<string, Promise<void>>();
+
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
@@ -418,6 +420,21 @@ export class AlertsService {
    * small. Only tanks currently holding fish are checked (an empty tank has nothing to log).
    */
   async evaluateMissingDailyRecordsRule(companyId: string, farmId: string): Promise<void> {
+    const key = `${companyId}:${farmId}`;
+    const previous = this.missingRecordsQueue.get(key) ?? Promise.resolve();
+    const run = previous.then(() => this.runMissingDailyRecordsRule(companyId, farmId));
+    const settled = run.catch(() => undefined);
+    this.missingRecordsQueue.set(key, settled);
+    try {
+      await run;
+    } finally {
+      if (this.missingRecordsQueue.get(key) === settled) {
+        this.missingRecordsQueue.delete(key);
+      }
+    }
+  }
+
+  private async runMissingDailyRecordsRule(companyId: string, farmId: string): Promise<void> {
     const client = this.tenantPrisma.forTenant(companyId);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -442,10 +459,14 @@ export class AlertsService {
         continue;
       }
 
-      const existingOpen = await client.alert.findFirst({
-        where: { tankId: tank.id, type: "MISSING_DAILY_RECORDS", status: "OPEN" },
+      const alreadyRaised = await client.alert.findFirst({
+        where: {
+          tankId: tank.id,
+          type: "MISSING_DAILY_RECORDS",
+          OR: [{ status: "OPEN" }, { createdAt: { gte: todayStart } }],
+        },
       });
-      if (existingOpen) {
+      if (alreadyRaised) {
         continue;
       }
 
