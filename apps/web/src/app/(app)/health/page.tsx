@@ -116,11 +116,16 @@ export default function HealthPage() {
       : (tanks?.[0]?.id ?? "");
 
   const { data: allocations } = useTankFishBatches(tankId);
+  const [selectedMortalityTankId, setSelectedMortalityTankId] = React.useState<string>("");
+  const mortalityTankId = tanks?.some((t) => t.id === selectedMortalityTankId)
+    ? selectedMortalityTankId
+    : tankId;
+  const { data: mortalityAllocations } = useTankFishBatches(mortalityTankId);
   const [selectedBatchId, setSelectedBatchId] = React.useState<string>("");
-  const mortalityBatchId = allocations?.some((a) => a.batchId === selectedBatchId)
+  const mortalityBatchId = mortalityAllocations?.some((a) => a.batchId === selectedBatchId)
     ? selectedBatchId
-    : (allocations?.[0]?.batchId ?? "");
-  const mortalityAllocation = allocations?.find((a) => a.batchId === mortalityBatchId);
+    : (mortalityAllocations?.[0]?.batchId ?? "");
+  const mortalityAllocation = mortalityAllocations?.find((a) => a.batchId === mortalityBatchId);
   const { data: treatments, isLoading: treatmentsLoading } = useTankTreatments(tankId);
 
   const { entries, isLoading } = useFarmMortalityLog(farmId);
@@ -289,26 +294,48 @@ export default function HealthPage() {
       ) : null}
 
       <PanelCard title="Ölüm kayıtları">
-        {farmId && tankId && mortalityAllocation ? (
+        {farmId && mortalityTankId && mortalityAllocation ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4.5 py-2.5">
-            <Select value={mortalityBatchId} onValueChange={(v) => setSelectedBatchId(v ?? "")}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Parti seçin">
-                  {(v: string) => allocations?.find((a) => a.batchId === v)?.batch.lotCode}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {(allocations ?? []).map((a) => (
-                  <SelectItem key={a.batchId} value={a.batchId}>
-                    {a.batch.lotCode}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={mortalityTankId}
+                onValueChange={(v) => {
+                  setSelectedMortalityTankId(v ?? "");
+                  setSelectedBatchId("");
+                }}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="Havuz seçin">
+                    {(v: string) => tanks?.find((t) => t.id === v)?.code}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(tanks ?? []).map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={mortalityBatchId} onValueChange={(v) => setSelectedBatchId(v ?? "")}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Parti seçin">
+                    {(v: string) => mortalityAllocations?.find((a) => a.batchId === v)?.batch.lotCode}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {(mortalityAllocations ?? []).map((a) => (
+                    <SelectItem key={a.batchId} value={a.batchId}>
+                      {a.batch.lotCode}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <ReportMortalityDialog
               farmId={farmId}
               batchId={mortalityAllocation.batchId}
-              tankId={tankId}
+              tankId={mortalityTankId}
               lotCode={mortalityAllocation.batch.lotCode}
               liveCount={mortalityAllocation.estimatedCount}
             />
