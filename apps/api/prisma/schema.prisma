@@ -1026,6 +1026,7 @@ model SupplyMovement {
   note        String?
   createdById String
   createdAt   DateTime           @default(now())
+  deletedAt   DateTime?
 
   item     SupplyItem @relation(fields: [itemId], references: [id])
   fromFarm Farm?      @relation("SupplyFrom", fields: [fromFarmId], references: [id])
@@ -1036,10 +1037,17 @@ model SupplyMovement {
 }
 
 enum ColdStorageKind {
-  /// Dead fish put into a farm's cold room.
+  /// Dead fish recorded as going in (to the pit or to the cold room).
   IN
   /// Dead fish shipped from the cold room to the fishmeal plant.
   OUT
+}
+
+enum ColdStorageDisposal {
+  /// Buried in the dead-fish pit. Recorded here, but never part of the cold room's balance.
+  PIT
+  /// Held in the cold room for the rendering (fishmeal) machine. Counts toward the balance.
+  RENDERING
 }
 
 /// Dead fish held in a farm's cold room until the fishmeal plant collects it. Balance = IN minus OUT.
@@ -1048,12 +1056,14 @@ model ColdStorageEntry {
   companyId   String
   farmId      String
   kind        ColdStorageKind
+  disposal    ColdStorageDisposal @default(RENDERING)
   weightKg    Decimal         @db.Decimal(12, 3)
   occurredAt  DateTime        @default(now())
   destination String?
   note        String?
   createdById String
   createdAt   DateTime        @default(now())
+  deletedAt   DateTime?
 
   farm Farm @relation(fields: [farmId], references: [id])
 

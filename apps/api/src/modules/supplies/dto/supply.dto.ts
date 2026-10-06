@@ -51,3 +51,15 @@ export class TransferSupplyDto {
   @MaxLength(500)
   note?: string;
 }
+
+export class UpdateSupplyMovementDto {
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  quantity?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}

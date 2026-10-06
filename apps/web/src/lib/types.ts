@@ -846,6 +846,8 @@ export interface SupplyItemStock {
 export interface ColdStorageEntryRow {
   id: string;
   kind: "IN" | "OUT";
+  /** IN only: buried in the pit or held for the rendering machine. OUT is always rendering stock. */
+  disposal: "PIT" | "RENDERING";
   /** Decimal from the API, so a string. */
   weightKg: string;
   occurredAt: string;
@@ -856,5 +858,7 @@ export interface ColdStorageEntryRow {
 /** Dead fish held in one farm's cold room. */
 export interface ColdStorageSummary {
   balanceKg: number;
+  /** Dead fish buried in the pit, kept for the record. Not part of balanceKg. */
+  pitKg: number;
   entries: ColdStorageEntryRow[];
 }

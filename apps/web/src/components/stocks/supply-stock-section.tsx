@@ -29,9 +29,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useFarms } from "@/hooks/use-farms";
 import {
   useCreateSupplyItem,
+  useDeleteSupplyMovement,
   useReceiveSupply,
   useSupplyItems,
+  useSupplyMovements,
   useTransferSupply,
+  useUpdateSupplyMovement,
+  type SupplyMovementRow,
 } from "@/hooks/use-supplies";
 import { ApiError } from "@/lib/api-error";
 import type { SupplyItemStock } from "@/lib/types";
@@ -88,6 +92,7 @@ export function SupplyStockSection() {
 }
 
 function SupplyItemCard({ item, farms }: { item: SupplyItemStock; farms: FarmOption[] }) {
+  const [showMovements, setShowMovements] = React.useState(false);
   return (
     <Card className="gap-0 py-0">
       <div className="flex items-center justify-between gap-2 border-b border-border bg-secondary px-3.5 py-2.5">
@@ -115,10 +120,14 @@ function SupplyItemCard({ item, farms }: { item: SupplyItemStock; farms: FarmOpt
             ))}
           </ul>
         )}
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           <ReceiveSupplyDialog item={item} farms={farms} />
           <TransferSupplyDialog item={item} farms={farms} />
+          <Button size="sm" variant="ghost" onClick={() => setShowMovements((v) => !v)}>
+            {showMovements ? "Hareketleri gizle" : "Hareketler"}
+          </Button>
         </div>
+        {showMovements ? <SupplyMovementsList item={item} /> : null}
       </CardContent>
     </Card>
   );
@@ -490,6 +499,146 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
             />
             <Button type="submit" className="w-full" disabled={transfer.isPending}>
               Transfer et
+            </Button>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The item's movements, each one correctable or removable. Removal asks twice; the server refuses any that
+ *  would leave a farm with negative stock. */
+function SupplyMovementsList({ item }: { item: SupplyItemStock }) {
+  const { data: movements, isLoading, isError } = useSupplyMovements(item.id, true);
+  if (isLoading || movements === undefined) return <Skeleton className="h-16 rounded-md" />;
+  if (isError) return <p className="text-muted-foreground">Hareketler yüklenemedi.</p>;
+  if (movements.length === 0) return <p className="text-muted-foreground">Henüz hareket yok.</p>;
+  return (
+    <ul className="divide-y divide-border rounded-md border border-border">
+      {movements.map((m) => (
+        <SupplyMovementRowItem key={m.id} movement={m} item={item} />
+      ))}
+    </ul>
+  );
+}
+
+function SupplyMovementRowItem({ movement, item }: { movement: SupplyMovementRow; item: SupplyItemStock }) {
+  const [confirming, setConfirming] = React.useState(false);
+  const remove = useDeleteSupplyMovement();
+  const label =
+    movement.kind === "RECEIVED"
+      ? `Gelen → ${movement.toFarmName ?? "—"}`
+      : `Transfer: ${movement.fromFarmName ?? "—"} → ${movement.toFarmName ?? "—"}`;
+
+  async function onRemove() {
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    try {
+      await remove.mutateAsync({ movementId: movement.id, itemId: item.id });
+      toast.success("Hareket silindi.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Hareket silinemedi.");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 px-2.5 py-2">
+      <span className="min-w-0">
+        <span className="block truncate text-foreground">{label}</span>
+        <span className="block text-[11px] text-muted-foreground">
+          {new Date(movement.occurredAt).toLocaleDateString("tr")}
+          {movement.note ? ` · ${movement.note}` : ""}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <span className="font-mono">{fmt(movement.quantity)} {item.unit}</span>
+        <EditMovementDialog movement={movement} item={item} />
+        <Button size="sm" variant={confirming ? "destructive" : "ghost"} onClick={onRemove} disabled={remove.isPending}>
+          {confirming ? "Emin misin?" : "Sil"}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+const editMovementSchema = z.object({
+  quantity: z.coerce.number().positive("Miktar sıfırdan büyük olmalı"),
+  note: z.string().trim().max(500).optional(),
+});
+type EditMovementValues = z.infer<typeof editMovementSchema>;
+
+function EditMovementDialog({ movement, item }: { movement: SupplyMovementRow; item: SupplyItemStock }) {
+  const [open, setOpen] = React.useState(false);
+  const form = useForm<EditMovementValues>({
+    resolver: zodResolver(editMovementSchema),
+    defaultValues: { quantity: movement.quantity, note: movement.note ?? "" },
+  });
+  const update = useUpdateSupplyMovement();
+
+  async function onSubmit(values: EditMovementValues) {
+    try {
+      await update.mutateAsync({
+        movementId: movement.id,
+        itemId: item.id,
+        quantity: values.quantity,
+        note: values.note ?? "",
+      });
+      toast.success("Hareket düzeltildi.");
+      setOpen(false);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Hareket düzeltilemedi.");
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) form.reset({ quantity: movement.quantity, note: movement.note ?? "" });
+      }}
+    >
+      <DialogTrigger render={<Button size="sm" variant="ghost">Düzelt</Button>} />
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Hareketi düzelt — {item.name}</DialogTitle>
+          <DialogDescription>Miktarı veya notu değiştirin. Kaynak çiftlikte yeterli stok kalmalı.</DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="quantity"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Miktar ({item.unit})</FormLabel>
+                  <FormControl>
+                    <Input type="number" step="any" inputMode="decimal" {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="note"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Not (opsiyonel)</FormLabel>
+                  <FormControl>
+                    <Input {...field} value={field.value ?? ""} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button type="submit" className="w-full" disabled={update.isPending}>
+              Kaydet
             </Button>
           </form>
         </Form>

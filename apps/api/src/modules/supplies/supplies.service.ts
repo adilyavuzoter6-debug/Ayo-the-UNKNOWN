@@ -1,12 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
-import type { ReceiveSupplyDto, TransferSupplyDto, CreateSupplyItemDto } from "./dto/supply.dto";
+import type {
+  CreateSupplyItemDto,
+  ReceiveSupplyDto,
+  TransferSupplyDto,
+  UpdateSupplyMovementDto,
+} from "./dto/supply.dto";
 
 /** Rounding to the stored precision (3 decimals) so sums of decimal quantities compare exactly. */
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 interface MovementLike {
+  id?: string;
   itemId: string;
   kind: "RECEIVED" | "TRANSFER";
   quantity: unknown;
@@ -33,6 +39,17 @@ function balancesByFarm(movements: MovementLike[]): Map<string, number> {
   return balances;
 }
 
+/** Refused when any farm would hold less than nothing. */
+function assertNoNegative(movements: MovementLike[], unit: string) {
+  for (const quantity of balancesByFarm(movements).values()) {
+    if (quantity < 0) {
+      throw new BadRequestException(
+        `Bu değişiklik sonrası bir çiftlikte stok ${quantity} ${unit} olur; kayıt yapılmadı.`,
+      );
+    }
+  }
+}
+
 @Injectable()
 export class SuppliesService {
   constructor(
@@ -57,12 +74,20 @@ export class SuppliesService {
     return item;
   }
 
+  /** Live (not deleted) movements of one item. */
+  private async itemMovements(companyId: string, itemId: string) {
+    return this.tenantPrisma.forTenant(companyId).supplyMovement.findMany({
+      where: { itemId, deletedAt: null },
+      orderBy: { occurredAt: "asc" },
+    });
+  }
+
   /** Every item, with how much of it each farm holds. Farms with nothing in them are left out. */
   async list(companyId: string) {
     const client = this.tenantPrisma.forTenant(companyId);
     const [items, movements, farms] = await Promise.all([
       client.supplyItem.findMany({ orderBy: { name: "asc" } }),
-      client.supplyMovement.findMany(),
+      client.supplyMovement.findMany({ where: { deletedAt: null } }),
       client.farm.findMany({ where: { deletedAt: null }, select: { id: true, name: true } }),
     ]);
     const farmName = new Map(farms.map((f) => [f.id, f.name]));
@@ -82,6 +107,29 @@ export class SuppliesService {
         balances: rows,
       };
     });
+  }
+
+  /** The item's live movements, newest first, with farm names for the page. */
+  async listMovements(companyId: string, itemId: string) {
+    await this.assertItem(companyId, itemId);
+    const [movements, farms] = await Promise.all([
+      this.itemMovements(companyId, itemId),
+      this.tenantPrisma.forTenant(companyId).farm.findMany({ select: { id: true, name: true } }),
+    ]);
+    const farmName = new Map(farms.map((f) => [f.id, f.name]));
+    return movements
+      .map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        quantity: Number(m.quantity),
+        fromFarmId: m.fromFarmId,
+        fromFarmName: m.fromFarmId ? (farmName.get(m.fromFarmId) ?? null) : null,
+        toFarmId: m.toFarmId,
+        toFarmName: m.toFarmId ? (farmName.get(m.toFarmId) ?? null) : null,
+        occurredAt: m.occurredAt,
+        note: m.note,
+      }))
+      .reverse();
   }
 
   async createItem(companyId: string, userId: string, dto: CreateSupplyItemDto) {
@@ -141,7 +189,7 @@ export class SuppliesService {
     await this.assertFarm(companyId, dto.fromFarmId);
     await this.assertFarm(companyId, dto.toFarmId);
 
-    const movements = await this.tenantPrisma.forTenant(companyId).supplyMovement.findMany({ where: { itemId } });
+    const movements = await this.itemMovements(companyId, itemId);
     const available = balancesByFarm(movements).get(dto.fromFarmId) ?? 0;
     if (dto.quantity > available) {
       throw new BadRequestException(`Kaynak çiftlikte yalnızca ${available} birim var.`);
@@ -174,5 +222,71 @@ export class SuppliesService {
       },
     });
     return movement;
+  }
+
+  private async findMovement(companyId: string, movementId: string) {
+    const movement = await this.tenantPrisma.forTenant(companyId).supplyMovement.findFirst({
+      where: { id: movementId, deletedAt: null },
+    });
+    if (!movement) {
+      throw new NotFoundException("Supply movement not found.");
+    }
+    return movement;
+  }
+
+  /**
+   * Corrects a movement's quantity or note. A quantity change is checked against every farm's balance
+   * as it would be after the change, so a correction cannot leave any farm with negative stock.
+   */
+  async updateMovement(companyId: string, userId: string, movementId: string, dto: UpdateSupplyMovementDto) {
+    const current = await this.findMovement(companyId, movementId);
+    const item = await this.assertItem(companyId, current.itemId);
+    const quantity = dto.quantity !== undefined ? round3(dto.quantity) : Number(current.quantity);
+
+    if (dto.quantity !== undefined) {
+      const others = (await this.itemMovements(companyId, item.id)).filter((m) => m.id !== movementId);
+      const after = [...others, { ...current, quantity }];
+      assertNoNegative(after, item.unit);
+    }
+
+    const updated = await this.tenantPrisma.forTenant(companyId).supplyMovement.update({
+      where: { id: movementId },
+      data: {
+        quantity,
+        note: dto.note !== undefined ? dto.note.trim() || null : current.note,
+      },
+    });
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "UPDATE",
+      entityType: "SupplyMovement",
+      entityId: movementId,
+      previousValue: { quantity: current.quantity.toString(), note: current.note },
+      newValue: { quantity: updated.quantity.toString(), note: updated.note },
+    });
+    return updated;
+  }
+
+  /** Removes a movement from the stock. Refused if it would leave any farm with negative stock. */
+  async removeMovement(companyId: string, userId: string, movementId: string) {
+    const current = await this.findMovement(companyId, movementId);
+    const item = await this.assertItem(companyId, current.itemId);
+    const others = (await this.itemMovements(companyId, item.id)).filter((m) => m.id !== movementId);
+    assertNoNegative(others, item.unit);
+
+    await this.tenantPrisma.forTenant(companyId).supplyMovement.update({
+      where: { id: movementId },
+      data: { deletedAt: new Date() },
+    });
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "DELETE",
+      entityType: "SupplyMovement",
+      entityId: movementId,
+      previousValue: { kind: current.kind, quantity: current.quantity.toString() },
+    });
+    return { deleted: true as const };
   }
 }

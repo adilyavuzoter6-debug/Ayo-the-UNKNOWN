@@ -3687,6 +3687,150 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyA.ownerToken))
         .expect(404);
     });
+
+    it("supply corrections: a movement's quantity can change or it can be removed only while no farm would go negative; another company gets 404", async () => {
+      const a1 = await isolatedFarm("SUPPLY-FIX-1");
+      const a2 = await isolatedFarm("SUPPLY-FIX-2");
+      const item = await request(app.getHttpServer())
+        .post("/api/v1/supply-items")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Filtre", category: "Filtre", unit: "adet" })
+        .expect(201);
+      const itemId = item.body.data.id as string;
+      const received = await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/receive`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ farmId: a1.farmId, quantity: 10 })
+        .expect(201);
+      const transfer = await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/transfer`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromFarmId: a1.farmId, toFarmId: a2.farmId, quantity: 4 })
+        .expect(201);
+      const transferId = transfer.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/supply-items/movements/${transferId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ quantity: 2 })
+        .expect(200);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/supply-items/movements/${transferId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ quantity: 20 })
+        .expect(400);
+
+      const movements = await request(app.getHttpServer())
+        .get(`/api/v1/supply-items/${itemId}/movements`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(movements.body.data).toHaveLength(2);
+      const list = await request(app.getHttpServer())
+        .get("/api/v1/supply-items")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const row = list.body.data.find((r: { id: string }) => r.id === itemId);
+      const at = (farmId: string) => row.balances.find((b: { farmId: string }) => b.farmId === farmId)?.quantity;
+      expect(at(a1.farmId)).toBe(8);
+      expect(at(a2.farmId)).toBe(2);
+
+      // Removing the receipt would leave the source farm with -2: refused.
+      await request(app.getHttpServer())
+        .delete(`/api/v1/supply-items/movements/${received.body.data.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(400);
+      // Removing the transfer is fine: all 10 are back at the first farm.
+      await request(app.getHttpServer())
+        .delete(`/api/v1/supply-items/movements/${transferId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const after = await request(app.getHttpServer())
+        .get("/api/v1/supply-items")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const afterRow = after.body.data.find((r: { id: string }) => r.id === itemId);
+      expect(afterRow.totalQuantity).toBe(10);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/supply-items/movements/${received.body.data.id}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .send({ quantity: 1 })
+        .expect(404);
+    });
+
+    it("cold storage corrections: an entry can change or be removed only while the balance stays at or above zero; another company gets 404", async () => {
+      const iso = await isolatedFarm("COLD-FIX");
+      const path = `/api/v1/farms/${iso.farmId}/cold-storage`;
+      const inEntry = await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "IN", weightKg: 120 })
+        .expect(201);
+      const outEntry = await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "OUT", weightKg: 50, destination: "Test Un Fabrikası" })
+        .expect(201);
+      const inId = inEntry.body.data.id as string;
+      const outId = outEntry.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .patch(`${path}/${inId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ weightKg: 40 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .patch(`${path}/${inId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ weightKg: 100 })
+        .expect(200);
+      const shown = await request(app.getHttpServer()).get(path).set("Authorization", auth(companyA.ownerToken)).expect(200);
+      expect(shown.body.data.balanceKg).toBe(50);
+
+      // Removing the intake would leave -50: refused. Removing the shipment restores the balance.
+      await request(app.getHttpServer())
+        .delete(`${path}/${inId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(400);
+      await request(app.getHttpServer())
+        .delete(`${path}/${outId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const restored = await request(app.getHttpServer()).get(path).set("Authorization", auth(companyA.ownerToken)).expect(200);
+      expect(restored.body.data.balanceKg).toBe(100);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${companyB.farmId}/cold-storage/${inId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+    });
+
+    it("cold storage pit vs rendering: buried fish is recorded for the farm but never counts toward the cold room's balance", async () => {
+      const iso = await isolatedFarm("COLD-PIT");
+      const path = `/api/v1/farms/${iso.farmId}/cold-storage`;
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "IN", disposal: "RENDERING", weightKg: 80 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "IN", disposal: "PIT", weightKg: 30 })
+        .expect(201);
+
+      const res = await request(app.getHttpServer()).get(path).set("Authorization", auth(companyA.ownerToken)).expect(200);
+      expect(res.body.data.balanceKg).toBe(80);
+      expect(res.body.data.pitKg).toBe(30);
+      expect(res.body.data.entries).toHaveLength(2);
+
+      // A shipment to the plant can only use the rendering stock: 81 kg is more than the 80 kg there.
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "OUT", weightKg: 81, destination: "Test Un Fabrikası" })
+        .expect(400);
+    });
   });
 
   describe("regulatory inspection report", () => {

@@ -65,3 +65,54 @@ export function useTransferSupply() {
     onSuccess: invalidate,
   });
 }
+
+export interface SupplyMovementRow {
+  id: string;
+  kind: "RECEIVED" | "TRANSFER";
+  quantity: number;
+  fromFarmName: string | null;
+  toFarmName: string | null;
+  occurredAt: string;
+  note: string | null;
+}
+
+/** An item's movements, newest first. Loads when the item's movement list is opened. */
+export function useSupplyMovements(itemId: string, enabled: boolean) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  return useQuery({
+    queryKey: ["supply-movements", companyId, itemId],
+    queryFn: () => api.get<SupplyMovementRow[]>(`/supply-items/${itemId}/movements`),
+    enabled: !!companyId && enabled,
+  });
+}
+
+export function useUpdateSupplyMovement() {
+  const api = useApiClient();
+  const invalidate = useInvalidateSupplies();
+  const queryClient = useQueryClient();
+  const { companyId } = useActiveCompany();
+  return useMutation({
+    mutationFn: (input: { movementId: string; itemId: string; quantity?: number; note?: string }) =>
+      api.patch(`/supply-items/movements/${input.movementId}`, { quantity: input.quantity, note: input.note }),
+    onSuccess: (_data, input) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["supply-movements", companyId, input.itemId] });
+    },
+  });
+}
+
+export function useDeleteSupplyMovement() {
+  const api = useApiClient();
+  const invalidate = useInvalidateSupplies();
+  const queryClient = useQueryClient();
+  const { companyId } = useActiveCompany();
+  return useMutation({
+    mutationFn: (input: { movementId: string; itemId: string }) =>
+      api.del(`/supply-items/movements/${input.movementId}`),
+    onSuccess: (_data, input) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["supply-movements", companyId, input.itemId] });
+    },
+  });
+}

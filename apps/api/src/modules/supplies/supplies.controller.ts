@@ -1,11 +1,16 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
-import { CreateSupplyItemDto, ReceiveSupplyDto, TransferSupplyDto } from "./dto/supply.dto";
+import {
+  CreateSupplyItemDto,
+  ReceiveSupplyDto,
+  TransferSupplyDto,
+  UpdateSupplyMovementDto,
+} from "./dto/supply.dto";
 import { SuppliesService } from "./supplies.service";
 
 @ApiTags("supplies")
@@ -28,6 +33,33 @@ export class SuppliesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.supplies.createItem(tenant.companyId, user.id, dto);
+  }
+
+  @Get(":id/movements")
+  @RequirePermission(Permission.SUPPLY_READ)
+  listMovements(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {
+    return this.supplies.listMovements(tenant.companyId, id);
+  }
+
+  @Patch("movements/:movementId")
+  @RequirePermission(Permission.SUPPLY_CREATE)
+  updateMovement(
+    @Param("movementId") movementId: string,
+    @Body() dto: UpdateSupplyMovementDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.supplies.updateMovement(tenant.companyId, user.id, movementId, dto);
+  }
+
+  @Delete("movements/:movementId")
+  @RequirePermission(Permission.SUPPLY_CREATE)
+  removeMovement(
+    @Param("movementId") movementId: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.supplies.removeMovement(tenant.companyId, user.id, movementId);
   }
 
   @Post(":id/receive")
