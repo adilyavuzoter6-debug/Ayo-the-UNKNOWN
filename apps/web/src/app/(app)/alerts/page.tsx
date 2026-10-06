@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AlertRow } from "@/components/alerts/alert-row";
+import { Button } from "@/components/ui/button";
 import { useCompanyAlerts, useResolveAlert } from "@/hooks/use-alerts";
 import { useFarms } from "@/hooks/use-farms";
 import { ApiError } from "@/lib/api-error";
@@ -18,6 +19,8 @@ import type { AlertStatus } from "@/lib/types";
 import { toast } from "sonner";
 
 type StatusFilter = AlertStatus | "ALL";
+
+const INITIAL_VISIBLE = 5;
 
 const STATUS_LABEL: Record<StatusFilter, string> = {
   OPEN: "Açık",
@@ -31,6 +34,7 @@ export default function AlertsPage() {
   const { data: alerts, isLoading } = useCompanyAlerts(status);
   const { data: farms } = useFarms();
   const resolveAlert = useResolveAlert();
+  const [showAll, setShowAll] = React.useState(false);
 
   const farmNameById = React.useMemo(
     () => new Map((farms ?? []).map((f) => [f.id, f.name])),
@@ -69,7 +73,7 @@ export default function AlertsPage() {
           </div>
         ) : alerts && alerts.length > 0 ? (
           <div className="flex flex-col">
-            {alerts.map((a) => (
+            {(showAll ? alerts : alerts.slice(0, INITIAL_VISIBLE)).map((a) => (
               <AlertRow
                 key={a.id}
                 alert={a}
@@ -78,6 +82,13 @@ export default function AlertsPage() {
                 resolving={resolveAlert.isPending}
               />
             ))}
+            {alerts.length > INITIAL_VISIBLE ? (
+              <div className="flex justify-center border-t border-border py-3">
+                <Button variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
+                  {showAll ? "Daha az göster" : `Tümünü göster (${alerts.length})`}
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">
