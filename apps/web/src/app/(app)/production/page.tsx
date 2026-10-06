@@ -94,6 +94,8 @@ export default function ProductionPage() {
             }, 0);
 
             const maxBiomassKg = tank.maxBiomassKg ? Number(tank.maxBiomassKg) : null;
+            const volumeM3 = tank.volumeM3 ? Number(tank.volumeM3) : null;
+            const densityKgPerM3 = volumeM3 && volumeM3 > 0 ? totalBiomassKg / volumeM3 : null;
 
             return (
               <Card key={tank.id} className="gap-0 overflow-hidden py-0">
@@ -108,7 +110,15 @@ export default function ProductionPage() {
                     <StatusBadge status={TANK_STATUS_KIND[tank.status]} />
                   </div>
                   {allocations.length > 0 ? (
-                    <CapacityBar biomassKg={totalBiomassKg} maxBiomassKg={maxBiomassKg} className="mt-2" />
+                    <div className="mt-2 space-y-1">
+                      <CapacityBar biomassKg={totalBiomassKg} maxBiomassKg={maxBiomassKg} />
+                      <p className="text-[11px] text-muted-foreground">
+                        Yoğunluk:{" "}
+                        <span className="font-mono">
+                          {densityKgPerM3 !== null ? `${densityKgPerM3.toFixed(1)} kg/m³` : "—"}
+                        </span>
+                      </p>
+                    </div>
                   ) : null}
                 </div>
                 <CardContent className="space-y-2 py-3.5 text-xs">
