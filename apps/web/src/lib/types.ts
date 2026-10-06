@@ -190,6 +190,13 @@ export interface FcrResult {
   feedConsumedKg: number;
   biomassGainKg: number;
   fcr: number | null;
+  economic: {
+    methodology: string;
+    feedCostTry: number;
+    feedUnpricedKg: number;
+    feedCostPerKgGainTry: number | null;
+    directCostPerKgGainTry: number | null;
+  };
 }
 
 export interface SgrPoint {
@@ -260,6 +267,10 @@ export interface HarvestRecord {
   destination: string | null;
   customer: string | null;
   processingPlant: string | null;
+  salePricePerKg: string | null;
+  saleCurrency: string | null;
+  saleExchangeRate: string | null;
+  saleRevenueTry: string | null;
   createdById: string;
   notes: string | null;
   createdAt: string;
@@ -305,6 +316,8 @@ export interface CostEntry {
   category: CostCategory;
   amount: string;
   currency: string;
+  exchangeRate: string | null;
+  amountTry: string;
   farmId: string | null;
   tankId: string | null;
   batchId: string | null;
@@ -319,17 +332,99 @@ export interface CostEntry {
 export interface CostSummaryBatchRow {
   batchId: string;
   lotCode: string;
+  /** Batch-tagged costs plus the feed the batch consumed. */
   directCostTotal: number;
+  feedCostTry: number;
+  /** Kg eaten from lots with no unit cost — directCostTotal is a floor by this much. */
+  feedUnpricedKg: number;
+  /** This batch's share of farm-level costs (electricity, labor…), by kilogram-days. */
+  allocatedFarmCostTry: number;
+  fullCostTry: number;
   harvestedKg: number;
   directCostPerKg: number | null;
+  fullCostPerKg: number | null;
+  revenueTry: number;
+  avgSaleTryPerKg: number | null;
+  grossProfitTry: number | null;
+  netProfitTry: number | null;
+  mortalityKg: number;
+  mortalityLossTry: number | null;
 }
 
 export interface CostSummary {
   periodStart: string;
   periodEnd: string;
+  /** TRY, all costs in the period. */
   totalAmount: number;
   byCategory: Partial<Record<CostCategory, number>>;
+  farmLevelCostTry: number;
+  allocatedFarmCostTry: number;
+  unallocatedFarmCostTry: number;
+  /** TRY, from harvests with a sale price in the period. */
+  revenueTry: number;
+  /** Revenue minus every cost in the period, farm-level costs included. */
+  periodResultTry: number;
+  /** Estimate — see CostsService.getCostSummary. */
+  mortalityLossTry: number;
   batchBreakdown: CostSummaryBatchRow[];
+}
+
+export interface RecurringCost {
+  id: string;
+  farmId: string;
+  category: CostCategory;
+  amount: string;
+  currency: string;
+  dayOfMonth: number;
+  startDate: string;
+  generatedThrough: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface CostForecastBatchRow {
+  batchId: string;
+  lotCode: string;
+  liveCount: number;
+  liveBiomassKg: number;
+  avgWeightG: number;
+  targetBiomassKg: number;
+  biomassGainKg: number;
+  feedKgNeeded: number;
+  sunkCostTry: number;
+  feedCostTry: number | null;
+  totalCostTry: number | null;
+  costPerKgTry: number | null;
+  revenueTry: number | null;
+  resultTry: number | null;
+}
+
+export interface CostForecast {
+  assumptions: {
+    targetWeightG: number;
+    targetFcr: number;
+    survivalPct: number;
+    feedPriceTryPerKg: number | null;
+    feedPriceSource: "input" | "recent_consumption" | "latest_lot" | null;
+    expectedSaleTryPerKg: number | null;
+    note: string;
+  };
+  batches: CostForecastBatchRow[];
+  totals: {
+    feedKgNeeded: number;
+    feedCostTry: number | null;
+    totalCostTry: number | null;
+    revenueTry: number | null;
+    resultTry: number | null;
+  };
+}
+
+export type ExchangeCurrency = "TRY" | "USD";
+
+export interface UsdTryRate {
+  date: string;
+  rate: number;
+  bulletinDate: string;
 }
 
 export interface FeedProduct {

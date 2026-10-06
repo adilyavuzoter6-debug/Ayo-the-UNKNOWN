@@ -2481,7 +2481,7 @@ describe("Tenant isolation & authorization (integration)", () => {
       await request(app.getHttpServer())
         .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
         .set("Authorization", auth(companyA.ownerToken))
-        .send({ feedProductId, quantityKg: 25, unitCostPerKg: 40 })
+        .send({ feedProductId, quantityKg: 25, unitCostAmount: 40 })
         .expect(201);
 
       const listRes = await request(app.getHttpServer())
@@ -2523,6 +2523,325 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(batchRow.directCostTotal).toBe(250);
       expect(batchRow.harvestedKg).toBe(10); // 100 fish * 100g / 1000
       expect(batchRow.directCostPerKg).toBe(25); // 250 / 10
+    });
+
+    async function stockCostBatch(codePrefix: string, fishCount: number, avgWeightG: number) {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${codePrefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+          type: "TANK",
+        },
+      });
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount,
+          avgWeightG,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      return { tankId: tank.id, batchId: res.body.data.id as string };
+    }
+
+    /** Today ±1 day — wide enough to catch everything this test just wrote, narrow enough to skip old data. */
+    function todayPeriod() {
+      const periodStart = new Date();
+      periodStart.setDate(periodStart.getDate() - 1);
+      const periodEnd = new Date();
+      periodEnd.setDate(periodEnd.getDate() + 1);
+      return { periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString() };
+    }
+
+    async function fetchCostSummary() {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-summary`)
+        .query(todayPeriod())
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      return res.body.data;
+    }
+
+    it("converts a USD cost entry to TRY at the entered rate and sums the TRY amount, not the USD one", async () => {
+      const { batchId } = await stockCostBatch("CUSD", 100, 100);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          category: "MEDICINE",
+          amount: 100,
+          currency: "USD",
+          exchangeRate: 40,
+          batchId,
+          incurredAt: new Date().toISOString(),
+        })
+        .expect(201);
+      expect(res.body.data.currency).toBe("USD");
+      expect(Number(res.body.data.amount)).toBe(100);
+      expect(Number(res.body.data.exchangeRate)).toBe(40);
+      expect(Number(res.body.data.amountTry)).toBe(4000);
+
+      const summary = await fetchCostSummary();
+      const batchRow = summary.batchBreakdown.find((b: { batchId: string }) => b.batchId === batchId);
+      expect(batchRow.directCostTotal).toBe(4000);
+    });
+
+    it("a cost in an unsupported currency is rejected before anything is written", async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "LABOR", amount: 10, currency: "EUR", incurredAt: new Date().toISOString() })
+        .expect(400);
+    });
+
+    it("a priced harvest records TRY revenue, the batch result and an estimated mortality loss", async () => {
+      const { tankId, batchId } = await stockCostBatch("SALE", 100, 100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "TRANSPORTATION", amount: 500, batchId, incurredAt: new Date().toISOString() })
+        .expect(201);
+
+      // 10 fish die at 100g → 1 kg dead. Lifetime cost/kg = 500 / (0 live + 9 harvested + 1 dead) = 50.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 10, reason: "DISEASE" })
+        .expect(201);
+
+      // The remaining 90 fish → 9 kg at 200 TRY/kg = 1800 TRY.
+      const harvestRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL", salePricePerKg: 200 })
+        .expect(201);
+      expect(Number(harvestRes.body.data.biomassKg)).toBe(9);
+      expect(Number(harvestRes.body.data.saleRevenueTry)).toBe(1800);
+      expect(harvestRes.body.data.saleCurrency).toBe("TRY");
+
+      const summary = await fetchCostSummary();
+      const batchRow = summary.batchBreakdown.find((b: { batchId: string }) => b.batchId === batchId);
+      expect(batchRow.revenueTry).toBe(1800);
+      expect(batchRow.avgSaleTryPerKg).toBe(200);
+      expect(batchRow.directCostTotal).toBe(500);
+      expect(batchRow.grossProfitTry).toBe(1300); // 1800 revenue − 500 direct cost
+      expect(batchRow.mortalityKg).toBe(1);
+      expect(batchRow.mortalityLossTry).toBe(50);
+
+      // Farm totals are shared with other tests in this run, so assert they include this batch.
+      expect(summary.revenueTry).toBeGreaterThanOrEqual(1800);
+      expect(summary.mortalityLossTry).toBeGreaterThanOrEqual(50);
+    });
+
+    it("a USD sale price is converted at the rate stored on the harvest, and sale fields are validated", async () => {
+      const { tankId, batchId } = await stockCostBatch("SALEUSD", 100, 100);
+
+      const harvestRes = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId,
+          type: "ACTUAL",
+          fullness: "FULL",
+          salePricePerKg: 5,
+          saleCurrency: "USD",
+          saleExchangeRate: 40,
+        })
+        .expect(201);
+      expect(harvestRes.body.data.saleCurrency).toBe("USD");
+      expect(Number(harvestRes.body.data.saleExchangeRate)).toBe(40);
+      expect(Number(harvestRes.body.data.saleRevenueTry)).toBe(2000); // 10 kg × $5 × 40
+
+      // A sale currency with no price is a mistake, not a silent no-op.
+      const second = await stockCostBatch("SALEBAD", 50, 100);
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${second.tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: second.batchId, type: "ACTUAL", fullness: "FULL", saleCurrency: "USD" })
+        .expect(400);
+
+      // Only an actual harvest can carry a price; a planned one cannot.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${second.tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          batchId: second.batchId,
+          type: "PLANNED",
+          fullness: "FULL",
+          plannedDate: "2026-06-01",
+          salePricePerKg: 100,
+        })
+        .expect(400);
+    });
+
+    it("a USD feed purchase records the TRY unit cost on the lot and a USD-denominated FEED cost entry", async () => {
+      const purchase = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          feedProductId,
+          quantityKg: 10,
+          unitCostCurrency: "USD",
+          unitCostAmount: 2,
+          exchangeRate: 40,
+        })
+        .expect(201);
+      expect(Number(purchase.body.data.unitCostPerKg)).toBe(80); // $2 × 40
+
+      const listRes = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const feedEntry = listRes.body.data.find(
+        (e: { sourceId: string | null; sourceType: string | null }) =>
+          e.sourceType === "FeedInventoryTransaction" && e.sourceId === purchase.body.data.id,
+      );
+      expect(feedEntry).toBeDefined();
+      expect(feedEntry.currency).toBe("USD");
+      expect(Number(feedEntry.amount)).toBe(20); // 10 kg × $2
+      expect(Number(feedEntry.amountTry)).toBe(800); // 20 × 40
+    });
+    it("a recurring cost books each due month exactly once, however many times the cost page is read", async () => {
+      const startUtc = new Date();
+      startUtc.setUTCDate(1);
+      startUtc.setUTCMonth(startUtc.getUTCMonth() - 2);
+      const startDate = startUtc.toISOString().slice(0, 10);
+
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/recurring-costs`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "ELECTRICITY", amount: 1200, dayOfMonth: 1, startDate, notes: "Test kira" })
+        .expect(201);
+      const recurringId = created.body.data.id as string;
+
+      // Two months back plus this month (day 1 is never after today) → three occurrences.
+      const countRecurring = async () => {
+        const list = await request(app.getHttpServer())
+          .get(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+          .set("Authorization", auth(companyA.ownerToken))
+          .expect(200);
+        return list.body.data.filter(
+          (e: { sourceType: string | null; sourceId: string | null }) =>
+            e.sourceType === "RecurringCost" && e.sourceId?.startsWith(recurringId),
+        ).length;
+      };
+      expect(await countRecurring()).toBe(3);
+      expect(await countRecurring()).toBe(3);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${companyA.farmId}/recurring-costs/${recurringId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(await countRecurring()).toBe(3); // stopping keeps the costs that already happened
+    });
+
+    it("recurring costs and the cost forecast never read or write another company's farm", async () => {
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/recurring-costs`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/cost-forecast`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyB.farmId}/recurring-costs`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "LABOR", amount: 100, dayOfMonth: 1, startDate: "2026-01-01" })
+        .expect(404);
+    });
+
+    it("rejects a recurring day past the 28th, so every month has that day", async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/recurring-costs`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "LABOR", amount: 100, dayOfMonth: 29, startDate: "2026-01-01" })
+        .expect(400);
+    });
+
+    it("a farm-level cost is spread over the batches that carried biomass in the window", async () => {
+      const { batchId } = await stockCostBatch("ALLOC", 100, 100);
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "ELECTRICITY", amount: 900, incurredAt: new Date().toISOString() })
+        .expect(201);
+
+      const summary = await fetchCostSummary();
+      const row = summary.batchBreakdown.find((b: { batchId: string }) => b.batchId === batchId);
+      expect(row).toBeDefined();
+      expect(row.allocatedFarmCostTry).toBeGreaterThan(0);
+      expect(row.fullCostTry).toBeCloseTo(row.directCostTotal + row.allocatedFarmCostTry, 1);
+      expect(summary.allocatedFarmCostTry + summary.unallocatedFarmCostTry).toBeCloseTo(
+        summary.farmLevelCostTry,
+        1,
+      );
+    });
+
+    it("feed a batch ate is costed at its lot's price, and shows in the economic FCR", async () => {
+      const { tankId, batchId } = await stockCostBatch("FEEDC", 100, 100);
+      const lot = await request(app.getHttpServer())
+        .post(`/api/v1/warehouses/${warehouseId}/inventory-batches`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ feedProductId, quantityKg: 50, unitCostAmount: 40 })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankId}/feeding-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, feedInventoryBatchId: lot.body.data.id, quantityKg: 5 })
+        .expect(201);
+
+      const summary = await fetchCostSummary();
+      const row = summary.batchBreakdown.find((b: { batchId: string }) => b.batchId === batchId);
+      expect(row.feedCostTry).toBe(200); // 5 kg × 40 TRY/kg
+      expect(row.directCostTotal).toBe(200);
+
+      // Economic FCR needs a biomass snapshot to define the window; recalculate, then read it back.
+      const recalc = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/biomass/recalculate`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(201);
+      const snapshotDate = recalc.body.data[0].snapshotDate as string;
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      const fcr = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/fcr`)
+        .query({ periodStart: new Date(snapshotDate).toISOString(), periodEnd: tomorrow })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(fcr.body.data.economic.methodology).toBe("fcr.economic.v1");
+      expect(fcr.body.data.economic.feedCostTry).toBe(200);
+      expect(fcr.body.data.economic.feedUnpricedKg).toBe(0);
+      expect(fcr.body.data.economic.feedCostPerKgGainTry).toBeNull(); // no weight gain yet
+    });
+
+    it("forecasts the feed still to be eaten and its cost to harvest, from the farm's recent feed price", async () => {
+      const { batchId } = await stockCostBatch("FCAST", 100, 100); // 10 kg live, no costs yet
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-forecast`)
+        .query({ targetWeightG: 200, targetFcr: 1, survivalPct: 100, feedPriceTryPerKg: 10 })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      expect(res.body.data.assumptions.feedPriceSource).toBe("input");
+      const row = res.body.data.batches.find((b: { batchId: string }) => b.batchId === batchId);
+      expect(row).toBeDefined();
+      // Target 100 fish × 200g = 20 kg; 10 kg to gain at FCR 1 = 10 kg feed × 10 TRY = 100 TRY.
+      expect(row.targetBiomassKg).toBe(20);
+      expect(row.feedKgNeeded).toBe(10);
+      expect(row.feedCostTry).toBe(100);
+      expect(row.sunkCostTry).toBe(0);
+      expect(row.totalCostTry).toBe(100);
+      expect(row.costPerKgTry).toBe(5); // 100 TRY / 20 kg at harvest
     });
   });
 

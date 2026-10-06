@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { AlertsService } from "../alerts/alerts.service";
+import { ExchangeRatesService, roundRate } from "../exchange-rates/exchange-rates.service";
 import { FeedInventoryProjectionService } from "./feed-inventory-projection.service";
 import type { ReceiveStockDto } from "./dto/receive-stock.dto";
 import type { CreateAdjustmentDto } from "./dto/create-adjustment.dto";
@@ -15,6 +16,7 @@ export class FeedInventoryService {
     private readonly auditService: AuditService,
     private readonly alertsService: AlertsService,
     private readonly projection: FeedInventoryProjectionService,
+    private readonly exchangeRates: ExchangeRatesService,
   ) {}
 
   private async assertWarehouseInTenant(companyId: string, warehouseId: string) {
@@ -62,6 +64,20 @@ export class FeedInventoryService {
     dto: ReceiveStockDto,
   ) {
     const warehouse = await this.assertWarehouseInTenant(companyId, warehouseId);
+    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : new Date();
+
+    // The unit cost is stored in TRY on the lot (FeedInventoryBatch.unitCostPerKg) and the cost entry
+    // keeps the original currency + rate. Resolved before any write, so a failed rate lookup leaves
+    // no lot behind without its cost.
+    const currency = dto.unitCostCurrency ?? "TRY";
+    const unitCostRate =
+      dto.unitCostAmount === undefined
+        ? undefined
+        : await this.exchangeRates.resolveTryRate(currency, occurredAt, dto.exchangeRate);
+    const unitCostPerKgTry =
+      dto.unitCostAmount === undefined || unitCostRate === undefined
+        ? undefined
+        : roundRate(dto.unitCostAmount * unitCostRate);
 
     const batch = await this.tenantPrisma.forTenant(companyId).feedInventoryBatch.create({
       data: {
@@ -71,12 +87,10 @@ export class FeedInventoryService {
         supplierLotCode: dto.supplierLotCode,
         manufactureDate: dto.manufactureDate ? new Date(dto.manufactureDate) : undefined,
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
-        unitCostPerKg: dto.unitCostPerKg,
+        unitCostPerKg: unitCostPerKgTry,
         createdById: userId,
       },
     });
-
-    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : new Date();
 
     await this.tenantPrisma.forTenant(companyId).feedInventoryTransaction.create({
       data: {
@@ -93,18 +107,22 @@ export class FeedInventoryService {
 
     // Auto-derived FEED cost entry (§4.7's CostEntry.sourceType convention) — only when the
     // purchase actually records a unit cost; a lot received without pricing simply isn't costed.
-    if (dto.unitCostPerKg !== undefined) {
+    if (dto.unitCostAmount !== undefined && unitCostRate !== undefined) {
+      const amount = Math.round(dto.unitCostAmount * dto.quantityKg * 100) / 100;
       await this.tenantPrisma.forTenant(companyId).costEntry.create({
         data: {
           companyId,
           farmId: warehouse.farmId,
           category: "FEED",
-          amount: dto.unitCostPerKg * dto.quantityKg,
+          amount,
+          currency,
+          exchangeRate: unitCostRate,
+          amountTry: Math.round(amount * unitCostRate * 100) / 100,
           incurredAt: occurredAt,
           sourceType: "FeedInventoryTransaction",
           sourceId: batch.id,
           createdById: userId,
-          notes: `${dto.quantityKg} kg × ${dto.unitCostPerKg}/kg (auto)`,
+          notes: `${dto.quantityKg} kg × ${dto.unitCostAmount} ${currency}/kg (auto)`,
         },
       });
     }

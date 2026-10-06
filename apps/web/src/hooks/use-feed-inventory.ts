@@ -3,7 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { FeedInventoryBatch, FeedInventoryTransaction } from "@/lib/types";
+import type {
+  ExchangeCurrency,
+  FeedInventoryBatch,
+  FeedInventoryTransaction,
+} from "@/lib/types";
 
 export function useInventoryBatches() {
   const api = useApiClient();
@@ -45,7 +49,9 @@ export interface ReceiveStockInput {
   supplierLotCode?: string;
   manufactureDate?: string;
   expiryDate?: string;
-  unitCostPerKg?: number;
+  unitCostAmount?: number;
+  unitCostCurrency?: ExchangeCurrency;
+  exchangeRate?: number;
   occurredAt?: string;
   notes?: string;
 }

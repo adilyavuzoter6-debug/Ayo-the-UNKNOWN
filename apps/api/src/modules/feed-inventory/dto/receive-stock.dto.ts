@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
   IsDateString,
+  IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -36,11 +37,25 @@ export class ReceiveStockDto {
   @IsDateString()
   expiryDate?: string;
 
-  @ApiPropertyOptional({ description: "Unit cost per kilogram" })
+  @ApiPropertyOptional({ description: "Unit cost per kilogram, in unitCostCurrency" })
   @IsOptional()
   @IsNumber()
   @IsPositive()
-  unitCostPerKg?: number;
+  unitCostAmount?: number;
+
+  @ApiPropertyOptional({ enum: ["TRY", "USD"], description: "Defaults to TRY" })
+  @IsOptional()
+  @IsIn(["TRY", "USD"])
+  unitCostCurrency?: "TRY" | "USD";
+
+  @ApiPropertyOptional({
+    description:
+      "TRY per 1 USD. Omit to use the Central Bank rate for occurredAt (or today); ignored for TRY.",
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  exchangeRate?: number;
 
   @ApiPropertyOptional({ description: "ISO date the delivery was received (defaults to now)" })
   @IsOptional()

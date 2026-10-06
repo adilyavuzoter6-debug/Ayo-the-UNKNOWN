@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { HarvestFullness, HarvestRecord, HarvestType } from "@/lib/types";
+import type { ExchangeCurrency, HarvestFullness, HarvestRecord, HarvestType } from "@/lib/types";
 
 export function useTankHarvestRecords(tankId: string) {
   const api = useApiClient();
@@ -27,6 +27,9 @@ export interface CreateHarvestRecordInput {
   destination?: string;
   customer?: string;
   processingPlant?: string;
+  salePricePerKg?: number;
+  saleCurrency?: ExchangeCurrency;
+  saleExchangeRate?: number;
   notes?: string;
 }
 

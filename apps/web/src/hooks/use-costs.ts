@@ -3,7 +3,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { CostCategory, CostEntry, CostSummary } from "@/lib/types";
+import type {
+  CostCategory,
+  CostEntry,
+  CostForecast,
+  CostSummary,
+  ExchangeCurrency,
+  RecurringCost,
+} from "@/lib/types";
 
 export function useFarmCostEntries(farmId: string) {
   const api = useApiClient();
@@ -31,7 +38,8 @@ export function useFarmCostSummary(farmId: string, periodStart: string, periodEn
 export interface CreateCostEntryInput {
   category: CostCategory;
   amount: number;
-  currency?: string;
+  currency?: ExchangeCurrency;
+  exchangeRate?: number;
   tankId?: string;
   batchId?: string;
   incurredAt: string;
@@ -49,5 +57,78 @@ export function useCreateCostEntry(farmId: string) {
       queryClient.invalidateQueries({ queryKey: ["cost-entries", companyId, farmId] });
       queryClient.invalidateQueries({ queryKey: ["cost-summary", companyId, farmId] });
     },
+  });
+}
+
+export function useRecurringCosts(farmId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  return useQuery({
+    queryKey: ["recurring-costs", companyId, farmId],
+    queryFn: () => api.get<RecurringCost[]>(`/farms/${farmId}/recurring-costs`),
+    enabled: !!companyId && !!farmId,
+  });
+}
+
+export interface CreateRecurringCostInput {
+  category: CostCategory;
+  amount: number;
+  currency?: ExchangeCurrency;
+  dayOfMonth: number;
+  startDate: string;
+  notes?: string;
+}
+
+export function useCreateRecurringCost(farmId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateRecurringCostInput) =>
+      api.post<RecurringCost>(`/farms/${farmId}/recurring-costs`, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recurring-costs", companyId, farmId] });
+      queryClient.invalidateQueries({ queryKey: ["cost-entries", companyId, farmId] });
+      queryClient.invalidateQueries({ queryKey: ["cost-summary", companyId, farmId] });
+      queryClient.invalidateQueries({ queryKey: ["cost-forecast", companyId, farmId] });
+    },
+  });
+}
+
+export function useStopRecurringCost(farmId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.del<{ stopped: true }>(`/farms/${farmId}/recurring-costs/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["recurring-costs", companyId, farmId] });
+    },
+  });
+}
+
+export interface CostForecastInput {
+  targetWeightG: number;
+  targetFcr: number;
+  survivalPct: number;
+  feedPriceTryPerKg?: number;
+}
+
+export function useCostForecast(farmId: string, input: CostForecastInput) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const params = new URLSearchParams({
+    targetWeightG: String(input.targetWeightG),
+    targetFcr: String(input.targetFcr),
+    survivalPct: String(input.survivalPct),
+  });
+  if (input.feedPriceTryPerKg !== undefined) {
+    params.set("feedPriceTryPerKg", String(input.feedPriceTryPerKg));
+  }
+  return useQuery({
+    queryKey: ["cost-forecast", companyId, farmId, input],
+    queryFn: () => api.get<CostForecast>(`/farms/${farmId}/cost-forecast?${params.toString()}`),
+    enabled: !!companyId && !!farmId,
+    placeholderData: (previous) => previous,
   });
 }

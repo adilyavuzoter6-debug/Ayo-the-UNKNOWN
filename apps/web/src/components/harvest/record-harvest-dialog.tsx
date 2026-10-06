@@ -27,22 +27,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateHarvestRecord } from "@/hooks/use-harvest";
+import { useUsdTryRate } from "@/hooks/use-exchange-rate";
 import { ApiError } from "@/lib/api-error";
+import { cn } from "@/lib/utils";
 import type { BatchTankAllocation } from "@/lib/types";
 
-const schema = z.object({
-  batchId: z.string().min(1, "Bir parti seçin"),
-  type: z.enum(["ACTUAL", "PLANNED"]),
-  fullness: z.enum(["FULL", "PARTIAL"]),
-  plannedDate: z.string().optional(),
-  harvestedAt: z.string().optional(),
-  fishCount: z.coerce.number().int().positive().optional(),
-  avgWeightG: z.coerce.number().positive().optional(),
-  sizeGrade: z.string().optional(),
-  destination: z.string().optional(),
-  customer: z.string().optional(),
-  notes: z.string().max(500).optional(),
-});
+const schema = z
+  .object({
+    batchId: z.string().min(1, "Bir parti seçin"),
+    type: z.enum(["ACTUAL", "PLANNED"]),
+    fullness: z.enum(["FULL", "PARTIAL"]),
+    plannedDate: z.string().optional(),
+    harvestedAt: z.string().optional(),
+    fishCount: z.coerce.number().int().positive().optional(),
+    avgWeightG: z.coerce.number().positive().optional(),
+    sizeGrade: z.string().optional(),
+    destination: z.string().optional(),
+    customer: z.string().optional(),
+    salePricePerKg: z.coerce.number().positive().optional(),
+    saleCurrency: z.enum(["TRY", "USD"]),
+    saleExchangeRate: z.coerce.number().positive().optional(),
+    notes: z.string().max(500).optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.salePricePerKg !== undefined && values.saleCurrency === "USD" && values.saleExchangeRate === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dolar kuru gerekli (TCMB kuru alınamadıysa elle girin)",
+        path: ["saleExchangeRate"],
+      });
+    }
+  });
 type FormValues = z.infer<typeof schema>;
 
 export function RecordHarvestDialog({
@@ -65,17 +80,45 @@ export function RecordHarvestDialog({
       fullness: "FULL",
       harvestedAt: new Date().toISOString().slice(0, 10),
       plannedDate: new Date().toISOString().slice(0, 10),
+      saleCurrency: "TRY",
     },
   });
 
   const type = useWatch({ control: form.control, name: "type" });
   const fullness = useWatch({ control: form.control, name: "fullness" });
   const selectedBatchId = useWatch({ control: form.control, name: "batchId" });
+  const harvestedAt = useWatch({ control: form.control, name: "harvestedAt" });
+  const salePricePerKg = useWatch({ control: form.control, name: "salePricePerKg" });
+  const saleCurrency = useWatch({ control: form.control, name: "saleCurrency" });
+  const saleExchangeRate = useWatch({ control: form.control, name: "saleExchangeRate" });
   const liveCount = allocations.find((a) => a.batchId === selectedBatchId)?.estimatedCount;
+
+  // The Central Bank rate for the harvest date pre-fills the sale rate; a typed rate is kept.
+  const usdRate = useUsdTryRate(saleCurrency === "USD" ? harvestedAt : undefined);
+  React.useEffect(() => {
+    if (!usdRate.data || saleCurrency !== "USD") return;
+    if (!form.getFieldState("saleExchangeRate").isDirty) {
+      form.setValue("saleExchangeRate", usdRate.data.rate);
+    }
+  }, [usdRate.data, saleCurrency, open, form]);
+  const salePreviewTry =
+    salePricePerKg !== undefined && saleCurrency === "TRY"
+      ? salePricePerKg
+      : salePricePerKg !== undefined && saleExchangeRate !== undefined
+        ? salePricePerKg * saleExchangeRate
+        : undefined;
+  const rateIsCentralBank = usdRate.data !== undefined && saleExchangeRate === usdRate.data.rate;
 
   async function onSubmit(values: FormValues) {
     try {
-      await createHarvest.mutateAsync(values);
+      // Sale fields only mean something on an actual harvest with a price.
+      const hasSale = values.type === "ACTUAL" && values.salePricePerKg !== undefined;
+      await createHarvest.mutateAsync({
+        ...values,
+        salePricePerKg: hasSale ? values.salePricePerKg : undefined,
+        saleCurrency: hasSale ? values.saleCurrency : undefined,
+        saleExchangeRate: hasSale && values.saleCurrency === "USD" ? values.saleExchangeRate : undefined,
+      });
       toast.success(values.type === "PLANNED" ? "Planlı hasat eklendi." : "Hasat kaydedildi.");
       form.reset({
         batchId: "",
@@ -83,6 +126,7 @@ export function RecordHarvestDialog({
         fullness: "FULL",
         harvestedAt: new Date().toISOString().slice(0, 10),
         plannedDate: new Date().toISOString().slice(0, 10),
+        saleCurrency: "TRY",
       });
       setOpen(false);
     } catch (error) {
@@ -285,6 +329,101 @@ export function RecordHarvestDialog({
                 </div>
               </>
             )}
+
+            {type === "ACTUAL" ? (
+              <div className="space-y-2.5 rounded-md border border-border p-3">
+                <div className="flex items-center justify-between">
+                  <FormLabel>Satış (opsiyonel)</FormLabel>
+                  <div className="flex overflow-hidden rounded-md border border-border text-xs">
+                    {(["TRY", "USD"] as const).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => form.setValue("saleCurrency", c)}
+                        className={cn(
+                          "px-2.5 py-1 font-medium transition-colors",
+                          saleCurrency === c
+                            ? "bg-teal-500 text-white"
+                            : "bg-transparent text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        {c === "TRY" ? "₺" : "$"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="salePricePerKg"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-[11px] text-muted-foreground">
+                          Fiyat ({saleCurrency === "USD" ? "$" : "₺"}/kg)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            name={field.name}
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            value={field.value ?? ""}
+                            // An emptied input means "no sale price", not 0 — keep it undefined.
+                            onChange={(e) =>
+                              field.onChange(e.target.value === "" ? undefined : Number(e.target.value))
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {saleCurrency === "USD" ? (
+                    <FormField
+                      control={form.control}
+                      name="saleExchangeRate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-[11px] text-muted-foreground">Kur (1$ = ? ₺)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.0001"
+                              name={field.name}
+                              ref={field.ref}
+                              onBlur={field.onBlur}
+                              value={field.value ?? ""}
+                              onChange={(e) =>
+                                field.onChange(e.target.value === "" ? undefined : Number(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ) : null}
+                </div>
+
+                {salePreviewTry !== undefined ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    ≈{" "}
+                    <span className="font-mono font-medium text-foreground">
+                      {salePreviewTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg
+                    </span>{" "}
+                    gelir olarak kaydedilecek
+                    {saleCurrency === "USD" && rateIsCentralBank
+                      ? ` (TCMB ${usdRate.data?.bulletinDate} satış kuru)`
+                      : ""}
+                    .
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             <FormField
               control={form.control}

@@ -3,6 +3,7 @@ import { HarvestFullness, HarvestType } from "@prisma/client";
 import {
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -77,6 +78,26 @@ export class CreateHarvestRecordDto {
   @IsString()
   @MaxLength(200)
   processingPlant?: string;
+
+  @ApiPropertyOptional({ description: "ACTUAL only. Sale price per kg, in saleCurrency." })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  salePricePerKg?: number;
+
+  @ApiPropertyOptional({ enum: ["TRY", "USD"], description: "Defaults to TRY" })
+  @IsOptional()
+  @IsIn(["TRY", "USD"])
+  saleCurrency?: "TRY" | "USD";
+
+  @ApiPropertyOptional({
+    description:
+      "TRY per 1 USD. Omit to use the Central Bank rate for harvestedAt; ignored for TRY sales.",
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  saleExchangeRate?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

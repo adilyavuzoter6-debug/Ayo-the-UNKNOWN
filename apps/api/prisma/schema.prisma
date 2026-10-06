@@ -161,6 +161,7 @@ model Farm {
   warehouses Warehouse[]
   alerts     Alert[]
   costEntries CostEntry[]
+  recurringCosts RecurringCost[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -556,6 +557,13 @@ model HarvestRecord {
   destination     String?
   customer        String?
   processingPlant String?
+  /// ACTUAL harvests only. Price per kg in `saleCurrency`, converted to TRY with
+  /// `saleExchangeRate` at write time — `saleRevenueTry` is stored (not recomputed) so a harvest's
+  /// revenue never moves when a later rate lookup changes.
+  salePricePerKg   Decimal?        @db.Decimal(12, 4)
+  saleCurrency     String?
+  saleExchangeRate Decimal?        @db.Decimal(12, 4)
+  saleRevenueTry   Decimal?        @db.Decimal(14, 2)
   createdById     String
   notes           String?
   createdAt       DateTime        @default(now())
@@ -631,10 +639,17 @@ model CostEntry {
   id          String       @id @default(cuid())
   companyId   String
   category    CostCategory
+  /// In `currency`, as entered.
   amount      Decimal      @db.Decimal(14, 2)
   /// Defaults to TRY, not the doc's generic USD default — every farm this app has shipped to
   /// so far is Turkish.
   currency    String       @default("TRY")
+  /// TRY per 1 unit of `currency`, at incurredAt (1 for TRY). Stored so the conversion can be
+  /// audited later rather than trusting only the derived amountTry.
+  exchangeRate Decimal?    @db.Decimal(12, 4)
+  /// `amount` in TRY. Every total in CostSummary sums this column, never `amount` — summing
+  /// mixed currencies is what this column exists to prevent.
+  amountTry   Decimal      @db.Decimal(14, 2)
   farmId      String?
   tankId      String?
   batchId     String?
@@ -651,9 +666,38 @@ model CostEntry {
   tank  Tank?      @relation(fields: [tankId], references: [id])
   batch FishBatch? @relation(fields: [batchId], references: [id])
 
+  /// One row per source occurrence: a recurring cost's month, a lot's auto FEED entry. Makes a
+  /// repeated materialize (two concurrent reads) skip instead of double-booking.
+  @@unique([companyId, sourceType, sourceId])
   @@index([companyId, batchId])
   @@index([companyId, farmId, incurredAt])
   @@map("cost_entries")
+}
+
+/// A cost that repeats monthly (rent, an electricity contract, a salaried worker). Written into
+/// CostEntry rows on read by RecurringCostsService.materialize — one entry per month, sourceType
+/// "RecurringCost", so each occurrence is auditable and editable like any manual entry.
+model RecurringCost {
+  id               String       @id @default(cuid())
+  companyId        String
+  farmId           String
+  category         CostCategory
+  amount           Decimal      @db.Decimal(14, 2)
+  currency         String       @default("TRY")
+  /// 1–28, so every calendar month has that day.
+  dayOfMonth       Int
+  startDate        DateTime     @db.Date
+  /// Last calendar month (yyyy-mm, UTC) whose occurrence has been written as a CostEntry.
+  generatedThrough String?
+  notes            String?
+  createdById      String
+  createdAt        DateTime     @default(now())
+  deletedAt        DateTime?
+
+  farm Farm @relation(fields: [farmId], references: [id])
+
+  @@index([companyId, farmId])
+  @@map("recurring_costs")
 }
 
 // ─────────────────────────────────────────────────────────────────────────

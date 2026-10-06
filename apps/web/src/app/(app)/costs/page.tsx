@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Wallet } from "lucide-react";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -23,10 +24,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { AddCostEntryDialog } from "@/components/costs/add-cost-entry-dialog";
+import { AddRecurringCostDialog } from "@/components/costs/add-recurring-cost-dialog";
 import { useFarms } from "@/hooks/use-farms";
 import { useFishBatches } from "@/hooks/use-fish-batches";
-import { useFarmCostEntries, useFarmCostSummary } from "@/hooks/use-costs";
+import {
+  useCostForecast,
+  useFarmCostEntries,
+  useFarmCostSummary,
+  useRecurringCosts,
+  useStopRecurringCost,
+} from "@/hooks/use-costs";
 import { COST_CATEGORY_LABEL } from "@/lib/costs";
+import { cn } from "@/lib/utils";
 import type { CostCategory } from "@/lib/types";
 
 function isoDaysAgo(days: number): string {
@@ -37,6 +46,222 @@ function isoDaysAgo(days: number): string {
 
 function fmtTry(n: number): string {
   return n.toLocaleString("tr", { maximumFractionDigits: 2 }) + " ₺";
+}
+
+function fmtPerKg(n: number | null): string {
+  return n !== null ? `${n.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg` : "—";
+}
+
+function fmtOptionalTry(n: number | null): string {
+  return n !== null ? fmtTry(n) : "—";
+}
+
+/** A non-TRY entry keeps its original amount visible next to the TRY it was booked at. */
+function fmtForeign(n: number, currency: string): string {
+  const symbol = currency === "USD" ? "$" : currency;
+  return `${n.toLocaleString("tr", { maximumFractionDigits: 2 })} ${symbol}`;
+}
+
+function toneClass(n: number | null) {
+  if (n === null) return "";
+  return n >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 font-mono text-base font-semibold", tone ?? "text-foreground")}>{value}</div>
+    </div>
+  );
+}
+
+/** Forecast knobs as text while typing, parsed only when they make sense. */
+function parseOr(value: string, fallback: number): number {
+  const n = Number(value.replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function ForecastPanel({ farmId }: { farmId: string }) {
+  const [weight, setWeight] = React.useState("500");
+  const [fcr, setFcr] = React.useState("1.3");
+  const [survival, setSurvival] = React.useState("95");
+  const [feedPrice, setFeedPrice] = React.useState("");
+
+  const feedPriceTryPerKg = feedPrice.trim() === "" ? undefined : parseOr(feedPrice, 0) || undefined;
+  const { data, isLoading, isFetching } = useCostForecast(farmId, {
+    targetWeightG: parseOr(weight, 500),
+    targetFcr: parseOr(fcr, 1.3),
+    survivalPct: Math.min(parseOr(survival, 95), 100),
+    feedPriceTryPerKg,
+  });
+
+  const sourceLabel: Record<"input" | "recent_consumption" | "latest_lot", string> = {
+    input: "girdiğiniz fiyat",
+    recent_consumption: "son 90 günde tüketilen yemin ortalama fiyatı",
+    latest_lot: "en son alınan partinin fiyatı",
+  };
+
+  return (
+    <PanelCard title="Hasat Öncesi Tahmin">
+      <div className="space-y-4 px-4.5 py-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div>
+            <Label className="mb-1 block text-[11px] text-muted-foreground">Hedef ağırlık (g)</Label>
+            <Input value={weight} onChange={(e) => setWeight(e.target.value)} inputMode="decimal" />
+          </div>
+          <div>
+            <Label className="mb-1 block text-[11px] text-muted-foreground">Hedef FCR (kg yem / kg büyüme)</Label>
+            <Input value={fcr} onChange={(e) => setFcr(e.target.value)} inputMode="decimal" />
+          </div>
+          <div>
+            <Label className="mb-1 block text-[11px] text-muted-foreground">Sağkalım (%)</Label>
+            <Input value={survival} onChange={(e) => setSurvival(e.target.value)} inputMode="decimal" />
+          </div>
+          <div>
+            <Label className="mb-1 block text-[11px] text-muted-foreground">Yem fiyatı (₺/kg, boş = otomatik)</Label>
+            <Input
+              value={feedPrice}
+              placeholder="otomatik"
+              onChange={(e) => setFeedPrice(e.target.value)}
+              inputMode="decimal"
+            />
+          </div>
+        </div>
+
+        {isLoading ? (
+          <Skeleton className="h-32 rounded" />
+        ) : data ? (
+          <>
+            {data.batches.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Bu çiftlikte canlı balık yok.</p>
+            ) : (
+              <div className={cn("overflow-x-auto transition-opacity", isFetching && "opacity-60")}>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Parti</TableHead>
+                      <TableHead>Canlı biyokütle</TableHead>
+                      <TableHead>Hedef biyokütle</TableHead>
+                      <TableHead>Kalan yem</TableHead>
+                      <TableHead>Harcanmış</TableHead>
+                      <TableHead>Tahmini toplam maliyet</TableHead>
+                      <TableHead>Hasatta ₺/kg</TableHead>
+                      <TableHead>Tahmini gelir</TableHead>
+                      <TableHead>Tahmini sonuç</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.batches.map((row) => (
+                      <TableRow key={row.batchId}>
+                        <TableCell>
+                          <Link href={`/batches/${row.batchId}`} className="font-mono text-teal-500 hover:underline">
+                            {row.lotCode}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="font-mono">
+                          {row.liveBiomassKg.toFixed(1)} kg
+                          <span className="block text-[11px] text-muted-foreground">
+                            {row.liveCount.toLocaleString("tr")} balık
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-mono">{row.targetBiomassKg.toFixed(1)} kg</TableCell>
+                        <TableCell className="font-mono">{row.feedKgNeeded.toFixed(1)} kg</TableCell>
+                        <TableCell className="font-mono">{fmtTry(row.sunkCostTry)}</TableCell>
+                        <TableCell className="font-mono">{fmtOptionalTry(row.totalCostTry)}</TableCell>
+                        <TableCell className="font-mono font-medium">
+                          {row.costPerKgTry !== null ? fmtPerKg(row.costPerKgTry) : "—"}
+                        </TableCell>
+                        <TableCell className="font-mono">{fmtOptionalTry(row.revenueTry)}</TableCell>
+                        <TableCell className={cn("font-mono font-medium", toneClass(row.resultTry))}>
+                          {fmtOptionalTry(row.resultTry)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {data.batches.length > 1 ? (
+                      <TableRow className="font-medium">
+                        <TableCell>Toplam</TableCell>
+                        <TableCell />
+                        <TableCell />
+                        <TableCell className="font-mono">{data.totals.feedKgNeeded.toFixed(1)} kg</TableCell>
+                        <TableCell />
+                        <TableCell className="font-mono">{fmtOptionalTry(data.totals.totalCostTry)}</TableCell>
+                        <TableCell />
+                        <TableCell className="font-mono">{fmtOptionalTry(data.totals.revenueTry)}</TableCell>
+                        <TableCell className={cn("font-mono", toneClass(data.totals.resultTry))}>
+                          {fmtOptionalTry(data.totals.resultTry)}
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Yem fiyatı:{" "}
+              {data.assumptions.feedPriceTryPerKg !== null && data.assumptions.feedPriceSource
+                ? `${fmtTry(data.assumptions.feedPriceTryPerKg)}/kg (${sourceLabel[data.assumptions.feedPriceSource]})`
+                : "bilinmiyor — stok alımında birim maliyet girin"}
+              .{" "}
+              {data.assumptions.expectedSaleTryPerKg !== null
+                ? `Satış fiyatı son 6 ayın hasatlarından: ${fmtPerKg(data.assumptions.expectedSaleTryPerKg)}. `
+                : "Satış geliri için henüz satış fiyatı girilmiş hasat yok. "}
+              {data.assumptions.note}
+            </p>
+          </>
+        ) : null}
+      </div>
+    </PanelCard>
+  );
+}
+
+function RecurringCostsPanel({ farmId }: { farmId: string }) {
+  const { data: recurring, isLoading } = useRecurringCosts(farmId);
+  const stop = useStopRecurringCost(farmId);
+
+  return (
+    <PanelCard title="Tekrarlayan Giderler">
+      {isLoading ? (
+        <div className="p-4">
+          <Skeleton className="h-16 rounded" />
+        </div>
+      ) : recurring && recurring.length > 0 ? (
+        <ul className="divide-y divide-border">
+          {recurring.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4.5 py-2.5 text-xs">
+              <div>
+                <span className="font-medium text-foreground">{COST_CATEGORY_LABEL[r.category]}</span>
+                <span className="ml-2 text-muted-foreground">
+                  her ayın {r.dayOfMonth}. günü
+                  {r.notes ? ` — ${r.notes}` : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-mono font-medium text-foreground">
+                  {fmtTry(Number(r.amount))} / ay
+                </span>
+                <span className="font-mono text-muted-foreground">
+                  son kayıt: {r.generatedThrough ?? "henüz yok"}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={stop.isPending}
+                  onClick={() => stop.mutate(r.id)}
+                >
+                  Durdur
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-4.5 py-8 text-center text-sm text-muted-foreground">
+          Kira, elektrik sözleşmesi veya sabit çalışan gibi her ay tekrarlanan giderleri buraya ekleyin.
+        </p>
+      )}
+    </PanelCard>
+  );
 }
 
 export default function CostsPage() {
@@ -64,7 +289,7 @@ export default function CostsPage() {
         <div>
           <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Maliyetler</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Üretim maliyeti takibi — yem, işçilik, ilaç ve diğer giderler.
+            Üretim maliyeti, satış geliri ve dönem sonucu — yem, işçilik, ilaç ve diğer giderler.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -82,6 +307,7 @@ export default function CostsPage() {
               ))}
             </SelectContent>
           </Select>
+          {farmId ? <AddRecurringCostDialog farmId={farmId} /> : null}
           {farmId ? <AddCostEntryDialog farmId={farmId} batches={batches ?? []} /> : null}
         </div>
       </div>
@@ -116,7 +342,18 @@ export default function CostsPage() {
             <Skeleton className="h-40 rounded-lg" />
           ) : summary ? (
             <>
-              <PanelCard title={`Toplam Gider — ${fmtTry(summary.totalAmount)}`}>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Metric label="Toplam gider" value={fmtTry(summary.totalAmount)} />
+                <Metric label="Satış geliri" value={fmtTry(summary.revenueTry)} />
+                <Metric
+                  label="Dönem sonucu (gelir − gider)"
+                  value={fmtTry(summary.periodResultTry)}
+                  tone={toneClass(summary.periodResultTry)}
+                />
+                <Metric label="Ölüm kaybı (tahmini)" value={fmtTry(summary.mortalityLossTry)} />
+              </div>
+
+              <PanelCard title="Gider Dağılımı">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-4.5 py-4 text-xs sm:grid-cols-4">
                   {Object.entries(summary.byCategory).length > 0 ? (
                     Object.entries(summary.byCategory).map(([category, amount]) => (
@@ -135,18 +372,32 @@ export default function CostsPage() {
                     </p>
                   )}
                 </div>
+                <p className="border-t border-border px-4.5 py-2.5 text-[11px] text-muted-foreground">
+                  Çiftlik geneli giderler (elektrik, işçilik, genel gider…): {fmtTry(summary.farmLevelCostTry)} —{" "}
+                  {fmtTry(summary.allocatedFarmCostTry)} partilere dağıtıldı
+                  {summary.unallocatedFarmCostTry > 0
+                    ? `, ${fmtTry(summary.unallocatedFarmCostTry)} ise bu dönemde canlı balık olmadığı için dağıtılamadı`
+                    : ""}
+                  . Dağıtım, partinin dönemdeki kg·gün payına göre yapılır. Alınıp henüz yenmemiş yem hiçbir partiye
+                  yazılmaz; yediği kadar parti maliyetine girer.
+                </p>
               </PanelCard>
 
               {summary.batchBreakdown.length > 0 ? (
-                <PanelCard title="Parti Bazlı Doğrudan Maliyet / kg">
+                <PanelCard title="Parti Bazlı Sonuç">
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Parti</TableHead>
-                          <TableHead>Doğrudan maliyet</TableHead>
+                          <TableHead>Doğrudan (yem + ilaç…)</TableHead>
+                          <TableHead>Genel gider payı</TableHead>
+                          <TableHead>Tam maliyet</TableHead>
                           <TableHead>Hasat edilen</TableHead>
-                          <TableHead>Maliyet / kg</TableHead>
+                          <TableHead>Tam maliyet / kg</TableHead>
+                          <TableHead>Satış / kg</TableHead>
+                          <TableHead>Parti sonucu</TableHead>
+                          <TableHead>Ölüm kaybı</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -156,11 +407,35 @@ export default function CostsPage() {
                               <Link href={`/batches/${row.batchId}`} className="font-mono text-teal-500 hover:underline">
                                 {row.lotCode}
                               </Link>
+                              {row.feedUnpricedKg > 0 ? (
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {row.feedUnpricedKg.toFixed(1)} kg yem fiyatsız
+                                </span>
+                              ) : null}
                             </TableCell>
-                            <TableCell className="font-mono">{fmtTry(row.directCostTotal)}</TableCell>
+                            <TableCell className="font-mono">
+                              {fmtTry(row.directCostTotal)}
+                              {row.feedCostTry > 0 ? (
+                                <span className="block text-[11px] text-muted-foreground">
+                                  yem {fmtTry(row.feedCostTry)}
+                                </span>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="font-mono">{fmtTry(row.allocatedFarmCostTry)}</TableCell>
+                            <TableCell className="font-mono font-medium">{fmtTry(row.fullCostTry)}</TableCell>
                             <TableCell className="font-mono">{row.harvestedKg.toFixed(1)} kg</TableCell>
-                            <TableCell className="font-mono font-medium">
-                              {row.directCostPerKg !== null ? `${row.directCostPerKg.toFixed(2)} ₺/kg` : "—"}
+                            <TableCell className="font-mono font-medium">{fmtPerKg(row.fullCostPerKg)}</TableCell>
+                            <TableCell className="font-mono font-medium">{fmtPerKg(row.avgSaleTryPerKg)}</TableCell>
+                            <TableCell className={cn("font-mono font-medium", toneClass(row.netProfitTry))}>
+                              {fmtOptionalTry(row.netProfitTry)}
+                            </TableCell>
+                            <TableCell className="font-mono">
+                              {fmtOptionalTry(row.mortalityLossTry)}
+                              {row.mortalityKg > 0 ? (
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {row.mortalityKg.toFixed(1)} kg ölü
+                                </span>
+                              ) : null}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -168,12 +443,17 @@ export default function CostsPage() {
                     </Table>
                   </div>
                   <p className="border-t border-border px-4.5 py-2.5 text-[11px] text-muted-foreground">
-                    Yalnızca partiye doğrudan etiketlenmiş maliyetleri içerir (yem, ilaç vb.) — elektrik/genel gider gibi çiftlik geneli maliyetler dahil değildir.
+                    Parti sonucu = aynı dönemdeki satış geliri − tam maliyet; satışı olmayan partide boştur. Ölüm kaybı
+                    tahminidir: ölen kg × partinin toplam doğrudan maliyet / kg.
                   </p>
                 </PanelCard>
               ) : null}
             </>
           ) : null}
+
+          <ForecastPanel farmId={farmId} />
+
+          <RecurringCostsPanel farmId={farmId} />
 
           <PanelCard title="Gider Kayıtları">
             {entriesLoading ? (
@@ -188,14 +468,21 @@ export default function CostsPage() {
                       <span className="font-medium text-foreground">
                         {COST_CATEGORY_LABEL[e.category]}
                       </span>
-                      {e.sourceType ? (
+                      {e.sourceType === "RecurringCost" ? (
+                        <span className="text-muted-foreground/80">(tekrarlayan)</span>
+                      ) : e.sourceType ? (
                         <span className="text-muted-foreground/80">(otomatik)</span>
                       ) : null}
                       {e.notes ? <span className="text-muted-foreground">— {e.notes}</span> : null}
                     </div>
                     <div className="flex items-center gap-3">
+                      {e.currency !== "TRY" ? (
+                        <span className="font-mono text-muted-foreground">
+                          {fmtForeign(Number(e.amount), e.currency)}
+                        </span>
+                      ) : null}
                       <span className="font-mono font-medium text-foreground">
-                        {fmtTry(Number(e.amount))}
+                        {fmtTry(Number(e.amountTry))}
                       </span>
                       <span className="font-mono text-muted-foreground">
                         {new Date(e.incurredAt).toLocaleDateString("tr")}

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
+import { CostAttributionService } from "../costs/cost-attribution.service";
 
 /**
  * Versioned per §10.1 — MVP ships the simple period-biomass-gain methodology (§10.4's (a)); a
@@ -7,6 +8,8 @@ import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
  * one, so historical results never silently change meaning.
  */
 const METHODOLOGY = "fcr.period_biomass_gain.v1";
+/** Money per kg gained, a separate methodology so the kg-based `fcr` above keeps its meaning. */
+const ECONOMIC_METHODOLOGY = "fcr.economic.v1";
 
 export interface FcrResult {
   methodology: string;
@@ -19,7 +22,20 @@ export interface FcrResult {
   feedConsumedKg: number;
   biomassGainKg: number;
   fcr: number | null;
+  economic: {
+    methodology: string;
+    /** TRY of feed this batch ate in the window, at each lot's unit cost. */
+    feedCostTry: number;
+    /** Kg eaten from lots with no unit cost — excluded from feedCostTry, so the figure is a floor. */
+    feedUnpricedKg: number;
+    /** TRY of feed per kg of biomass gained (null when gain ≤ 0). */
+    feedCostPerKgGainTry: number | null;
+    /** TRY of all batch-tagged direct cost (feed + medicine + transport…) per kg gained. */
+    directCostPerKgGainTry: number | null;
+  };
 }
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 type TenantClient = ReturnType<TenantPrismaService["forTenant"]>;
 
@@ -34,7 +50,10 @@ type TenantClient = ReturnType<TenantPrismaService["forTenant"]>;
  */
 @Injectable()
 export class FcrCalculationService {
-  constructor(private readonly tenantPrisma: TenantPrismaService) {}
+  constructor(
+    private readonly tenantPrisma: TenantPrismaService,
+    private readonly attribution: CostAttributionService,
+  ) {}
 
   async calculate(
     companyId: string,
@@ -91,6 +110,17 @@ export class FcrCalculationService {
     // FCR undefined rather than a nonsense negative/near-zero ratio — surfaced as null, not 0.
     const fcr = biomassGainKg > 0 ? feedConsumedKg / biomassGainKg : null;
 
+    const [feedByBatch, batchCosts] = await Promise.all([
+      this.attribution.feedCostByBatch(client, [batchId], periodStart, periodEnd),
+      client.costEntry.findMany({
+        where: { batchId, incurredAt: { gte: periodStart, lte: periodEnd } },
+        select: { amountTry: true },
+      }),
+    ]);
+    const feed = feedByBatch.get(batchId);
+    const feedCostTry = feed?.costTry ?? 0;
+    const batchTaggedTry = batchCosts.reduce((sum, c) => sum + Number(c.amountTry), 0);
+
     return {
       methodology: METHODOLOGY,
       periodStart: periodStart.toISOString(),
@@ -102,6 +132,14 @@ export class FcrCalculationService {
       feedConsumedKg,
       biomassGainKg,
       fcr,
+      economic: {
+        methodology: ECONOMIC_METHODOLOGY,
+        feedCostTry: round2(feedCostTry),
+        feedUnpricedKg: round2(feed?.unpricedKg ?? 0),
+        feedCostPerKgGainTry: biomassGainKg > 0 ? round2(feedCostTry / biomassGainKg) : null,
+        directCostPerKgGainTry:
+          biomassGainKg > 0 ? round2((feedCostTry + batchTaggedTry) / biomassGainKg) : null,
+      },
     };
   }
 

@@ -37,13 +37,8 @@ import { useFarms } from "@/hooks/use-farms";
 import { useCreateWarehouse, useFarmWarehouses } from "@/hooks/use-warehouses";
 import { useFeedProducts } from "@/hooks/use-feed-products";
 import { useReceiveStock } from "@/hooks/use-feed-inventory";
+import { useUsdTryRate } from "@/hooks/use-exchange-rate";
 import { ApiError } from "@/lib/api-error";
-
-/** Remembered client-side only — a UX convenience so the rate doesn't need retyping every
- * purchase, not a source of truth for anything (no backend concept of an exchange rate exists;
- * every cost entry this app tracks is stored in TRY, so a dollar-priced purchase is converted
- * to TRY at entry time using whatever rate the user provides here). */
-const USD_TRY_RATE_STORAGE_KEY = "aquai.usdTryRate";
 
 const schema = z
   .object({
@@ -65,7 +60,7 @@ const schema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Dolar kuru gerekli",
+        message: "Dolar kuru gerekli (TCMB kuru alınamadıysa elle girin)",
         path: ["exchangeRate"],
       });
     }
@@ -93,15 +88,6 @@ export function ReceiveStockDialog() {
     },
   });
 
-  React.useEffect(() => {
-    const stored = window.localStorage.getItem(USD_TRY_RATE_STORAGE_KEY);
-    if (stored) {
-      form.setValue("exchangeRate", Number(stored));
-    }
-    // Only on mount — a user-edited rate this session shouldn't be clobbered by a later re-render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const farmId = useWatch({ control: form.control, name: "farmId" });
   const warehouseId = useWatch({ control: form.control, name: "warehouseId" });
   const unitCostCurrency = useWatch({ control: form.control, name: "unitCostCurrency" });
@@ -113,12 +99,26 @@ export function ReceiveStockDialog() {
   // therefore rebinds) whenever `warehouseId` changes because it's watched above.
   const receiveStock = useReceiveStock(warehouseId || "");
 
+  // A purchase is dated now (the form has no date field), so today's Central Bank rate applies.
+  const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const usdRate = useUsdTryRate(unitCostCurrency === "USD" ? today : undefined);
+
+  // Pre-fill the TCMB rate, but never overwrite a rate the user typed themselves.
+  React.useEffect(() => {
+    if (!usdRate.data || unitCostCurrency !== "USD") return;
+    if (!form.getFieldState("exchangeRate").isDirty) {
+      form.setValue("exchangeRate", usdRate.data.rate);
+    }
+  }, [usdRate.data, unitCostCurrency, open, form]);
+
   const convertedTryPerKg =
     unitCostCurrency === "USD" && unitCostAmount && exchangeRate
       ? unitCostAmount * exchangeRate
       : unitCostCurrency === "TRY"
         ? unitCostAmount
         : undefined;
+  const rateIsCentralBank =
+    usdRate.data !== undefined && exchangeRate === usdRate.data.rate;
 
   async function onAddWarehouse() {
     if (!newWarehouseName.trim() || !farmId) return;
@@ -134,24 +134,15 @@ export function ReceiveStockDialog() {
 
   async function onSubmit(values: FormValues) {
     try {
-      const unitCostPerKg =
-        values.unitCostAmount === undefined
-          ? undefined
-          : values.unitCostCurrency === "USD"
-            ? values.unitCostAmount * values.exchangeRate!
-            : values.unitCostAmount;
-
       await receiveStock.mutateAsync({
         feedProductId: values.feedProductId,
         quantityKg: values.quantityKg,
         supplierLotCode: values.supplierLotCode || undefined,
         expiryDate: values.expiryDate || undefined,
-        unitCostPerKg,
+        unitCostAmount: values.unitCostAmount,
+        unitCostCurrency: values.unitCostCurrency,
+        exchangeRate: values.unitCostCurrency === "USD" ? values.exchangeRate : undefined,
       });
-
-      if (values.unitCostCurrency === "USD" && values.exchangeRate) {
-        window.localStorage.setItem(USD_TRY_RATE_STORAGE_KEY, String(values.exchangeRate));
-      }
 
       toast.success("Stok alımı kaydedildi.");
       form.reset();
@@ -369,7 +360,8 @@ export function ReceiveStockDialog() {
                   ≈ <span className="font-mono font-medium text-foreground">
                     {convertedTryPerKg.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg
                   </span>{" "}
-                  olarak maliyete yansıyacak.
+                  olarak maliyete yansıyacak
+                  {rateIsCentralBank ? ` (TCMB ${usdRate.data?.bulletinDate} satış kuru)` : ""}.
                 </p>
               ) : null}
             </div>

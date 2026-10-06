@@ -4,19 +4,22 @@ import {
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
+  Max,
   MaxLength,
+  Min,
 } from "class-validator";
 
-export class CreateCostEntryDto {
+export class CreateRecurringCostDto {
   @ApiProperty({ enum: CostCategory })
   @IsEnum(CostCategory)
   category!: CostCategory;
 
-  @ApiProperty({ description: "Amount in `currency`, as entered" })
+  @ApiProperty({ description: "Amount per month, in `currency`" })
   @IsNumber()
   @IsPositive()
   amount!: number;
@@ -26,28 +29,15 @@ export class CreateCostEntryDto {
   @IsIn(["TRY", "USD"])
   currency?: "TRY" | "USD";
 
-  @ApiPropertyOptional({
-    description:
-      "TRY per 1 USD. Omit to use the Central Bank rate for incurredAt; ignored for TRY entries.",
-  })
-  @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  exchangeRate?: number;
+  @ApiProperty({ minimum: 1, maximum: 28, description: "Day of each month it's booked on" })
+  @IsInt()
+  @Min(1)
+  @Max(28)
+  dayOfMonth!: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  tankId?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  batchId?: string;
-
-  @ApiProperty({ description: "ISO date the cost was incurred" })
+  @ApiProperty({ description: "ISO date of the first occurrence; earlier months are never booked" })
   @IsDateString()
-  incurredAt!: string;
+  startDate!: string;
 
   @ApiPropertyOptional()
   @IsOptional()

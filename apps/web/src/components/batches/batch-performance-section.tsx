@@ -177,6 +177,24 @@ export function BatchPerformanceSection({ batchId }: { batchId: string }) {
                   </p>
                 ) : null}
               </div>
+              <div className="col-span-2 rounded-lg border border-border bg-muted/40 px-3 py-2 sm:col-span-3">
+                <div className="mb-0.5 text-[11px] text-muted-foreground">Ekonomik FCR (₺/kg büyüme)</div>
+                <div className="font-mono text-lg font-semibold text-teal-500">
+                  {fcr.economic.feedCostPerKgGainTry !== null
+                    ? `${fcr.economic.feedCostPerKgGainTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺`
+                    : "—"}
+                </div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Bu partinin tükettiği yemin maliyeti ({fcr.economic.feedCostTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺)
+                  ÷ biyokütle kazancı.
+                  {fcr.economic.directCostPerKgGainTry !== null
+                    ? ` Parti doğrudan maliyetinin tamamı dahil: ${fcr.economic.directCostPerKgGainTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg.`
+                    : ""}
+                  {fcr.economic.feedUnpricedKg > 0
+                    ? ` ${fcr.economic.feedUnpricedKg.toFixed(1)} kg yem fiyatsız lottan — maliyet alt sınırdır.`
+                    : ""}
+                </p>
+              </div>
             </div>
           ) : null}
         </CardContent>

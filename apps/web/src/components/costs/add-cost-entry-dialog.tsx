@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -26,19 +26,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { useCreateCostEntry } from "@/hooks/use-costs";
+import { useUsdTryRate } from "@/hooks/use-exchange-rate";
 import { ApiError } from "@/lib/api-error";
 import { COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/lib/costs";
-import type { CostCategory, FishBatch } from "@/lib/types";
+import type { CostCategory, ExchangeCurrency, FishBatch } from "@/lib/types";
 
-const schema = z.object({
-  category: z.string().min(1, "Bir kategori seçin"),
-  amount: z.coerce.number().positive("Tutar 0'dan büyük olmalı"),
-  batchId: z.string().optional(),
-  incurredAt: z.string().min(1),
-  notes: z.string().max(500).optional(),
-});
+const schema = z
+  .object({
+    category: z.string().min(1, "Bir kategori seçin"),
+    amount: z.coerce.number().positive("Tutar 0'dan büyük olmalı"),
+    currency: z.enum(["TRY", "USD"]),
+    exchangeRate: z.coerce.number().positive("Kur 0'dan büyük olmalı").optional(),
+    batchId: z.string().optional(),
+    incurredAt: z.string().min(1),
+    notes: z.string().max(500).optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.currency === "USD" && values.exchangeRate === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Dolar kuru gerekli (TCMB kuru alınamadıysa elle girin)",
+        path: ["exchangeRate"],
+      });
+    }
+  });
 type FormValues = z.infer<typeof schema>;
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batches: FishBatch[] }) {
   const [open, setOpen] = React.useState(false);
@@ -48,21 +64,43 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
     resolver: zodResolver(schema),
     defaultValues: {
       category: "LABOR",
-      incurredAt: new Date().toISOString().slice(0, 10),
+      currency: "TRY",
+      incurredAt: todayIso(),
     },
   });
+
+  const currency = useWatch({ control: form.control, name: "currency" });
+  const amount = useWatch({ control: form.control, name: "amount" });
+  const exchangeRate = useWatch({ control: form.control, name: "exchangeRate" });
+  const incurredAt = useWatch({ control: form.control, name: "incurredAt" });
+
+  // The Central Bank rate for the incurred date pre-fills the rate field; a rate the user typed
+  // themselves is never overwritten.
+  const usdRate = useUsdTryRate(currency === "USD" ? incurredAt : undefined);
+  React.useEffect(() => {
+    if (!usdRate.data || currency !== "USD") return;
+    if (!form.getFieldState("exchangeRate").isDirty) {
+      form.setValue("exchangeRate", usdRate.data.rate);
+    }
+  }, [usdRate.data, currency, open, form]);
+
+  const tryPreview =
+    currency === "USD" && amount && exchangeRate ? amount * exchangeRate : currency === "TRY" ? amount : undefined;
+  const rateIsCentralBank = usdRate.data !== undefined && exchangeRate === usdRate.data.rate;
 
   async function onSubmit(values: FormValues) {
     try {
       await createCostEntry.mutateAsync({
         category: values.category as CostCategory,
         amount: values.amount,
+        currency: values.currency as ExchangeCurrency,
+        exchangeRate: values.currency === "USD" ? values.exchangeRate : undefined,
         batchId: values.batchId || undefined,
         incurredAt: values.incurredAt,
         notes: values.notes,
       });
       toast.success("Maliyet kaydedildi.");
-      form.reset({ category: "LABOR", incurredAt: new Date().toISOString().slice(0, 10) });
+      form.reset({ category: "LABOR", currency: "TRY", incurredAt: todayIso() });
       setOpen(false);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Maliyet kaydedilirken bir sorun oluştu.");
@@ -125,7 +163,7 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                 name="amount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tutar (₺)</FormLabel>
+                    <FormLabel>Tutar ({currency === "USD" ? "$" : "₺"})</FormLabel>
                     <FormControl>
                       <Input type="number" min={0} step="0.01" {...field} />
                     </FormControl>
@@ -134,6 +172,55 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                 )}
               />
             </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+              <FormLabel>Para birimi</FormLabel>
+              <div className="flex overflow-hidden rounded-md border border-border text-xs">
+                {(["TRY", "USD"] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => form.setValue("currency", c)}
+                    className={cn(
+                      "px-2.5 py-1 font-medium transition-colors",
+                      currency === c
+                        ? "bg-teal-500 text-white"
+                        : "bg-transparent text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {c === "TRY" ? "₺" : "$"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {currency === "USD" ? (
+              <div className="space-y-1.5">
+                <FormField
+                  control={form.control}
+                  name="exchangeRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-[11px] text-muted-foreground">Kur (1$ = ? ₺)</FormLabel>
+                      <FormControl>
+                        <Input type="number" min={0} step="0.0001" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {tryPreview !== undefined ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    ≈{" "}
+                    <span className="font-mono font-medium text-foreground">
+                      {tryPreview.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺
+                    </span>{" "}
+                    olarak kaydedilecek
+                    {rateIsCentralBank ? ` (TCMB ${usdRate.data?.bulletinDate} satış kuru)` : ""}.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             <FormField
               control={form.control}

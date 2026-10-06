@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { BatchProjectionService } from "../fish-batches/batch-projection.service";
+import { ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 import { TreatmentsService } from "../treatments/treatments.service";
 import type { CreateHarvestRecordDto } from "./dto/create-harvest-record.dto";
 
@@ -12,6 +13,7 @@ export class HarvestService {
     private readonly auditService: AuditService,
     private readonly projection: BatchProjectionService,
     private readonly treatmentsService: TreatmentsService,
+    private readonly exchangeRates: ExchangeRatesService,
   ) {}
 
   private async assertTankInTenant(companyId: string, tankId: string) {
@@ -42,6 +44,9 @@ export class HarvestService {
     if (dto.type === "PLANNED") {
       if (!dto.plannedDate) {
         throw new BadRequestException("plannedDate is required for a PLANNED harvest record.");
+      }
+      if (dto.salePricePerKg !== undefined || dto.saleCurrency !== undefined || dto.saleExchangeRate !== undefined) {
+        throw new BadRequestException("A sale price can only be recorded on an actual harvest.");
       }
       const record = await client.harvestRecord.create({
         data: {
@@ -109,6 +114,21 @@ export class HarvestService {
       );
     }
 
+    // Sale fields are all-or-nothing: a currency or rate without a price is a mistake, not a no-op.
+    if (dto.salePricePerKg === undefined && (dto.saleCurrency !== undefined || dto.saleExchangeRate !== undefined)) {
+      throw new BadRequestException("salePricePerKg is required when a sale currency or rate is given.");
+    }
+    // Resolved before the write, so a failed rate lookup leaves no harvest record behind.
+    const saleCurrency = dto.saleCurrency ?? "TRY";
+    const saleExchangeRate =
+      dto.salePricePerKg === undefined
+        ? undefined
+        : await this.exchangeRates.resolveTryRate(saleCurrency, harvestedAt, dto.saleExchangeRate);
+    const saleRevenueTry =
+      dto.salePricePerKg === undefined || saleExchangeRate === undefined
+        ? undefined
+        : Math.round(biomassKg * dto.salePricePerKg * saleExchangeRate * 100) / 100;
+
     const record = await client.harvestRecord.create({
       data: {
         companyId,
@@ -124,6 +144,10 @@ export class HarvestService {
         destination: dto.destination,
         customer: dto.customer,
         processingPlant: dto.processingPlant,
+        salePricePerKg: dto.salePricePerKg,
+        saleCurrency: dto.salePricePerKg === undefined ? undefined : saleCurrency,
+        saleExchangeRate,
+        saleRevenueTry,
         createdById: userId,
         notes: dto.notes,
       },
