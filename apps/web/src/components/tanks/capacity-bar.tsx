@@ -25,8 +25,10 @@ export function CapacityBar({
     );
   }
 
-  const ratio = Math.min(biomassKg / maxBiomassKg, 1);
+  // The label shows the real share, even above 100%; only the bar itself stops at full.
+  const ratio = biomassKg / maxBiomassKg;
   const pct = Math.round(ratio * 100);
+  const barPct = Math.min(pct, 100);
   const barColor =
     ratio >= CRITICAL_RATIO ? "bg-destructive" : ratio >= WARNING_RATIO ? "bg-warning" : "bg-teal-500";
   const textColor =
@@ -40,7 +42,7 @@ export function CapacityBar({
     <div className={cn("space-y-1", className)}>
       <div
         role="progressbar"
-        aria-valuenow={pct}
+        aria-valuenow={barPct}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label="Kapasite kullanımı"
@@ -48,7 +50,7 @@ export function CapacityBar({
       >
         <div
           className={cn("h-full rounded-full transition-[width]", barColor)}
-          style={{ width: `${pct}%` }}
+          style={{ width: `${barPct}%` }}
         />
       </div>
       <p className={cn("text-right text-[11px] font-medium", textColor)}>%{pct} kapasite</p>

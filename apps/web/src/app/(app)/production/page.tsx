@@ -17,6 +17,12 @@ import {
 import { CapacityBar } from "@/components/tanks/capacity-bar";
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
+import {
+  CROWDED_CAPACITY_RATIO,
+  summarizeFarmProduction,
+  tankLoad,
+  type FarmProductionSummary,
+} from "@/lib/farm-production-summary";
 import type { TankStatus } from "@/lib/types";
 
 const TANK_STATUS_KIND: Record<TankStatus, StatusKind> = {
@@ -37,6 +43,7 @@ export default function ProductionPage() {
 
   const activeCount = rows.filter((r) => r.allocations.length > 0).length;
   const emptyCount = rows.filter((r) => r.allocations.length === 0).length;
+  const summary = summarizeFarmProduction(rows.map(({ tank, allocations }) => tankLoad(tank, allocations)));
 
   return (
     <div className="space-y-6">
@@ -84,18 +91,14 @@ export default function ProductionPage() {
           ))}
         </div>
       ) : rows.length > 0 ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <>
+          <FarmSummaryCards summary={summary} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map(({ tank, allocations }) => {
-            const totalCount = allocations.reduce((sum, a) => sum + a.estimatedCount, 0);
-            const totalBiomassKg = allocations.reduce((sum, a) => {
-              const avgWeightG = Number(
-                a.batch.currentState?.estimatedAvgWeightG ?? a.batch.initialAvgWeightG,
-              );
-              return sum + (a.estimatedCount * avgWeightG) / 1000;
-            }, 0);
-
-            const maxBiomassKg = tank.maxBiomassKg ? Number(tank.maxBiomassKg) : null;
-            const volumeM3 = tank.volumeM3 ? Number(tank.volumeM3) : null;
+            const { count: totalCount, biomassKg: totalBiomassKg, maxBiomassKg, volumeM3 } = tankLoad(
+              tank,
+              allocations,
+            );
             const densityKgPerM3 = volumeM3 && volumeM3 > 0 ? totalBiomassKg / volumeM3 : null;
 
             return (
@@ -159,7 +162,8 @@ export default function ProductionPage() {
               </Card>
             );
           })}
-        </div>
+          </div>
+        </>
       ) : (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -168,5 +172,72 @@ export default function ProductionPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+const tons = (kg: number) => `${(kg / 1000).toLocaleString("tr", { maximumFractionDigits: 2 })} t`;
+
+/** The farm at a glance: biomass, how full the ponds are, and where the room is. Computed from the pond rows. */
+function FarmSummaryCards({ summary }: { summary: FarmProductionSummary }) {
+  const cards = [
+    {
+      label: "Toplam biyokütle",
+      value: tons(summary.biomassKg),
+      note: `${summary.liveFish.toLocaleString("tr")} canlı balık`,
+    },
+    {
+      label: "Kapasite kullanımı",
+      value: summary.capacityUsedPct === null ? "—" : `%${Math.round(summary.capacityUsedPct)}`,
+      note:
+        summary.capacityUsedPct === null
+          ? "Kapasitesi tanımlı havuz yok"
+          : `Boş kapasite ${tons(summary.freeCapacityKg)}`,
+    },
+    {
+      label: "Ortalama ağırlık",
+      value: summary.avgWeightG === null ? "—" : `${Math.round(summary.avgWeightG).toLocaleString("tr")} g`,
+      note: "Canlı balığa göre ağırlıklı",
+    },
+    {
+      label: "Yoğunluk",
+      value: summary.densityKgPerM3 === null ? "—" : `${summary.densityKgPerM3.toFixed(1)} kg/m³`,
+      note: `Toplam hacim ${summary.volumeM3.toLocaleString("tr", { maximumFractionDigits: 1 })} m³`,
+    },
+    {
+      label: "Sıkışık havuz",
+      value: summary.crowdedCount.toString(),
+      note: `Kapasitenin %${Math.round(CROWDED_CAPACITY_RATIO * 100)} ve üzeri`,
+    },
+    {
+      label: "Boş havuz hacmi",
+      value: `${summary.emptyVolumeM3.toLocaleString("tr", { maximumFractionDigits: 1 })} m³`,
+      note: `${summary.emptyCount} boş havuz`,
+    },
+  ];
+
+  const gaps: string[] = [];
+  if (summary.pondsWithoutCapacity > 0) gaps.push(`${summary.pondsWithoutCapacity} havuzda kapasite`);
+  if (summary.pondsWithoutVolume > 0) gaps.push(`${summary.pondsWithoutVolume} havuzda hacim`);
+
+  return (
+    <section aria-label="Çiftlik özeti" className="space-y-2">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {cards.map((c) => (
+          <Card key={c.label} className="gap-0 py-3">
+            <CardContent className="space-y-1 px-3.5">
+              <p className="text-[11px] text-muted-foreground">{c.label}</p>
+              <p className="font-mono text-lg font-semibold text-foreground">{c.value}</p>
+              <p className="text-[11px] text-muted-foreground">{c.note}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {gaps.length > 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Özet hesabına girmeyen: {gaps.join(", ")} tanımlı değil. Bu havuzlar kapasite ve hacim değerlerinin dışında
+          kalır.
+        </p>
+      ) : null}
+    </section>
   );
 }
