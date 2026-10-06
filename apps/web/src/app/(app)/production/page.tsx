@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { CapacityBar } from "@/components/tanks/capacity-bar";
 import { useFarms } from "@/hooks/use-farms";
+import { useFarmDashboardKpis } from "@/hooks/use-dashboard-kpis";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import {
   CROWDED_CAPACITY_RATIO,
@@ -23,7 +24,7 @@ import {
   tankLoad,
   type FarmProductionSummary,
 } from "@/lib/farm-production-summary";
-import type { TankStatus } from "@/lib/types";
+import type { FarmDashboardKpis, TankStatus } from "@/lib/types";
 
 const TANK_STATUS_KIND: Record<TankStatus, StatusKind> = {
   ACTIVE: "active",
@@ -40,6 +41,7 @@ export default function ProductionPage() {
       : (farms?.[0]?.id ?? "");
 
   const { rows, isLoading } = useFarmProductionOverview(farmId);
+  const { data: kpis } = useFarmDashboardKpis(farmId);
 
   const activeCount = rows.filter((r) => r.allocations.length > 0).length;
   const emptyCount = rows.filter((r) => r.allocations.length === 0).length;
@@ -92,7 +94,7 @@ export default function ProductionPage() {
         </div>
       ) : rows.length > 0 ? (
         <>
-          <FarmSummaryCards summary={summary} />
+          <FarmSummaryCards summary={summary} kpis={kpis} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map(({ tank, allocations }) => {
             const { count: totalCount, biomassKg: totalBiomassKg, maxBiomassKg, volumeM3 } = tankLoad(
@@ -178,7 +180,13 @@ export default function ProductionPage() {
 const tons = (kg: number) => `${(kg / 1000).toLocaleString("tr", { maximumFractionDigits: 2 })} t`;
 
 /** The farm at a glance: biomass, how full the ponds are, and where the room is. Computed from the pond rows. */
-function FarmSummaryCards({ summary }: { summary: FarmProductionSummary }) {
+function FarmSummaryCards({
+  summary,
+  kpis,
+}: {
+  summary: FarmProductionSummary;
+  kpis: FarmDashboardKpis | undefined;
+}) {
   const cards = [
     {
       label: "Toplam biyokütle",
@@ -213,6 +221,26 @@ function FarmSummaryCards({ summary }: { summary: FarmProductionSummary }) {
       value: `${summary.emptyVolumeM3.toLocaleString("tr", { maximumFractionDigits: 1 })} m³`,
       note: `${summary.emptyCount} boş havuz`,
     },
+    {
+      label: "Bugünkü yem",
+      value: kpis ? `${kpis.todayFeedKg.toLocaleString("tr", { maximumFractionDigits: 1 })} kg` : "—",
+      note: "bugün verilen",
+    },
+    {
+      label: "7 günlük ölüm",
+      value: kpis ? `%${kpis.mortalityRate7dPct.toLocaleString("tr", { maximumFractionDigits: 2 })}` : "—",
+      note: "canlı stoğa oranla",
+    },
+    {
+      label: "FCR (30 gün)",
+      value: kpis?.avgFcr != null ? kpis.avgFcr.toFixed(2) : "—",
+      note: kpis?.avgFcr != null ? "partilerin ortalaması" : "veri yok",
+    },
+    {
+      label: "SGR",
+      value: kpis?.avgSgrPctPerDay != null ? `${kpis.avgSgrPctPerDay.toFixed(2)} %/gün` : "—",
+      note: kpis?.avgSgrPctPerDay != null ? "partilerin ortalaması" : "en az 2 tartım gerekir",
+    },
   ];
 
   const gaps: string[] = [];
@@ -221,7 +249,7 @@ function FarmSummaryCards({ summary }: { summary: FarmProductionSummary }) {
 
   return (
     <section aria-label="Çiftlik özeti" className="space-y-2">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {cards.map((c) => (
           <Card key={c.label} className="gap-0 py-3">
             <CardContent className="space-y-1 px-3.5">
