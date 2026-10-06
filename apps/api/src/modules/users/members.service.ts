@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import type { Role } from "@aquai/types";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { EmailService } from "../notifications/email.service";
 import { UsersService } from "./users.service";
 
 const INVITATION_TTL_DAYS = 7;
@@ -17,6 +18,7 @@ export class MembersService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly usersService: UsersService,
     private readonly auditService: AuditService,
+    private readonly emailService: EmailService,
   ) {}
 
   async invite(
@@ -56,9 +58,15 @@ export class MembersService {
       newValue: { email: input.email, role: input.role },
     });
 
-    // TODO(Phase 2, docs/architecture/03-backend-modules.md notifications module): deliver the
-    // invitation by email. Milestone 0 returns the token directly so it can be exercised
-    // end-to-end without a mail provider wired up yet.
+    const acceptUrl = `${process.env.WEB_APP_URL ?? "https://piscatiotechnologies.com"}/accept-invitation?token=${invitation.token}`;
+    await this.emailService.send(
+      [input.email],
+      "Piscatio davetiyesi",
+      `<p>Piscatio'da bir çiftlik şirketine davet edildiniz.</p>
+<p><a href="${acceptUrl}">Daveti kabul et</a></p>
+<p>Bu davet ${INVITATION_TTL_DAYS} gün içinde geçerlidir.</p>`,
+    );
+
     return invitation;
   }
 
