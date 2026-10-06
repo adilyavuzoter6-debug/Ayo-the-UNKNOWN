@@ -3596,6 +3596,97 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyB.ownerToken))
         .expect(404);
     });
+
+    it("supply stock: receive at one farm, transfer to another; balances follow; overdraw and same-farm transfers refused; another company sees and uses none of it", async () => {
+      const a1 = await isolatedFarm("SUPPLY-1");
+      const a2 = await isolatedFarm("SUPPLY-2");
+      const item = await request(app.getHttpServer())
+        .post("/api/v1/supply-items")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Metal panel", category: "Panel", unit: "adet" })
+        .expect(201);
+      const itemId = item.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/receive`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ farmId: a1.farmId, quantity: 10 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/transfer`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromFarmId: a1.farmId, toFarmId: a2.farmId, quantity: 4 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/transfer`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromFarmId: a1.farmId, toFarmId: a2.farmId, quantity: 20 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/transfer`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ fromFarmId: a1.farmId, toFarmId: a1.farmId, quantity: 1 })
+        .expect(400);
+
+      const list = await request(app.getHttpServer())
+        .get("/api/v1/supply-items")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const row = list.body.data.find((r: { id: string }) => r.id === itemId);
+      expect(row.totalQuantity).toBe(10);
+      const balanceAt = (farmId: string) =>
+        row.balances.find((b: { farmId: string }) => b.farmId === farmId)?.quantity;
+      expect(balanceAt(a1.farmId)).toBe(6);
+      expect(balanceAt(a2.farmId)).toBe(4);
+
+      const otherList = await request(app.getHttpServer())
+        .get("/api/v1/supply-items")
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(200);
+      expect(otherList.body.data.find((r: { id: string }) => r.id === itemId)).toBeUndefined();
+      await request(app.getHttpServer())
+        .post(`/api/v1/supply-items/${itemId}/receive`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .send({ farmId: companyB.farmId, quantity: 1 })
+        .expect(404);
+    });
+
+    it("cold storage: dead fish in, shipped out to a plant; no shipment without a plant or beyond the balance; another company's farm is refused", async () => {
+      const iso = await isolatedFarm("COLD");
+      const path = `/api/v1/farms/${iso.farmId}/cold-storage`;
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "IN", weightKg: 120 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "OUT", weightKg: 50, destination: "Test Un Fabrikası" })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "OUT", weightKg: 100, destination: "Test Un Fabrikası" })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ kind: "OUT", weightKg: 10 })
+        .expect(400);
+
+      const res = await request(app.getHttpServer())
+        .get(path)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data.balanceKg).toBe(70);
+      expect(res.body.data.entries).toHaveLength(2);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/cold-storage`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+    });
   });
 
   describe("regulatory inspection report", () => {

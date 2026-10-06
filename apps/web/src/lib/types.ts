@@ -825,3 +825,36 @@ export interface BatchTankState {
   estimatedCount: number;
   tank: Tank & { farmSection: { farm: { id: string; name: string } } };
 }
+
+/** How much of a supply item one farm holds. */
+export interface SupplyBalance {
+  farmId: string;
+  farmName: string | null;
+  quantity: number;
+}
+
+/** A non-feed material (pipe, panel, filter, sack) with its balance on each farm. */
+export interface SupplyItemStock {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  totalQuantity: number;
+  balances: SupplyBalance[];
+}
+
+export interface ColdStorageEntryRow {
+  id: string;
+  kind: "IN" | "OUT";
+  /** Decimal from the API, so a string. */
+  weightKg: string;
+  occurredAt: string;
+  destination: string | null;
+  note: string | null;
+}
+
+/** Dead fish held in one farm's cold room. */
+export interface ColdStorageSummary {
+  balanceKg: number;
+  entries: ColdStorageEntryRow[];
+}

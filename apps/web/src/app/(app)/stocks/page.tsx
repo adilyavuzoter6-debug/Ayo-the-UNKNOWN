@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
 import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
+import { ColdStorageSection } from "@/components/stocks/cold-storage-section";
+import { SupplyStockSection } from "@/components/stocks/supply-stock-section";
 import { useBatchTankStates, useFishBatches } from "@/hooks/use-fish-batches";
 import type { BatchStatus, FishBatch } from "@/lib/types";
 
@@ -116,6 +118,9 @@ export default function StocksPage() {
           </CardContent>
         </Card>
       )}
+
+      <SupplyStockSection />
+      <ColdStorageSection />
 
       <BatchPondsDialog batch={selected} onClose={() => setSelected(null)} />
     </div>

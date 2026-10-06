@@ -33,6 +33,8 @@ import { HarvestModule } from "./modules/harvest/harvest.module";
 import { TreatmentsModule } from "./modules/treatments/treatments.module";
 import { CostsModule } from "./modules/costs/costs.module";
 import { CostScenariosModule } from "./modules/cost-scenarios/cost-scenarios.module";
+import { SuppliesModule } from "./modules/supplies/supplies.module";
+import { ColdStorageModule } from "./modules/cold-storage/cold-storage.module";
 import { InspectionModule } from "./modules/inspection/inspection.module";
 import { PlatformAdminModule } from "./modules/platform-admin/platform-admin.module";
 import { AuditModule } from "./modules/audit/audit.module";
@@ -67,6 +69,8 @@ import { AuditModule } from "./modules/audit/audit.module";
     TreatmentsModule,
     CostsModule,
     CostScenariosModule,
+    SuppliesModule,
+    ColdStorageModule,
     InspectionModule,
     PlatformAdminModule,
   ],
