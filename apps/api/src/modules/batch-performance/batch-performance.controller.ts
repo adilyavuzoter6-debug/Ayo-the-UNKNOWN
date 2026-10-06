@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
+import { parsePeriodEnd } from "../../common/utils/period-end";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { TenantContext } from "../../common/types/request-context";
@@ -29,7 +30,7 @@ export class BatchPerformanceController {
       tenant.companyId,
       id,
       new Date(query.periodStart),
-      new Date(query.periodEnd),
+      parsePeriodEnd(query.periodEnd),
     );
   }
 
@@ -44,7 +45,7 @@ export class BatchPerformanceController {
       tenant.companyId,
       id,
       query.periodStart ? new Date(query.periodStart) : undefined,
-      query.periodEnd ? new Date(query.periodEnd) : undefined,
+      query.periodEnd ? parsePeriodEnd(query.periodEnd) : undefined,
     );
   }
 }

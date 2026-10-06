@@ -165,7 +165,7 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                   <FormItem>
                     <FormLabel>Tutar ({currency === "USD" ? "$" : "₺"})</FormLabel>
                     <FormControl>
-                      <Input type="number" min={0} step="0.01" {...field} />
+                      <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -203,7 +203,7 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                     <FormItem>
                       <FormLabel className="text-[11px] text-muted-foreground">Kur (1$ = ? ₺)</FormLabel>
                       <FormControl>
-                        <Input type="number" min={0} step="0.0001" {...field} />
+                        <Input type="number" min={0} step="0.0001" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

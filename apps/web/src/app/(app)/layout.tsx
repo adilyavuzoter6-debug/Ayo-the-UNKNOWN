@@ -28,7 +28,7 @@ function WorkspaceLoading() {
   return (
     <div className="flex min-h-screen w-full">
       <AppSidebar />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <div className="h-14 shrink-0 border-b border-border bg-card" />
         <main className="flex-1 space-y-4 bg-muted/20 p-4 md:p-6">
           <Skeleton className="h-7 w-52 rounded" />
@@ -118,7 +118,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen w-full">
       <AppSidebar />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <AppTopbar />
         <main className="flex-1 bg-muted/20 p-4 md:p-6">{children}</main>
       </div>

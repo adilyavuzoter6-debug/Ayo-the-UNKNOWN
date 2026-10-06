@@ -2810,11 +2810,12 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyA.ownerToken))
         .expect(201);
       const snapshotDate = recalc.body.data[0].snapshotDate as string;
-      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      // A date-only end (what the date inputs send) must include today's feeding.
+      const today = new Date().toISOString().slice(0, 10);
 
       const fcr = await request(app.getHttpServer())
         .get(`/api/v1/fish-batches/${batchId}/fcr`)
-        .query({ periodStart: new Date(snapshotDate).toISOString(), periodEnd: tomorrow })
+        .query({ periodStart: new Date(snapshotDate).toISOString(), periodEnd: today })
         .set("Authorization", auth(companyA.ownerToken))
         .expect(200);
       expect(fcr.body.data.economic.methodology).toBe("fcr.economic.v1");

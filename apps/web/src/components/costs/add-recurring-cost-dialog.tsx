@@ -139,7 +139,7 @@ export function AddRecurringCostDialog({ farmId }: { farmId: string }) {
                   <FormItem>
                     <FormLabel>Aylık tutar (₺)</FormLabel>
                     <FormControl>
-                      <Input type="number" min={0} step="0.01" {...field} />
+                      <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -166,7 +166,7 @@ export function AddRecurringCostDialog({ farmId }: { farmId: string }) {
                 name="startDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>İlk ay</FormLabel>
+                    <FormLabel>Başlangıç tarihi</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>

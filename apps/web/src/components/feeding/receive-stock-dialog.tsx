@@ -291,7 +291,7 @@ export function ReceiveStockDialog() {
                 <FormItem>
                   <FormLabel>Miktar (kg)</FormLabel>
                   <FormControl>
-                    <Input type="number" min={0} step="0.01" {...field} />
+                    <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -330,7 +330,7 @@ export function ReceiveStockDialog() {
                         Tutar ({unitCostCurrency === "USD" ? "$" : "₺"}/kg)
                       </FormLabel>
                       <FormControl>
-                        <Input type="number" min={0} step="0.01" {...field} />
+                        <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -346,7 +346,7 @@ export function ReceiveStockDialog() {
                           Kur (1$ = ? ₺)
                         </FormLabel>
                         <FormControl>
-                          <Input type="number" min={0} step="0.01" {...field} />
+                          <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

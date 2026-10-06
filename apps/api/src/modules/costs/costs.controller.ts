@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
+import { parsePeriodEnd } from "../../common/utils/period-end";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
@@ -54,7 +55,7 @@ export class CostSummaryController {
       tenant.companyId,
       farmId,
       new Date(periodStart),
-      new Date(periodEnd),
+      parsePeriodEnd(periodEnd),
     );
   }
 }

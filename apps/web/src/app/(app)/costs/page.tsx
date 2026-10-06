@@ -390,12 +390,12 @@ export default function CostsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Parti</TableHead>
-                          <TableHead>Doğrudan (yem + ilaç…)</TableHead>
-                          <TableHead>Genel gider payı</TableHead>
+                          <TableHead>Doğrudan</TableHead>
+                          <TableHead>Genel gider</TableHead>
                           <TableHead>Tam maliyet</TableHead>
-                          <TableHead>Hasat edilen</TableHead>
-                          <TableHead>Tam maliyet / kg</TableHead>
-                          <TableHead>Satış / kg</TableHead>
+                          <TableHead>Hasat</TableHead>
+                          <TableHead>Tam ₺/kg</TableHead>
+                          <TableHead>Satış ₺/kg</TableHead>
                           <TableHead>Parti sonucu</TableHead>
                           <TableHead>Ölüm kaybı</TableHead>
                         </TableRow>
