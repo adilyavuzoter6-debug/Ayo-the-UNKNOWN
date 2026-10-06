@@ -75,7 +75,7 @@ function invalidateAfterMovement(
 ) {
   queryClient.invalidateQueries({ queryKey: ["fish-batches", companyId] });
   queryClient.invalidateQueries({ queryKey: ["fish-batches", "tank", companyId] });
-  queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId, farmId] });
+  queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
   queryClient.invalidateQueries({ queryKey: ["alerts", "farm", companyId, farmId] });
 }
 

@@ -21,6 +21,19 @@ export class FarmStatsController {
 
 @ApiTags("farm-stats")
 @ApiBearerAuth()
+@Controller({ path: "farm-overview", version: "1" })
+export class FarmOverviewController {
+  constructor(private readonly farmStatsService: FarmStatsService) {}
+
+  @Get()
+  @RequirePermission(Permission.FISH_BATCH_READ)
+  get(@CurrentTenant() tenant: TenantContext) {
+    return this.farmStatsService.getFarmsOverview(tenant.companyId);
+  }
+}
+
+@ApiTags("farm-stats")
+@ApiBearerAuth()
 @Controller({ path: "farms/:farmId/dashboard-kpis", version: "1" })
 export class FarmDashboardKpisController {
   constructor(private readonly farmStatsService: FarmStatsService) {}

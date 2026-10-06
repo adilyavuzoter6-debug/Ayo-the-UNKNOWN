@@ -10,16 +10,21 @@ import { ViewToggle, type ViewMode } from "@/components/shared/view-toggle";
 import { CreateFarmDialog } from "@/components/farms/create-farm-dialog";
 import { EditFarmDialog } from "@/components/farms/edit-farm-dialog";
 import { DeleteFarmDialog } from "@/components/farms/delete-farm-dialog";
-import { useFarms } from "@/hooks/use-farms";
-import { useFarmsStockSummaries } from "@/hooks/use-farm-stock-summary";
+import { useFarmsOverview } from "@/hooks/use-farm-stock-summary";
 import type { Farm, FarmStockSummary } from "@/lib/types";
 
 export default function FarmsPage() {
-  const { data: farms, isLoading, isError } = useFarms();
+  const { data: overview, isLoading, isError } = useFarmsOverview();
   const [view, setView] = React.useState<ViewMode>("card");
 
-  const farmIds = React.useMemo(() => farms?.map((f) => f.id) ?? [], [farms]);
-  const { summaries } = useFarmsStockSummaries(farmIds);
+  const farms = React.useMemo<Farm[] | undefined>(
+    () => overview?.map((row) => row.farm),
+    [overview],
+  );
+  const summaries = React.useMemo(
+    () => new Map<string, FarmStockSummary>((overview ?? []).map((row) => [row.farm.id, row.summary])),
+    [overview],
+  );
 
   const totals = React.useMemo(() => {
     if (!farms?.length) return null;

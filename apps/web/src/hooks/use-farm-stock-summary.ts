@@ -1,9 +1,9 @@
 "use client";
 
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { FarmStockSummary } from "@/lib/types";
+import type { FarmOverviewRow, FarmStockSummary } from "@/lib/types";
 
 export function useFarmStockSummary(farmId: string) {
   const api = useApiClient();
@@ -15,30 +15,13 @@ export function useFarmStockSummary(farmId: string) {
   });
 }
 
-/**
- * Fetches every farm's stock-summary in parallel. Replaces the old synchronous
- * `mockFarmStats(farm.id)` loop in farms/page.tsx — the real data is N async calls, so the
- * list page fetches them all up front and looks each one up by farm id.
- */
-export function useFarmsStockSummaries(farmIds: string[]) {
+/** Every farm with its stock summary in one request. Shares the ["farm-stock-summary", companyId] prefix so per-farm invalidations also refresh it. */
+export function useFarmsOverview() {
   const api = useApiClient();
   const { companyId } = useActiveCompany();
-
-  const results = useQueries({
-    queries: farmIds.map((farmId) => ({
-      queryKey: ["farm-stock-summary", companyId, farmId],
-      queryFn: () => api.get<FarmStockSummary>(`/farms/${farmId}/stock-summary`),
-      enabled: !!companyId && !!farmId,
-    })),
+  return useQuery({
+    queryKey: ["farm-stock-summary", companyId, "overview"],
+    queryFn: () => api.get<FarmOverviewRow[]>("/farm-overview"),
+    enabled: !!companyId,
   });
-
-  const summaries = new Map<string, FarmStockSummary>();
-  farmIds.forEach((farmId, index) => {
-    const data = results[index]?.data;
-    if (data) {
-      summaries.set(farmId, data);
-    }
-  });
-
-  return { summaries, isLoading: results.some((result) => result.isLoading) };
 }

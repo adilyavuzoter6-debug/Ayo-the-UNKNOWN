@@ -2711,6 +2711,28 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("farm overview — one request for the farms page", () => {
+    it("GET /farm-overview lists only the caller's farms, each with the same summary as its per-farm endpoint", async () => {
+      const overview = await request(app.getHttpServer())
+        .get("/api/v1/farm-overview")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const ids = overview.body.data.map((row: { farm: { id: string } }) => row.farm.id);
+      expect(ids).toContain(companyA.farmId);
+      expect(ids).not.toContain(companyB.farmId);
+
+      const perFarm = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/stock-summary`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const row = overview.body.data.find(
+        (r: { farm: { id: string } }) => r.farm.id === companyA.farmId,
+      );
+      expect(row.summary).toEqual(perFarm.body.data);
+    });
+  });
+
   describe("farm-wide aggregate endpoints (replace the frontend's per-tank fan-out)", () => {
     it("GET /farms/:farmId/fish-batches — Company B's farm id, authed as A → 404", async () => {
       const res = await request(app.getHttpServer())

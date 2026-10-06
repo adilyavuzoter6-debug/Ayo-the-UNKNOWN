@@ -24,6 +24,21 @@ export class FarmStatsService {
   ) {}
 
   /**
+   * Every farm in the company paired with its stock summary, in one response — replaces the
+   * farms page's list request followed by one stock-summary request per farm.
+   */
+  async getFarmsOverview(companyId: string) {
+    const farms = await this.tenantPrisma.forTenant(companyId).farm.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: "asc" },
+    });
+    const summaries = await Promise.all(
+      farms.map((farm) => this.getStockSummary(companyId, farm.id)),
+    );
+    return farms.map((farm, index) => ({ farm, summary: summaries[index] }));
+  }
+
+  /**
    * Replaces the frontend's old `mockFarmStats()` placeholder with real aggregates:
    * facility/pool counts come straight from FarmSection/Tank rows, fish/biomass are derived
    * from the fish-batch movement ledger's BatchTankState/BatchCurrentState projections (see

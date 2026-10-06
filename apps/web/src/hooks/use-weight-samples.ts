@@ -39,7 +39,7 @@ export function useRecordWeightSample(farmId: string, tankId: string) {
       queryClient.invalidateQueries({
         queryKey: ["fish-batches", companyId, variables.batchId],
       });
-      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId, farmId] });
+      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
       queryClient.invalidateQueries({ queryKey: ["alerts", "farm", companyId, farmId] });
     },
   });

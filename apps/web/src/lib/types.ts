@@ -447,6 +447,11 @@ export interface FarmDashboardKpis {
   openAlertsCount: number;
 }
 
+export interface FarmOverviewRow {
+  farm: Farm;
+  summary: FarmStockSummary;
+}
+
 export interface FarmStockSummary {
   facilities: number;
   pools: number;

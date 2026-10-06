@@ -33,7 +33,7 @@ export function useLogFeeding(farmId: string, tankId: string) {
       api.post<FeedingEvent>(`/tanks/${tankId}/feeding-events`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["feeding-events", companyId, tankId] });
-      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId, farmId] });
+      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
       queryClient.invalidateQueries({ queryKey: ["inventory-batches", companyId] });
     },
   });

@@ -34,6 +34,7 @@ export function useCreateFarm() {
     mutationFn: (input: CreateFarmInput) => api.post<Farm>("/farms", input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farms", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
     },
   });
 }
@@ -47,6 +48,7 @@ export function useUpdateFarm() {
       api.patch<Farm>(`/farms/${farmId}`, input),
     onSuccess: (farm) => {
       queryClient.invalidateQueries({ queryKey: ["farms", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
       queryClient.invalidateQueries({ queryKey: ["farms", companyId, farm.id] });
     },
   });
@@ -60,6 +62,7 @@ export function useDeleteFarm() {
     mutationFn: (farmId: string) => api.del<Farm>(`/farms/${farmId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farms", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
     },
   });
 }
