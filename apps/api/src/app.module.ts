@@ -32,6 +32,7 @@ import { WaterQualityModule } from "./modules/water-quality/water-quality.module
 import { HarvestModule } from "./modules/harvest/harvest.module";
 import { TreatmentsModule } from "./modules/treatments/treatments.module";
 import { CostsModule } from "./modules/costs/costs.module";
+import { CostScenariosModule } from "./modules/cost-scenarios/cost-scenarios.module";
 import { InspectionModule } from "./modules/inspection/inspection.module";
 import { PlatformAdminModule } from "./modules/platform-admin/platform-admin.module";
 import { AuditModule } from "./modules/audit/audit.module";
@@ -65,6 +66,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     HarvestModule,
     TreatmentsModule,
     CostsModule,
+    CostScenariosModule,
     InspectionModule,
     PlatformAdminModule,
   ],

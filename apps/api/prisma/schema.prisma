@@ -162,6 +162,7 @@ model Farm {
   alerts     Alert[]
   costEntries CostEntry[]
   recurringCosts RecurringCost[]
+  costScenarios CostScenario[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -686,6 +687,26 @@ model CostEntry {
   @@index([companyId, batchId])
   @@index([companyId, farmId, incurredAt])
   @@map("cost_entries")
+}
+
+/// A saved what-if projection of a batch's cost at a target weight. Keeps the inputs only; results are
+/// recalculated from them, and a scenario never writes to stock, feed or cost records.
+model CostScenario {
+  id          String    @id @default(cuid())
+  companyId   String
+  farmId      String
+  batchId     String?
+  tankId      String?
+  name        String
+  input       Json
+  createdById String
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  farm Farm @relation(fields: [farmId], references: [id])
+
+  @@index([companyId, farmId])
+  @@map("cost_scenarios")
 }
 
 /// A cost that repeats monthly (rent, an electricity contract, a salaried worker). Written into

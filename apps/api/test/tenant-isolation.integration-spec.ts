@@ -3330,6 +3330,183 @@ describe("Tenant isolation & authorization (integration)", () => {
         .send({ stockingSource: "FINGERLINGS_PURCHASED", stockingUnitPrice: 5, stockingCurrency: "TRY" })
         .expect(409);
     });
+
+    it("calculates the hand-checked example over HTTP; a bad scenario fails alone; nothing is stored", async () => {
+      const example = {
+        startCount: 1000,
+        startAvgWeightG: 5,
+        startAccumulatedCostTry: 2000,
+        targetWeightG: 100,
+        mode: "SIMPLE",
+        feedPriceTryPerKg: 50,
+        fcr: 1,
+        durationDays: 120,
+        mortalityPct: 0,
+        expenses: [{ label: "Dönem ek giderleri", amountTry: 1000, mode: "TOTAL" }],
+      };
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-scenarios/calculate`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ scenarios: [example, { ...example, targetWeightG: 4 }] })
+        .expect(201);
+      const [ok, bad] = res.body.data.results;
+      expect(ok.ok).toBe(true);
+      expect(ok.result.targetBiomassKg).toBeCloseTo(100, 6);
+      expect(ok.result.feedKg).toBeCloseTo(95, 6);
+      expect(ok.result.totalCostTry).toBeCloseTo(7750, 6);
+      expect(ok.result.costPerFishTry).toBeCloseTo(7.75, 6);
+      expect(ok.result.costPerKgTry).toBeCloseTo(77.5, 6);
+      expect(bad.ok).toBe(false);
+      expect(bad.error).toContain("büyük olmalı");
+      expect(await prisma.costScenario.count({ where: { farmId: companyA.farmId } })).toBe(0);
+    });
+
+    it("saves a scenario, lists it, removes it; an unusable scenario is refused and not kept", async () => {
+      const scenario = {
+        startCount: 1000,
+        startAvgWeightG: 5,
+        startAccumulatedCostTry: 2000,
+        targetWeightG: 100,
+        mode: "SIMPLE",
+        feedPriceTryPerKg: 50,
+        fcr: 1,
+        durationDays: 120,
+        mortalityPct: 10,
+        expenses: [],
+      };
+      const saved = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-scenarios`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Hedef 100 g, %10 ölüm", scenario })
+        .expect(201);
+      const id = saved.body.data.id as string;
+
+      const list = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-scenarios`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(list.body.data.some((s: { id: string }) => s.id === id)).toBe(true);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-scenarios`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: "Geçersiz", scenario: { ...scenario, targetWeightG: 4 } })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${companyA.farmId}/cost-scenarios/${id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${companyA.farmId}/cost-scenarios/${id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+      expect(await prisma.costScenario.count({ where: { farmId: companyA.farmId, deletedAt: null } })).toBe(0);
+    });
+
+    it("derives the duration from a growth rate when none is typed; an unweighed batch has no rate to offer", async () => {
+      const iso = await isolatedFarm("SGR");
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: iso.tankId,
+          fishCount: 1000,
+          avgWeightG: 5,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+        })
+        .expect(201);
+
+      const prefill = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${iso.farmId}/cost-scenarios/prefill`)
+        .query({ batchId: batch.body.data.id })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(prefill.body.data.sgrPctPerDay).toBeNull();
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${iso.farmId}/cost-scenarios/calculate`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          scenarios: [
+            {
+              mode: "SIMPLE",
+              startCount: 1000,
+              startAvgWeightG: 5,
+              startAccumulatedCostTry: 0,
+              targetWeightG: 100,
+              feedPriceTryPerKg: 50,
+              fcr: 1,
+              sgrPctPerDay: 2,
+              mortalityPct: 0,
+              expenses: [],
+            },
+          ],
+        })
+        .expect(201);
+      const [only] = res.body.data.results;
+      expect(only.ok).toBe(true);
+      expect(only.result.durationSource).toBe("SGR");
+      expect(only.result.days).toBeCloseTo(Math.log(20) / 0.02, 6);
+    });
+
+    it("another company's farm cannot be planned, listed or prefilled", async () => {
+      const auth_ = auth(companyA.ownerToken);
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/cost-scenarios`)
+        .set("Authorization", auth_)
+        .expect(404);
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyB.farmId}/cost-scenarios/calculate`)
+        .set("Authorization", auth_)
+        .send({ scenarios: [{ mode: "SIMPLE" }] })
+        .expect(404);
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyB.farmId}/cost-scenarios/prefill`)
+        .query({ batchId: "nonexistent" })
+        .set("Authorization", auth_)
+        .expect(404);
+    });
+
+    it("prefills a batch's live count, weight and realized cost; a batch from another farm is refused", async () => {
+      const iso = await isolatedFarm("PREFILL");
+      const other = await isolatedFarm("PREFILL-OTHER");
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: iso.tankId,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+          stockingSource: "FINGERLINGS_PURCHASED",
+          stockingUnitPrice: 2,
+          stockingCurrency: "TRY",
+        })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${iso.farmId}/cost-scenarios/prefill`)
+        .query({ batchId })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data.startCount).toBe(1000);
+      expect(res.body.data.startAvgWeightG).toBe(100);
+      expect(res.body.data.startAccumulatedCostTry).toBe(2000);
+      expect(res.body.data.tankId).toBe(iso.tankId);
+      expect(res.body.data.feedPriceTryPerKg).toBeNull();
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${other.farmId}/cost-scenarios/prefill`)
+        .query({ batchId })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+    });
   });
 
   describe("regulatory inspection report", () => {

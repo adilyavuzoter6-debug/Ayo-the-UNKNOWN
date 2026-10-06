@@ -27,6 +27,7 @@ import {
 import { AddCostEntryDialog } from "@/components/costs/add-cost-entry-dialog";
 import { AddRecurringCostDialog } from "@/components/costs/add-recurring-cost-dialog";
 import { EditStockingDialog } from "@/components/farms/edit-stocking-dialog";
+import { TargetWeightScenariosPanel } from "@/components/costs/target-weight-scenarios-panel";
 import { useFarms } from "@/hooks/use-farms";
 import { useFishBatches } from "@/hooks/use-fish-batches";
 import {
@@ -481,6 +482,8 @@ export default function CostsPage() {
           <ForecastPanel farmId={farmId} />
 
           <RecurringCostsPanel farmId={farmId} />
+
+          <TargetWeightScenariosPanel farmId={farmId} batches={batches ?? []} />
 
           <PanelCard title="Gider Kayıtları">
             {entriesLoading ? (

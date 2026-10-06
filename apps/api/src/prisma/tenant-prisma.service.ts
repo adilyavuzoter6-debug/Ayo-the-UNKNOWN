@@ -29,6 +29,7 @@ const TENANT_SCOPED_MODELS = new Set([
   "Treatment",
   "CostEntry",
   "RecurringCost",
+  "CostScenario",
   // BatchCurrentState/BatchTankState/FeedInventoryBalance deliberately excluded — per
   // docs/architecture/04-database-schema.md §4.4/§4.6 they carry no companyId column at all
   // (keyed only by batchId/tankId or feedInventoryBatchId), same as MembershipFarmScope.

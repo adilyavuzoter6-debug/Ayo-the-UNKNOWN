@@ -709,3 +709,95 @@ export interface AdminCompanyDetail {
     customer: string | null;
   }[];
 }
+
+// Target-weight cost projection (API: modules/cost-scenarios). Estimates only: nothing here is booked.
+export type ProjectionMode = "SIMPLE" | "STAGED";
+export type ExpenseMode = "TOTAL" | "DAILY";
+
+export interface ScenarioExpenseInput {
+  label: string;
+  amountTry: number;
+  mode: ExpenseMode;
+}
+
+export interface ScenarioStageInput {
+  minG?: number;
+  maxG?: number;
+  feedPriceTryPerKg?: number;
+  fcr?: number;
+  durationDays?: number;
+  mortalityPct?: number;
+}
+
+export interface ScenarioInput {
+  startCount?: number;
+  startAvgWeightG?: number;
+  startAccumulatedCostTry?: number;
+  targetWeightG?: number;
+  mode: ProjectionMode;
+  feedPriceTryPerKg?: number;
+  fcr?: number;
+  durationDays?: number;
+  sgrPctPerDay?: number;
+  mortalityPct?: number;
+  stages?: ScenarioStageInput[];
+  expenses: ScenarioExpenseInput[];
+}
+
+export interface ScenarioStageBreakdown {
+  fromG: number;
+  toG: number;
+  days: number;
+  feedKg: number;
+  feedCostTry: number;
+  fcr: number;
+  feedPriceTryPerKg: number;
+  mortalityPct: number;
+}
+
+export interface ScenarioResult {
+  targetWeightG: number;
+  days: number;
+  durationSource: "MANUAL" | "SGR" | "STAGED";
+  startCount: number;
+  aliveAtTarget: number;
+  deadCount: number;
+  startBiomassKg: number;
+  targetBiomassKg: number;
+  netBiomassChangeKg: number;
+  growthKg: number;
+  feedKg: number;
+  feedCostTry: number;
+  expenses: { label: string; mode: ExpenseMode; amountTry: number }[];
+  expensesTry: number;
+  additionalCostTry: number;
+  startAccumulatedCostTry: number;
+  totalCostTry: number;
+  costPerFishTry: number | null;
+  costPerKgTry: number | null;
+  stages: ScenarioStageBreakdown[];
+  warnings: string[];
+}
+
+export type ScenarioOutcome = { ok: true; result: ScenarioResult } | { ok: false; error: string };
+
+export interface ScenarioPrefill {
+  batchId: string;
+  lotCode: string;
+  tankId: string | null;
+  startCount: number;
+  startAvgWeightG: number;
+  startAccumulatedCostTry: number;
+  sgrPctPerDay: number | null;
+  feedPriceTryPerKg: number | null;
+  feedPriceSource: "LAST_PURCHASE" | null;
+}
+
+export interface SavedCostScenario {
+  id: string;
+  name: string;
+  batchId: string | null;
+  tankId: string | null;
+  input: ScenarioInput;
+  createdAt: string;
+}
