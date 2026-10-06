@@ -27,9 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateHarvestRecord } from "@/hooks/use-harvest";
-import { useUsdTryRate } from "@/hooks/use-exchange-rate";
+import { useExchangeRate } from "@/hooks/use-exchange-rate";
+import { CURRENCY_SYMBOL, CurrencyToggle } from "@/components/shared/currency-toggle";
 import { ApiError } from "@/lib/api-error";
-import { cn } from "@/lib/utils";
 import type { BatchTankAllocation } from "@/lib/types";
 
 const schema = z
@@ -45,12 +45,12 @@ const schema = z
     destination: z.string().optional(),
     customer: z.string().optional(),
     salePricePerKg: z.coerce.number().positive().optional(),
-    saleCurrency: z.enum(["TRY", "USD"]),
+    saleCurrency: z.enum(["TRY", "USD", "EUR"]),
     saleExchangeRate: z.coerce.number().positive().optional(),
     notes: z.string().max(500).optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.salePricePerKg !== undefined && values.saleCurrency === "USD" && values.saleExchangeRate === undefined) {
+    if (values.salePricePerKg !== undefined && values.saleCurrency !== "TRY" && values.saleExchangeRate === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Dolar kuru gerekli (TCMB kuru alınamadıysa elle girin)",
@@ -94,20 +94,20 @@ export function RecordHarvestDialog({
   const liveCount = allocations.find((a) => a.batchId === selectedBatchId)?.estimatedCount;
 
   // The Central Bank rate for the harvest date pre-fills the sale rate; a typed rate is kept.
-  const usdRate = useUsdTryRate(saleCurrency === "USD" ? harvestedAt : undefined);
+  const foreignRate = useExchangeRate(saleCurrency === "TRY" ? undefined : saleCurrency, harvestedAt);
   React.useEffect(() => {
-    if (!usdRate.data || saleCurrency !== "USD") return;
+    if (!foreignRate.data || saleCurrency === "TRY") return;
     if (!form.getFieldState("saleExchangeRate").isDirty) {
-      form.setValue("saleExchangeRate", usdRate.data.rate);
+      form.setValue("saleExchangeRate", foreignRate.data.rate);
     }
-  }, [usdRate.data, saleCurrency, open, form]);
+  }, [foreignRate.data, saleCurrency, open, form]);
   const salePreviewTry =
     salePricePerKg !== undefined && saleCurrency === "TRY"
       ? salePricePerKg
       : salePricePerKg !== undefined && saleExchangeRate !== undefined
         ? salePricePerKg * saleExchangeRate
         : undefined;
-  const rateIsCentralBank = usdRate.data !== undefined && saleExchangeRate === usdRate.data.rate;
+  const rateIsCentralBank = foreignRate.data !== undefined && saleExchangeRate === foreignRate.data.rate;
 
   async function onSubmit(values: FormValues) {
     try {
@@ -117,7 +117,7 @@ export function RecordHarvestDialog({
         ...values,
         salePricePerKg: hasSale ? values.salePricePerKg : undefined,
         saleCurrency: hasSale ? values.saleCurrency : undefined,
-        saleExchangeRate: hasSale && values.saleCurrency === "USD" ? values.saleExchangeRate : undefined,
+        saleExchangeRate: hasSale && values.saleCurrency !== "TRY" ? values.saleExchangeRate : undefined,
       });
       toast.success(values.type === "PLANNED" ? "Planlı hasat eklendi." : "Hasat kaydedildi.");
       form.reset({
@@ -335,21 +335,7 @@ export function RecordHarvestDialog({
                 <div className="flex items-center justify-between">
                   <FormLabel>Satış (opsiyonel)</FormLabel>
                   <div className="flex overflow-hidden rounded-md border border-border text-xs">
-                    {(["TRY", "USD"] as const).map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => form.setValue("saleCurrency", c)}
-                        className={cn(
-                          "px-2.5 py-1 font-medium transition-colors",
-                          saleCurrency === c
-                            ? "bg-teal-500 text-white"
-                            : "bg-transparent text-muted-foreground hover:bg-muted",
-                        )}
-                      >
-                        {c === "TRY" ? "₺" : "$"}
-                      </button>
-                    ))}
+                    <CurrencyToggle value={saleCurrency} onChange={(c) => form.setValue("saleCurrency", c)} />
                   </div>
                 </div>
 
@@ -360,7 +346,7 @@ export function RecordHarvestDialog({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-[11px] text-muted-foreground">
-                          Fiyat ({saleCurrency === "USD" ? "$" : "₺"}/kg)
+                          Fiyat ({CURRENCY_SYMBOL[saleCurrency]}/kg)
                         </FormLabel>
                         <FormControl>
                           <Input
@@ -381,13 +367,13 @@ export function RecordHarvestDialog({
                       </FormItem>
                     )}
                   />
-                  {saleCurrency === "USD" ? (
+                  {saleCurrency !== "TRY" ? (
                     <FormField
                       control={form.control}
                       name="saleExchangeRate"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-[11px] text-muted-foreground">Kur (1$ = ? ₺)</FormLabel>
+                          <FormLabel className="text-[11px] text-muted-foreground">Kur (1 birim = ? ₺)</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -416,8 +402,8 @@ export function RecordHarvestDialog({
                       {salePreviewTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg
                     </span>{" "}
                     gelir olarak kaydedilecek
-                    {saleCurrency === "USD" && rateIsCentralBank
-                      ? ` (TCMB ${usdRate.data?.bulletinDate} satış kuru)`
+                    {saleCurrency !== "TRY" && rateIsCentralBank
+                      ? ` (TCMB ${foreignRate.data?.bulletinDate} satış kuru)`
                       : ""}
                     .
                   </p>

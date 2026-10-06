@@ -24,10 +24,10 @@ export class CreateRecurringCostDto {
   @IsPositive()
   amount!: number;
 
-  @ApiPropertyOptional({ enum: ["TRY", "USD"], description: "Defaults to TRY" })
+  @ApiPropertyOptional({ enum: ["TRY", "USD", "EUR"], description: "Defaults to TRY" })
   @IsOptional()
-  @IsIn(["TRY", "USD"])
-  currency?: "TRY" | "USD";
+  @IsIn(["TRY", "USD", "EUR"])
+  currency?: "TRY" | "USD" | "EUR";
 
   @ApiProperty({ minimum: 1, maximum: 28, description: "Day of each month it's booked on" })
   @IsInt()

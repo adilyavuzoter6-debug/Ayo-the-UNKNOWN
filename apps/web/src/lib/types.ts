@@ -419,9 +419,10 @@ export interface CostForecast {
   };
 }
 
-export type ExchangeCurrency = "TRY" | "USD";
+export type ExchangeCurrency = "TRY" | "USD" | "EUR";
+export type ForeignCurrency = Exclude<ExchangeCurrency, "TRY">;
 
-export interface UsdTryRate {
+export interface ForeignRate {
   date: string;
   rate: number;
   bulletinDate: string;

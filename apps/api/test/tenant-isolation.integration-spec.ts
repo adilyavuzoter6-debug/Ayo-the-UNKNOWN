@@ -2596,7 +2596,7 @@ describe("Tenant isolation & authorization (integration)", () => {
       await request(app.getHttpServer())
         .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
         .set("Authorization", auth(companyA.ownerToken))
-        .send({ category: "LABOR", amount: 10, currency: "EUR", incurredAt: new Date().toISOString() })
+        .send({ category: "LABOR", amount: 10, currency: "GBP", incurredAt: new Date().toISOString() })
         .expect(400);
     });
 
@@ -2843,6 +2843,206 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(row.sunkCostTry).toBe(0);
       expect(row.totalCostTry).toBe(100);
       expect(row.costPerKgTry).toBe(5); // 100 TRY / 20 kg at harvest
+    });
+    async function newTankForStocking(prefix: string) {
+      return prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+          type: "TANK",
+        },
+      });
+    }
+
+    function stockingCostSum(batchId: string) {
+      return prisma.costEntry
+        .aggregate({
+          where: { batchId, sourceType: { in: ["FishBatchStocking", "BatchTransfer"] } },
+          _sum: { amountTry: true },
+        })
+        .then((r) => Number(r._sum.amountTry ?? 0));
+    }
+
+    it("stocking with a fingerling price books a FINGERLINGS cost, converted from EUR at the given rate", async () => {
+      const tank = await newTankForStocking("STK-EUR");
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 1000,
+          avgWeightG: 5,
+          farmEntryDate: today,
+          stockingSource: "FINGERLINGS_PURCHASED",
+          stockingUnitPrice: 2.5,
+          stockingCurrency: "EUR",
+          stockingExchangeRate: 50,
+        })
+        .expect(201);
+      const batchId = res.body.data.id as string;
+      expect(res.body.data.stockingCurrency).toBe("EUR");
+
+      const entry = await prisma.costEntry.findFirst({ where: { batchId, sourceType: "FishBatchStocking" } });
+      expect(entry).not.toBeNull();
+      expect(entry!.category).toBe("FINGERLINGS");
+      expect(Number(entry!.amount)).toBe(2500); // 1000 fish × €2.5
+      expect(Number(entry!.exchangeRate)).toBe(50);
+      expect(Number(entry!.amountTry)).toBe(125000);
+    });
+
+    it("bought eggs are costed per egg in USD; our own eggs with no internal price book no cost", async () => {
+      const bought = await newTankForStocking("EGG-BUY");
+      const boughtRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: bought.id,
+          fishCount: 9000,
+          avgWeightG: 2,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+          stockingSource: "EGGS_PURCHASED",
+          eggCount: 10000,
+          stockingUnitPrice: 0.5,
+          stockingCurrency: "USD",
+          stockingExchangeRate: 40,
+        })
+        .expect(201);
+      const boughtEntry = await prisma.costEntry.findFirst({
+        where: { batchId: boughtRes.body.data.id, sourceType: "FishBatchStocking" },
+      });
+      expect(boughtEntry!.category).toBe("EGGS");
+      expect(Number(boughtEntry!.amount)).toBe(5000); // 10 000 eggs × $0.5
+      expect(Number(boughtEntry!.amountTry)).toBe(200000);
+
+      const own = await newTankForStocking("EGG-OWN");
+      const ownRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: own.id,
+          fishCount: 7000,
+          avgWeightG: 2,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+          stockingSource: "EGGS_IN_HOUSE",
+          eggCount: 8000,
+        })
+        .expect(201);
+      expect(ownRes.body.data.stockingSource).toBe("EGGS_IN_HOUSE");
+      expect(ownRes.body.data.eggCount).toBe(8000);
+      expect(await stockingCostSum(ownRes.body.data.id)).toBe(0);
+    });
+
+    it("an incomplete stocking price is rejected before anything is written", async () => {
+      const tank = await newTankForStocking("STK-BAD");
+      const base = {
+        speciesId,
+        tankId: tank.id,
+        fishCount: 500,
+        avgWeightG: 5,
+        farmEntryDate: new Date().toISOString().slice(0, 10),
+      };
+      const cases = [
+        { lotCode: nextLotCode(), stockingSource: "FINGERLINGS_PURCHASED" }, // no unit price
+        { lotCode: nextLotCode(), stockingSource: "EGGS_PURCHASED", stockingUnitPrice: 0.5 }, // no egg count
+        { lotCode: nextLotCode(), stockingUnitPrice: 2 }, // price without a source
+        { lotCode: nextLotCode(), stockingSource: "FINGERLINGS_PURCHASED", stockingUnitPrice: 2, eggCount: 900 },
+      ];
+      for (const extra of cases) {
+        await request(app.getHttpServer())
+          .post("/api/v1/fish-batches")
+          .set("Authorization", auth(companyA.ownerToken))
+          .send({ ...base, ...extra })
+          .expect(400);
+      }
+    });
+
+    it("splitting fish off a batch moves its stocking cost with them, and merging moves it back in", async () => {
+      const source = await newTankForStocking("SPL-A");
+      const splitTank = await newTankForStocking("SPL-B");
+      const batchRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: source.id,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+          stockingSource: "FINGERLINGS_PURCHASED",
+          stockingUnitPrice: 2,
+          stockingCurrency: "TRY",
+        })
+        .expect(201);
+      const parentId = batchRes.body.data.id as string;
+      expect(await stockingCostSum(parentId)).toBe(2000);
+
+      // A split needs at least two targets. 300 fish → child 1 (30% of the cost), 100 → child 2 (10%),
+      // so the parent keeps the other 600 fish (60%).
+      const splitTank2 = await newTankForStocking("SPL-D");
+      const splitRes = await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${parentId}/split`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          fromTankId: source.id,
+          splits: [
+            { toTankId: splitTank.id, lotCode: nextLotCode(), fishCount: 300 },
+            { toTankId: splitTank2.id, lotCode: nextLotCode(), fishCount: 100 },
+          ],
+        })
+        .expect(201);
+      const [childId, childTwoId] = splitRes.body.data.childIds as string[];
+      expect(await stockingCostSum(parentId)).toBe(1200);
+      expect(await stockingCostSum(childId!)).toBe(600);
+      expect(await stockingCostSum(childTwoId!)).toBe(200);
+
+      // A second batch with its own cost (1000 fish × 3 TRY), merged with child 1's 300 fish.
+      const otherTank = await newTankForStocking("SPL-C");
+      const otherRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: otherTank.id,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+          stockingSource: "FINGERLINGS_PURCHASED",
+          stockingUnitPrice: 3,
+          stockingCurrency: "TRY",
+        })
+        .expect(201);
+      const otherId = otherRes.body.data.id as string;
+      const mergeTank = await newTankForStocking("SPL-M");
+      const mergeRes = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches/merge")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          lotCode: nextLotCode(),
+          toTankId: mergeTank.id,
+          sources: [
+            { batchId: childId!, fromTankId: splitTank.id, fishCount: 300 },
+            { batchId: otherId, fromTankId: otherTank.id, fishCount: 1000 },
+          ],
+        })
+        .expect(201);
+      const mergedId = mergeRes.body.data.id as string;
+
+      expect(await stockingCostSum(mergedId)).toBe(3600); // 600 moved from child 1 + 3000 own
+      expect(await stockingCostSum(childId!)).toBe(0);
+      expect(await stockingCostSum(otherId)).toBe(0);
+      // Nothing was created or destroyed: the parent keeps 1200 and child 2 keeps its 200.
+      expect(await stockingCostSum(parentId)).toBe(1200);
+      expect(await stockingCostSum(childTwoId!)).toBe(200);
     });
   });
 

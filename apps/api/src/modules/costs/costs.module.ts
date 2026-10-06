@@ -7,17 +7,18 @@ import { CostsService } from "./costs.service";
 import { CostsController, CostSummaryController } from "./costs.controller";
 import { CostForecastController } from "./cost-forecast.controller";
 import { RecurringCostsService } from "./recurring-costs.service";
+import { StockingCostService } from "./stocking-cost.service";
 import { RecurringCostsController } from "./recurring-costs.controller";
 
 @Module({
   imports: [AuditModule, ExchangeRatesModule],
-  providers: [CostsService, CostAttributionService, CostForecastService, RecurringCostsService],
+  providers: [CostsService, CostAttributionService, CostForecastService, RecurringCostsService, StockingCostService],
   controllers: [
     CostsController,
     CostSummaryController,
     RecurringCostsController,
     CostForecastController,
   ],
-  exports: [CostsService, CostAttributionService],
+  exports: [CostsService, CostAttributionService, StockingCostService],
 })
 export class CostsModule {}

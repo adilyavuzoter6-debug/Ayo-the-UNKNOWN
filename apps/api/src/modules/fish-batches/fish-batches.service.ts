@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { AlertsService } from "../alerts/alerts.service";
+import { StockingCostService } from "../costs/stocking-cost.service";
 import { BatchProjectionService } from "./batch-projection.service";
 import type { CreateFishBatchDto } from "./dto/create-fish-batch.dto";
 import type { CreateMovementDto } from "./dto/create-movement.dto";
@@ -15,6 +16,7 @@ export class FishBatchesService {
     private readonly auditService: AuditService,
     private readonly alertsService: AlertsService,
     private readonly projection: BatchProjectionService,
+    private readonly stockingCosts: StockingCostService,
   ) {}
 
   private async assertTankInTenant(companyId: string, tankId: string) {
@@ -125,6 +127,21 @@ export class FishBatchesService {
 
   async create(companyId: string, userId: string, dto: CreateFishBatchDto) {
     await this.assertTankInTenant(companyId, dto.tankId);
+    const farmEntryDate = new Date(dto.farmEntryDate);
+
+    // Price is resolved (incl. the exchange rate) before anything is written: a bad stocking input or a
+    // failed rate lookup must not leave a batch that exists without its cost.
+    const prepared = await this.stockingCosts.prepare(
+      {
+        source: dto.stockingSource,
+        fishCount: dto.fishCount,
+        eggCount: dto.eggCount,
+        unitPrice: dto.stockingUnitPrice,
+        currency: dto.stockingCurrency,
+        exchangeRate: dto.stockingExchangeRate,
+      },
+      farmEntryDate,
+    );
 
     const batch = await this.tenantPrisma.forTenant(companyId).fishBatch.create({
       data: {
@@ -134,12 +151,26 @@ export class FishBatchesService {
         hatcherySupplier: dto.hatcherySupplier,
         eggSource: dto.eggSource,
         hatchDate: dto.hatchDate ? new Date(dto.hatchDate) : undefined,
-        farmEntryDate: new Date(dto.farmEntryDate),
+        farmEntryDate,
         initialCount: dto.fishCount,
         initialAvgWeightG: dto.avgWeightG,
+        stockingSource: dto.stockingSource,
+        eggCount: dto.eggCount,
+        stockingUnitPrice: dto.stockingUnitPrice,
+        stockingCurrency: prepared ? prepared.currency : undefined,
+        stockingExchangeRate: prepared ? prepared.exchangeRate : undefined,
         createdById: userId,
       },
     });
+
+    if (prepared) {
+      await this.stockingCosts.book(companyId, userId, {
+        batchId: batch.id,
+        tankId: dto.tankId,
+        incurredAt: farmEntryDate,
+        prepared,
+      });
+    }
 
     await this.tenantPrisma.forTenant(companyId).batchMovement.create({
       data: {
@@ -242,6 +273,8 @@ export class FishBatchesService {
 
     const parentAvgWeight = parent.currentState?.estimatedAvgWeightG ?? parent.initialAvgWeightG;
     const childIds: string[] = [];
+    // Stocking cost follows the fish: each child takes its share of the fish still left in the parent.
+    let remainingFish = Number(parent.currentState?.estimatedCount ?? 0);
 
     for (const target of dto.splits) {
       await this.assertTankInTenant(companyId, target.toTankId);
@@ -274,6 +307,14 @@ export class FishBatchesService {
           createdById: userId,
         },
       });
+
+      await this.stockingCosts.transfer(companyId, userId, {
+        fromBatchId: parent.id,
+        toBatchId: child.id,
+        fraction: remainingFish > 0 ? target.fishCount / remainingFish : 0,
+        reference: child.id,
+      });
+      remainingFish -= target.fishCount;
     }
 
     await this.projection.recompute(companyId, parent.id);
@@ -297,6 +338,7 @@ export class FishBatchesService {
     let weightedWeightSum = 0;
     let totalFish = 0;
     let speciesId: string | undefined;
+    const liveByBatch = new Map<string, number>();
 
     for (const source of dto.sources) {
       const sourceBatch = await this.findById(companyId, source.batchId);
@@ -304,6 +346,7 @@ export class FishBatchesService {
         throw new BadRequestException("Cannot merge batches of different species.");
       }
       speciesId = sourceBatch.speciesId;
+      liveByBatch.set(source.batchId, Number(sourceBatch.currentState?.estimatedCount ?? 0));
 
       const liveCount = await this.projection.getLiveTankCount(
         companyId,
@@ -354,6 +397,17 @@ export class FishBatchesService {
           occurredAt: new Date(),
           createdById: userId,
         },
+      });
+    }
+
+    // Each source's stocking cost follows the fish it sends: its share of the fish it had live.
+    for (const source of dto.sources) {
+      const live = liveByBatch.get(source.batchId) ?? 0;
+      await this.stockingCosts.transfer(companyId, userId, {
+        fromBatchId: source.batchId,
+        toBatchId: merged.id,
+        fraction: live > 0 ? source.fishCount / live : 0,
+        reference: `${merged.id}:${source.batchId}`,
       });
     }
 

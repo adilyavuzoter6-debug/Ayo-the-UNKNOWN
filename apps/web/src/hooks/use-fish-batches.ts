@@ -66,6 +66,11 @@ export interface CreateFishBatchInput {
   hatcherySupplier?: string;
   eggSource?: string;
   notes?: string;
+  stockingSource?: "FINGERLINGS_PURCHASED" | "EGGS_PURCHASED" | "EGGS_IN_HOUSE";
+  eggCount?: number;
+  stockingUnitPrice?: number;
+  stockingCurrency?: "TRY" | "USD" | "EUR";
+  stockingExchangeRate?: number;
 }
 
 function invalidateAfterMovement(

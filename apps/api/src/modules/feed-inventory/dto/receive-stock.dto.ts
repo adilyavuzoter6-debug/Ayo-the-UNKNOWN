@@ -43,10 +43,10 @@ export class ReceiveStockDto {
   @IsPositive()
   unitCostAmount?: number;
 
-  @ApiPropertyOptional({ enum: ["TRY", "USD"], description: "Defaults to TRY" })
+  @ApiPropertyOptional({ enum: ["TRY", "USD", "EUR"], description: "Defaults to TRY" })
   @IsOptional()
-  @IsIn(["TRY", "USD"])
-  unitCostCurrency?: "TRY" | "USD";
+  @IsIn(["TRY", "USD", "EUR"])
+  unitCostCurrency?: "TRY" | "USD" | "EUR";
 
   @ApiPropertyOptional({
     description:

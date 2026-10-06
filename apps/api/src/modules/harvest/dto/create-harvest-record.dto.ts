@@ -85,10 +85,10 @@ export class CreateHarvestRecordDto {
   @IsPositive()
   salePricePerKg?: number;
 
-  @ApiPropertyOptional({ enum: ["TRY", "USD"], description: "Defaults to TRY" })
+  @ApiPropertyOptional({ enum: ["TRY", "USD", "EUR"], description: "Defaults to TRY" })
   @IsOptional()
-  @IsIn(["TRY", "USD"])
-  saleCurrency?: "TRY" | "USD";
+  @IsIn(["TRY", "USD", "EUR"])
+  saleCurrency?: "TRY" | "USD" | "EUR";
 
   @ApiPropertyOptional({
     description:

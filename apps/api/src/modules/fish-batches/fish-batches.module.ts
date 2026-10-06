@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuditModule } from "../audit/audit.module";
 import { AlertsModule } from "../alerts/alerts.module";
+import { CostsModule } from "../costs/costs.module";
 import { BatchProjectionService } from "./batch-projection.service";
 import { FishBatchesService } from "./fish-batches.service";
 import {
@@ -12,7 +13,7 @@ import {
 } from "./fish-batches.controller";
 
 @Module({
-  imports: [AuditModule, AlertsModule],
+  imports: [AuditModule, AlertsModule, CostsModule],
   providers: [FishBatchesService, BatchProjectionService],
   controllers: [
     MergeBatchesController,

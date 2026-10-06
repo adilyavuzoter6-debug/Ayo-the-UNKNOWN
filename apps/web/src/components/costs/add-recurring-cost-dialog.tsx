@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Repeat } from "lucide-react";
@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CURRENCY_SYMBOL, CurrencyToggle } from "@/components/shared/currency-toggle";
 import { useCreateRecurringCost } from "@/hooks/use-costs";
 import { ApiError } from "@/lib/api-error";
 import { COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/lib/costs";
@@ -34,7 +35,7 @@ import type { CostCategory } from "@/lib/types";
 const schema = z.object({
   category: z.string().min(1, "Bir kategori seçin"),
   amount: z.coerce.number().positive("Tutar 0'dan büyük olmalı"),
-  currency: z.enum(["TRY", "USD"]),
+  currency: z.enum(["TRY", "USD", "EUR"]),
   dayOfMonth: z.coerce
     .number()
     .int()
@@ -61,6 +62,7 @@ export function AddRecurringCostDialog({ farmId }: { farmId: string }) {
   });
 
   const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: defaults() });
+  const currency = useWatch({ control: form.control, name: "currency" });
 
   async function onSubmit(values: FormValues) {
     try {
@@ -137,7 +139,7 @@ export function AddRecurringCostDialog({ farmId }: { farmId: string }) {
                 name="amount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Aylık tutar (₺)</FormLabel>
+                    <FormLabel>Aylık tutar ({CURRENCY_SYMBOL[currency]})</FormLabel>
                     <FormControl>
                       <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                     </FormControl>
@@ -145,6 +147,11 @@ export function AddRecurringCostDialog({ farmId }: { farmId: string }) {
                   </FormItem>
                 )}
               />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+              <FormLabel>Para birimi</FormLabel>
+              <CurrencyToggle value={currency} onChange={(c) => form.setValue("currency", c)} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

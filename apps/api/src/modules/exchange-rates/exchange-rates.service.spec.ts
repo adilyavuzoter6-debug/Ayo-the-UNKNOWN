@@ -1,5 +1,10 @@
 import { BadGatewayException } from "@nestjs/common";
-import { ExchangeRatesService, parseUsdForexSelling, roundRate } from "./exchange-rates.service";
+import {
+  ExchangeRatesService,
+  parseForexSelling,
+  parseUsdForexSelling,
+  roundRate,
+} from "./exchange-rates.service";
 
 // Trimmed from a real TCMB daily bulletin: the USD row comes first, then other currencies.
 const BULLETIN_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -29,6 +34,16 @@ describe("parseUsdForexSelling", () => {
   it("returns null for a zero or non-numeric rate rather than a bogus conversion", () => {
     expect(parseUsdForexSelling(BULLETIN_XML.replace("49.1802", "0"))).toBeNull();
     expect(parseUsdForexSelling(BULLETIN_XML.replace("49.1802", "n/a"))).toBeNull();
+  });
+});
+
+describe("parseForexSelling for EUR", () => {
+  it("returns the euro selling rate from its own row, not USD's", () => {
+    expect(parseForexSelling(BULLETIN_XML, "EUR")).toBe(57.25);
+  });
+
+  it("never reads a neighbouring currency's rate when the EUR row is malformed", () => {
+    expect(parseForexSelling(BULLETIN_XML.replace("57.2500", "bozuk"), "EUR")).toBeNull();
   });
 });
 

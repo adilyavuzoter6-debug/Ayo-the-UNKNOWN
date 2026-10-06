@@ -26,9 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { CURRENCY_SYMBOL, CurrencyToggle } from "@/components/shared/currency-toggle";
 import { useCreateCostEntry } from "@/hooks/use-costs";
-import { useUsdTryRate } from "@/hooks/use-exchange-rate";
+import { useExchangeRate } from "@/hooks/use-exchange-rate";
 import { ApiError } from "@/lib/api-error";
 import { COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/lib/costs";
 import type { CostCategory, ExchangeCurrency, FishBatch } from "@/lib/types";
@@ -37,17 +37,17 @@ const schema = z
   .object({
     category: z.string().min(1, "Bir kategori seçin"),
     amount: z.coerce.number().positive("Tutar 0'dan büyük olmalı"),
-    currency: z.enum(["TRY", "USD"]),
+    currency: z.enum(["TRY", "USD", "EUR"]),
     exchangeRate: z.coerce.number().positive("Kur 0'dan büyük olmalı").optional(),
     batchId: z.string().optional(),
     incurredAt: z.string().min(1),
     notes: z.string().max(500).optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.currency === "USD" && values.exchangeRate === undefined) {
+    if (values.currency !== "TRY" && values.exchangeRate === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Dolar kuru gerekli (TCMB kuru alınamadıysa elle girin)",
+        message: "Kur gerekli (TCMB kuru alınamadıysa elle girin)",
         path: ["exchangeRate"],
       });
     }
@@ -76,17 +76,17 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
 
   // The Central Bank rate for the incurred date pre-fills the rate field; a rate the user typed
   // themselves is never overwritten.
-  const usdRate = useUsdTryRate(currency === "USD" ? incurredAt : undefined);
+  const foreignRate = useExchangeRate(currency === "TRY" ? undefined : currency, incurredAt);
   React.useEffect(() => {
-    if (!usdRate.data || currency !== "USD") return;
+    if (!foreignRate.data || currency === "TRY") return;
     if (!form.getFieldState("exchangeRate").isDirty) {
-      form.setValue("exchangeRate", usdRate.data.rate);
+      form.setValue("exchangeRate", foreignRate.data.rate);
     }
-  }, [usdRate.data, currency, open, form]);
+  }, [foreignRate.data, currency, open, form]);
 
   const tryPreview =
-    currency === "USD" && amount && exchangeRate ? amount * exchangeRate : currency === "TRY" ? amount : undefined;
-  const rateIsCentralBank = usdRate.data !== undefined && exchangeRate === usdRate.data.rate;
+    currency !== "TRY" && amount && exchangeRate ? amount * exchangeRate : currency === "TRY" ? amount : undefined;
+  const rateIsCentralBank = foreignRate.data !== undefined && exchangeRate === foreignRate.data.rate;
 
   async function onSubmit(values: FormValues) {
     try {
@@ -94,7 +94,7 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
         category: values.category as CostCategory,
         amount: values.amount,
         currency: values.currency as ExchangeCurrency,
-        exchangeRate: values.currency === "USD" ? values.exchangeRate : undefined,
+        exchangeRate: values.currency === "TRY" ? undefined : values.exchangeRate,
         batchId: values.batchId || undefined,
         incurredAt: values.incurredAt,
         notes: values.notes,
@@ -163,7 +163,7 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                 name="amount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tutar ({currency === "USD" ? "$" : "₺"})</FormLabel>
+                    <FormLabel>Tutar ({CURRENCY_SYMBOL[currency]})</FormLabel>
                     <FormControl>
                       <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
                     </FormControl>
@@ -175,35 +175,30 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
 
             <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
               <FormLabel>Para birimi</FormLabel>
-              <div className="flex overflow-hidden rounded-md border border-border text-xs">
-                {(["TRY", "USD"] as const).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => form.setValue("currency", c)}
-                    className={cn(
-                      "px-2.5 py-1 font-medium transition-colors",
-                      currency === c
-                        ? "bg-teal-500 text-white"
-                        : "bg-transparent text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    {c === "TRY" ? "₺" : "$"}
-                  </button>
-                ))}
-              </div>
+              <CurrencyToggle
+                value={currency}
+                onChange={(c) => form.setValue("currency", c)}
+              />
             </div>
 
-            {currency === "USD" ? (
+            {currency !== "TRY" ? (
               <div className="space-y-1.5">
                 <FormField
                   control={form.control}
                   name="exchangeRate"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-[11px] text-muted-foreground">Kur (1$ = ? ₺)</FormLabel>
+                      <FormLabel className="text-[11px] text-muted-foreground">
+                        Kur (1{CURRENCY_SYMBOL[currency]} = ? ₺)
+                      </FormLabel>
                       <FormControl>
-                        <Input type="number" min={0} step="0.0001" {...field} value={field.value ?? ""} />
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.0001"
+                          {...field}
+                          value={field.value ?? ""}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -216,7 +211,7 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
                       {tryPreview.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺
                     </span>{" "}
                     olarak kaydedilecek
-                    {rateIsCentralBank ? ` (TCMB ${usdRate.data?.bulletinDate} satış kuru)` : ""}.
+                    {rateIsCentralBank ? ` (TCMB ${foreignRate.data?.bulletinDate} satış kuru)` : ""}.
                   </p>
                 ) : null}
               </div>

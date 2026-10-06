@@ -277,6 +277,14 @@ model FishBatch {
   eggSource         String?
   hatchDate         DateTime?
   farmEntryDate     DateTime
+  /// How the batch was stocked, when its price is known. Null = no stocking cost recorded.
+  stockingSource       StockingSource?
+  /// Eggs bought or stripped in-house (EGGS_* sources only); fish count stays initialCount.
+  eggCount             Int?
+  /// Per fish (FINGERLINGS_PURCHASED) or per egg (EGGS_*), in stockingCurrency.
+  stockingUnitPrice    Decimal?    @db.Decimal(12, 4)
+  stockingCurrency     String?
+  stockingExchangeRate Decimal?    @db.Decimal(12, 4)
   initialCount      Int
   initialAvgWeightG Decimal     @db.Decimal(10, 3)
   status            BatchStatus @default(ACTIVE)
@@ -340,6 +348,12 @@ model BatchMovement {
   @@index([companyId, toTankId])
   @@index([companyId, fromTankId])
   @@map("batch_movements")
+}
+
+enum StockingSource {
+  FINGERLINGS_PURCHASED
+  EGGS_PURCHASED
+  EGGS_IN_HOUSE
 }
 
 enum MovementType {

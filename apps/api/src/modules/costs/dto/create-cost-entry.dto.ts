@@ -21,10 +21,10 @@ export class CreateCostEntryDto {
   @IsPositive()
   amount!: number;
 
-  @ApiPropertyOptional({ enum: ["TRY", "USD"], description: "Defaults to TRY" })
+  @ApiPropertyOptional({ enum: ["TRY", "USD", "EUR"], description: "Defaults to TRY" })
   @IsOptional()
-  @IsIn(["TRY", "USD"])
-  currency?: "TRY" | "USD";
+  @IsIn(["TRY", "USD", "EUR"])
+  currency?: "TRY" | "USD" | "EUR";
 
   @ApiPropertyOptional({
     description:

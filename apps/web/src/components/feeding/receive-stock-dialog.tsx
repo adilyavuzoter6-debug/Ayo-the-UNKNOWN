@@ -32,12 +32,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { useFarms } from "@/hooks/use-farms";
 import { useCreateWarehouse, useFarmWarehouses } from "@/hooks/use-warehouses";
 import { useFeedProducts } from "@/hooks/use-feed-products";
 import { useReceiveStock } from "@/hooks/use-feed-inventory";
-import { useUsdTryRate } from "@/hooks/use-exchange-rate";
+import { useExchangeRate } from "@/hooks/use-exchange-rate";
+import { CURRENCY_SYMBOL, CurrencyToggle } from "@/components/shared/currency-toggle";
 import { ApiError } from "@/lib/api-error";
 
 const schema = z
@@ -48,13 +48,13 @@ const schema = z
     quantityKg: z.coerce.number().positive(),
     supplierLotCode: z.string().trim().max(60).optional(),
     expiryDate: z.string().optional(),
-    unitCostCurrency: z.enum(["TRY", "USD"]),
+    unitCostCurrency: z.enum(["TRY", "USD", "EUR"]),
     unitCostAmount: z.coerce.number().positive().optional(),
     exchangeRate: z.coerce.number().positive().optional(),
   })
   .superRefine((values, ctx) => {
     if (
-      values.unitCostCurrency === "USD" &&
+      values.unitCostCurrency !== "TRY" &&
       values.unitCostAmount !== undefined &&
       !values.exchangeRate
     ) {
@@ -101,24 +101,24 @@ export function ReceiveStockDialog() {
 
   // A purchase is dated now (the form has no date field), so today's Central Bank rate applies.
   const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const usdRate = useUsdTryRate(unitCostCurrency === "USD" ? today : undefined);
+  const foreignRate = useExchangeRate(unitCostCurrency === "TRY" ? undefined : unitCostCurrency, today);
 
   // Pre-fill the TCMB rate, but never overwrite a rate the user typed themselves.
   React.useEffect(() => {
-    if (!usdRate.data || unitCostCurrency !== "USD") return;
+    if (!foreignRate.data || unitCostCurrency === "TRY") return;
     if (!form.getFieldState("exchangeRate").isDirty) {
-      form.setValue("exchangeRate", usdRate.data.rate);
+      form.setValue("exchangeRate", foreignRate.data.rate);
     }
-  }, [usdRate.data, unitCostCurrency, open, form]);
+  }, [foreignRate.data, unitCostCurrency, open, form]);
 
   const convertedTryPerKg =
-    unitCostCurrency === "USD" && unitCostAmount && exchangeRate
+    unitCostCurrency !== "TRY" && unitCostAmount && exchangeRate
       ? unitCostAmount * exchangeRate
       : unitCostCurrency === "TRY"
         ? unitCostAmount
         : undefined;
   const rateIsCentralBank =
-    usdRate.data !== undefined && exchangeRate === usdRate.data.rate;
+    foreignRate.data !== undefined && exchangeRate === foreignRate.data.rate;
 
   async function onAddWarehouse() {
     if (!newWarehouseName.trim() || !farmId) return;
@@ -141,7 +141,7 @@ export function ReceiveStockDialog() {
         expiryDate: values.expiryDate || undefined,
         unitCostAmount: values.unitCostAmount,
         unitCostCurrency: values.unitCostCurrency,
-        exchangeRate: values.unitCostCurrency === "USD" ? values.exchangeRate : undefined,
+        exchangeRate: values.unitCostCurrency !== "TRY" ? values.exchangeRate : undefined,
       });
 
       toast.success("Stok alımı kaydedildi.");
@@ -302,21 +302,7 @@ export function ReceiveStockDialog() {
               <div className="flex items-center justify-between">
                 <FormLabel>Birim maliyet (opsiyonel)</FormLabel>
                 <div className="flex overflow-hidden rounded-md border border-border text-xs">
-                  {(["TRY", "USD"] as const).map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => form.setValue("unitCostCurrency", c)}
-                      className={cn(
-                        "px-2.5 py-1 font-medium transition-colors",
-                        unitCostCurrency === c
-                          ? "bg-teal-500 text-white"
-                          : "bg-transparent text-muted-foreground hover:bg-muted",
-                      )}
-                    >
-                      {c === "TRY" ? "₺" : "$"}
-                    </button>
-                  ))}
+                  <CurrencyToggle value={unitCostCurrency} onChange={(c) => form.setValue("unitCostCurrency", c)} />
                 </div>
               </div>
 
@@ -327,7 +313,7 @@ export function ReceiveStockDialog() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-[11px] text-muted-foreground">
-                        Tutar ({unitCostCurrency === "USD" ? "$" : "₺"}/kg)
+                        Tutar ({CURRENCY_SYMBOL[unitCostCurrency]}/kg)
                       </FormLabel>
                       <FormControl>
                         <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
@@ -336,14 +322,14 @@ export function ReceiveStockDialog() {
                     </FormItem>
                   )}
                 />
-                {unitCostCurrency === "USD" ? (
+                {unitCostCurrency !== "TRY" ? (
                   <FormField
                     control={form.control}
                     name="exchangeRate"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-[11px] text-muted-foreground">
-                          Kur (1$ = ? ₺)
+                          Kur (1 birim = ? ₺)
                         </FormLabel>
                         <FormControl>
                           <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
@@ -355,13 +341,13 @@ export function ReceiveStockDialog() {
                 ) : null}
               </div>
 
-              {unitCostCurrency === "USD" && convertedTryPerKg !== undefined ? (
+              {unitCostCurrency !== "TRY" && convertedTryPerKg !== undefined ? (
                 <p className="text-[11px] text-muted-foreground">
                   ≈ <span className="font-mono font-medium text-foreground">
                     {convertedTryPerKg.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/kg
                   </span>{" "}
                   olarak maliyete yansıyacak
-                  {rateIsCentralBank ? ` (TCMB ${usdRate.data?.bulletinDate} satış kuru)` : ""}.
+                  {rateIsCentralBank ? ` (TCMB ${foreignRate.data?.bulletinDate} satış kuru)` : ""}.
                 </p>
               ) : null}
             </div>

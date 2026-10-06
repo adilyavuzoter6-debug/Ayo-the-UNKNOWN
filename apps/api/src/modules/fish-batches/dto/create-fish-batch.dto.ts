@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
   IsDateString,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -56,6 +57,40 @@ export class CreateFishBatchDto {
   @IsString()
   @MaxLength(200)
   eggSource?: string;
+
+  @ApiPropertyOptional({
+    enum: ["FINGERLINGS_PURCHASED", "EGGS_PURCHASED", "EGGS_IN_HOUSE"],
+    description: "Where the fish came from, when its price is recorded",
+  })
+  @IsOptional()
+  @IsIn(["FINGERLINGS_PURCHASED", "EGGS_PURCHASED", "EGGS_IN_HOUSE"])
+  stockingSource?: "FINGERLINGS_PURCHASED" | "EGGS_PURCHASED" | "EGGS_IN_HOUSE";
+
+  @ApiPropertyOptional({ description: "Eggs stocked from (EGGS_* sources only)" })
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  eggCount?: number;
+
+  @ApiPropertyOptional({
+    description:
+      "Price per fish (FINGERLINGS_PURCHASED) or per egg (EGGS_*), in stockingCurrency. Optional for EGGS_IN_HOUSE.",
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  stockingUnitPrice?: number;
+
+  @ApiPropertyOptional({ enum: ["TRY", "USD", "EUR"], description: "Defaults to TRY" })
+  @IsOptional()
+  @IsIn(["TRY", "USD", "EUR"])
+  stockingCurrency?: "TRY" | "USD" | "EUR";
+
+  @ApiPropertyOptional({ description: "TRY per unit of stockingCurrency; omit to use the Central Bank rate" })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  stockingExchangeRate?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
