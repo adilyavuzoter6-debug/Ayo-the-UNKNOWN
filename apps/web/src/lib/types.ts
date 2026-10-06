@@ -81,6 +81,8 @@ export interface BatchCurrentState {
   lastRecalculatedAt: string;
 }
 
+export type StockingSource = "FINGERLINGS_PURCHASED" | "EGGS_PURCHASED" | "EGGS_IN_HOUSE";
+
 export interface FishBatch {
   id: string;
   companyId: string;
@@ -92,6 +94,11 @@ export interface FishBatch {
   farmEntryDate: string;
   initialCount: number;
   initialAvgWeightG: string;
+  stockingSource: StockingSource | null;
+  eggCount: number | null;
+  stockingUnitPrice: string | null;
+  stockingCurrency: string | null;
+  stockingExchangeRate: string | null;
   status: BatchStatus;
   parentBatchIds: string[];
   createdAt: string;
@@ -342,11 +349,17 @@ export interface CostSummaryBatchRow {
   fullCostTry: number;
   harvestedKg: number;
   directCostPerKg: number | null;
-  fullCostPerKg: number | null;
+  /** TRY per kg produced by this batch up to the period end (cost to date ÷ kg produced). */
+  unitCostPerKg: number | null;
+  producedKg: number;
   revenueTry: number;
   avgSaleTryPerKg: number | null;
+  /** Sales in the period minus the direct cost of this period's batch-tagged spending. */
   grossProfitTry: number | null;
+  /** Sales minus the cost of the fish sold — the batch result to rely on. */
   netProfitTry: number | null;
+  /** Cost of the fish this batch sold in the period (kg sold × unit cost). */
+  cogsTry: number;
   mortalityKg: number;
   mortalityLossTry: number | null;
 }
@@ -362,7 +375,9 @@ export interface CostSummary {
   unallocatedFarmCostTry: number;
   /** TRY, from harvests with a sale price in the period. */
   revenueTry: number;
-  /** Revenue minus every cost in the period, farm-level costs included. */
+  /** Cost of the fish sold in the period. */
+  cogsTry: number;
+  /** Sales − cost of fish sold − unallocated farm-level cost. */
   periodResultTry: number;
   /** Estimate — see CostsService.getCostSummary. */
   mortalityLossTry: number;

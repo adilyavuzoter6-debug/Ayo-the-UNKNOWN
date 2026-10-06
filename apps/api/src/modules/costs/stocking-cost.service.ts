@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { ExchangeCurrency, ExchangeRatesService } from "../exchange-rates/exchange-rates.service";
 
@@ -116,6 +116,62 @@ export class StockingCostService {
         createdById: userId,
         notes: prepared.notes,
       },
+    });
+  }
+
+  /**
+   * Replaces a batch's stocking cost after its price was corrected. Refused once the batch has been
+   * split or merged: its cost has already been divided between batches, and changing the total would
+   * leave those shares wrong.
+   */
+  async replace(
+    companyId: string,
+    userId: string,
+    args: { batchId: string; farmEntryDate: Date; prepared: PreparedStockingCost | null },
+  ): Promise<void> {
+    const client = this.tenantPrisma.forTenant(companyId);
+    const transfers = await client.costEntry.count({
+      where: { batchId: args.batchId, sourceType: TRANSFER_SOURCE },
+    });
+    if (transfers > 0) {
+      throw new ConflictException(
+        "Bölünmüş ya da birleştirilmiş partinin stoklama fiyatı değiştirilemez; maliyet zaten partiler arasında dağıtıldı.",
+      );
+    }
+
+    if (!args.prepared) {
+      await client.costEntry.deleteMany({ where: { batchId: args.batchId, sourceType: STOCKING_SOURCE } });
+      return;
+    }
+
+    const { prepared } = args;
+    const updated = await client.costEntry.updateMany({
+      where: { batchId: args.batchId, sourceType: STOCKING_SOURCE },
+      data: {
+        category: prepared.category,
+        amount: prepared.amount,
+        currency: prepared.currency,
+        exchangeRate: prepared.exchangeRate,
+        amountTry: prepared.amountTry,
+        notes: prepared.notes,
+      },
+    });
+    if (updated.count > 0) return;
+
+    // No cost was booked before (the batch was stocked without a price): book it now, against the tank
+    // it was first stocked into.
+    const stocking = await client.batchMovement.findFirst({
+      where: { batchId: args.batchId, movementType: "STOCKING" },
+      orderBy: { occurredAt: "asc" },
+    });
+    if (!stocking?.toTankId) {
+      throw new NotFoundException("Stocking movement not found for this batch.");
+    }
+    await this.book(companyId, userId, {
+      batchId: args.batchId,
+      tankId: stocking.toTankId,
+      incurredAt: args.farmEntryDate,
+      prepared,
     });
   }
 

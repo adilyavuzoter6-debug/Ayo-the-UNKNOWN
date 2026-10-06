@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Wallet } from "lucide-react";
+import { toast } from "sonner";
+import { Pencil, Trash2, Wallet } from "lucide-react";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -25,18 +26,21 @@ import {
 } from "@/components/ui/table";
 import { AddCostEntryDialog } from "@/components/costs/add-cost-entry-dialog";
 import { AddRecurringCostDialog } from "@/components/costs/add-recurring-cost-dialog";
+import { EditStockingDialog } from "@/components/farms/edit-stocking-dialog";
 import { useFarms } from "@/hooks/use-farms";
 import { useFishBatches } from "@/hooks/use-fish-batches";
 import {
   useCostForecast,
+  useDeleteCostEntry,
   useFarmCostEntries,
   useFarmCostSummary,
   useRecurringCosts,
   useStopRecurringCost,
 } from "@/hooks/use-costs";
+import { ApiError } from "@/lib/api-error";
 import { COST_CATEGORY_LABEL } from "@/lib/costs";
 import { cn } from "@/lib/utils";
-import type { CostCategory } from "@/lib/types";
+import type { CostCategory, CostEntry, FishBatch } from "@/lib/types";
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -56,10 +60,11 @@ function fmtOptionalTry(n: number | null): string {
   return n !== null ? fmtTry(n) : "—";
 }
 
+const SYMBOL: Record<string, string> = { TRY: "₺", USD: "$", EUR: "€" };
+
 /** A non-TRY entry keeps its original amount visible next to the TRY it was booked at. */
 function fmtForeign(n: number, currency: string): string {
-  const symbol = currency === "USD" ? "$" : currency;
-  return `${n.toLocaleString("tr", { maximumFractionDigits: 2 })} ${symbol}`;
+  return `${n.toLocaleString("tr", { maximumFractionDigits: 2 })} ${SYMBOL[currency] ?? currency}`;
 }
 
 function toneClass(n: number | null) {
@@ -238,17 +243,12 @@ function RecurringCostsPanel({ farmId }: { farmId: string }) {
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-mono font-medium text-foreground">
-                  {fmtTry(Number(r.amount))} / ay
+                  {fmtForeign(Number(r.amount), r.currency)} / ay
                 </span>
                 <span className="font-mono text-muted-foreground">
                   son kayıt: {r.generatedThrough ?? "henüz yok"}
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={stop.isPending}
-                  onClick={() => stop.mutate(r.id)}
-                >
+                <Button variant="outline" size="sm" disabled={stop.isPending} onClick={() => stop.mutate(r.id)}>
                   Durdur
                 </Button>
               </div>
@@ -282,6 +282,26 @@ export default function CostsPage() {
     periodEnd,
   );
   const { data: entries, isLoading: entriesLoading } = useFarmCostEntries(farmId);
+  const deleteCostEntry = useDeleteCostEntry(farmId);
+  const [editingEntry, setEditingEntry] = React.useState<CostEntry | null>(null);
+  const [editingStockingBatch, setEditingStockingBatch] = React.useState<FishBatch | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = React.useState<string | null>(null);
+
+  // Two clicks: the first arms the delete, the second one deletes. No browser dialog involved.
+  async function onDelete(entry: CostEntry) {
+    if (confirmingDeleteId !== entry.id) {
+      setConfirmingDeleteId(entry.id);
+      return;
+    }
+    try {
+      await deleteCostEntry.mutateAsync(entry.id);
+      toast.success("Gider silindi.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Gider silinirken bir sorun oluştu.");
+    } finally {
+      setConfirmingDeleteId(null);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -343,10 +363,10 @@ export default function CostsPage() {
           ) : summary ? (
             <>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Metric label="Toplam gider" value={fmtTry(summary.totalAmount)} />
+                <Metric label="Toplam gider (faturalanan)" value={fmtTry(summary.totalAmount)} />
                 <Metric label="Satış geliri" value={fmtTry(summary.revenueTry)} />
                 <Metric
-                  label="Dönem sonucu (gelir − gider)"
+                  label="Dönem sonucu (satılan malın maliyeti dahil)"
                   value={fmtTry(summary.periodResultTry)}
                   tone={toneClass(summary.periodResultTry)}
                 />
@@ -376,10 +396,10 @@ export default function CostsPage() {
                   Çiftlik geneli giderler (elektrik, işçilik, genel gider…): {fmtTry(summary.farmLevelCostTry)} —{" "}
                   {fmtTry(summary.allocatedFarmCostTry)} partilere dağıtıldı
                   {summary.unallocatedFarmCostTry > 0
-                    ? `, ${fmtTry(summary.unallocatedFarmCostTry)} ise bu dönemde canlı balık olmadığı için dağıtılamadı`
+                    ? `, ${fmtTry(summary.unallocatedFarmCostTry)} ise bu dönemde canlı balık olmadığı için dağıtılamadı (dönem gideri)`
                     : ""}
-                  . Dağıtım, partinin dönemdeki kg·gün payına göre yapılır. Alınıp henüz yenmemiş yem hiçbir partiye
-                  yazılmaz; yediği kadar parti maliyetine girer.
+                  . Dağıtım, partinin o aydaki kg·gün payına göre yapılır. Alınıp henüz yenmemiş yem hiçbir partiye
+                  yazılmaz. Satılan malın maliyeti: {fmtTry(summary.cogsTry)}.
                 </p>
               </PanelCard>
 
@@ -391,11 +411,11 @@ export default function CostsPage() {
                         <TableRow>
                           <TableHead>Parti</TableHead>
                           <TableHead>Doğrudan</TableHead>
-                          <TableHead>Genel gider</TableHead>
-                          <TableHead>Tam maliyet</TableHead>
+                          <TableHead>Genel gider payı</TableHead>
                           <TableHead>Hasat</TableHead>
-                          <TableHead>Tam ₺/kg</TableHead>
-                          <TableHead>Satış ₺/kg</TableHead>
+                          <TableHead>Birim maliyet</TableHead>
+                          <TableHead>Satış / kg</TableHead>
+                          <TableHead>Satılan malın maliyeti</TableHead>
                           <TableHead>Parti sonucu</TableHead>
                           <TableHead>Ölüm kaybı</TableHead>
                         </TableRow>
@@ -422,10 +442,15 @@ export default function CostsPage() {
                               ) : null}
                             </TableCell>
                             <TableCell className="font-mono">{fmtTry(row.allocatedFarmCostTry)}</TableCell>
-                            <TableCell className="font-mono font-medium">{fmtTry(row.fullCostTry)}</TableCell>
-                            <TableCell className="font-mono">{row.harvestedKg.toFixed(1)} kg</TableCell>
-                            <TableCell className="font-mono font-medium">{fmtPerKg(row.fullCostPerKg)}</TableCell>
+                            <TableCell className="font-mono">
+                              {row.harvestedKg.toFixed(1)} kg
+                              <span className="block text-[11px] text-muted-foreground">
+                                {row.producedKg.toFixed(1)} kg üretildi
+                              </span>
+                            </TableCell>
+                            <TableCell className="font-mono font-medium">{fmtPerKg(row.unitCostPerKg)}</TableCell>
                             <TableCell className="font-mono font-medium">{fmtPerKg(row.avgSaleTryPerKg)}</TableCell>
+                            <TableCell className="font-mono">{fmtTry(row.cogsTry)}</TableCell>
                             <TableCell className={cn("font-mono font-medium", toneClass(row.netProfitTry))}>
                               {fmtOptionalTry(row.netProfitTry)}
                             </TableCell>
@@ -443,8 +468,10 @@ export default function CostsPage() {
                     </Table>
                   </div>
                   <p className="border-t border-border px-4.5 py-2.5 text-[11px] text-muted-foreground">
-                    Parti sonucu = aynı dönemdeki satış geliri − tam maliyet; satışı olmayan partide boştur. Ölüm kaybı
-                    tahminidir: ölen kg × partinin toplam doğrudan maliyet / kg.
+                    Birim maliyet, partinin o ana kadarki toplam maliyetinin (doğrudan giderler, yediği yem, genel gider
+                    payı, stoklama) ürettiği toplam kg&apos;a bölünmesiyle bulunur. Satılan malın maliyeti = satılan kg ×
+                    birim maliyet. Parti sonucu = satış geliri − satılan malın maliyeti. Ölüm kaybı tahminidir: ölen kg
+                    × birim maliyet.
                   </p>
                 </PanelCard>
               ) : null}
@@ -465,17 +492,17 @@ export default function CostsPage() {
                 {entries.slice(0, 100).map((e) => (
                   <li key={e.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4.5 py-2.5 text-xs">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-foreground">
-                        {COST_CATEGORY_LABEL[e.category]}
-                      </span>
+                      <span className="font-medium text-foreground">{COST_CATEGORY_LABEL[e.category]}</span>
                       {e.sourceType === "RecurringCost" ? (
                         <span className="text-muted-foreground/80">(tekrarlayan)</span>
+                      ) : e.sourceType === "BatchTransfer" ? (
+                        <span className="text-muted-foreground/80">(partiler arası aktarım)</span>
                       ) : e.sourceType ? (
                         <span className="text-muted-foreground/80">(otomatik)</span>
                       ) : null}
                       {e.notes ? <span className="text-muted-foreground">— {e.notes}</span> : null}
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       {e.currency !== "TRY" ? (
                         <span className="font-mono text-muted-foreground">
                           {fmtForeign(Number(e.amount), e.currency)}
@@ -487,6 +514,31 @@ export default function CostsPage() {
                       <span className="font-mono text-muted-foreground">
                         {new Date(e.incurredAt).toLocaleDateString("tr")}
                       </span>
+                      {e.sourceType === "FishBatchStocking" && e.batchId ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingStockingBatch(batches?.find((b) => b.id === e.batchId) ?? null)}
+                        >
+                          <Pencil className="size-3.5" /> Düzenle
+                        </Button>
+                      ) : null}
+                      {!e.sourceType ? (
+                        <>
+                          <Button variant="ghost" size="sm" onClick={() => setEditingEntry(e)}>
+                            <Pencil className="size-3.5" /> Düzenle
+                          </Button>
+                          <Button
+                            variant={confirmingDeleteId === e.id ? "destructive" : "ghost"}
+                            size="sm"
+                            disabled={deleteCostEntry.isPending}
+                            onClick={() => onDelete(e)}
+                          >
+                            <Trash2 className="size-3.5" />
+                            {confirmingDeleteId === e.id ? "Emin misiniz?" : "Sil"}
+                          </Button>
+                        </>
+                      ) : null}
                     </div>
                   </li>
                 ))}
@@ -497,6 +549,28 @@ export default function CostsPage() {
               </p>
             )}
           </PanelCard>
+
+          {editingEntry ? (
+            <AddCostEntryDialog
+              farmId={farmId}
+              batches={batches ?? []}
+              entry={editingEntry}
+              open
+              onOpenChange={(open) => {
+                if (!open) setEditingEntry(null);
+              }}
+            />
+          ) : null}
+          {editingStockingBatch ? (
+            <EditStockingDialog
+              farmId={farmId}
+              batch={editingStockingBatch}
+              open
+              onOpenChange={(open) => {
+                if (!open) setEditingStockingBatch(null);
+              }}
+            />
+          ) : null}
         </>
       )}
     </div>

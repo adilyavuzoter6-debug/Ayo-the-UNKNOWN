@@ -85,3 +85,24 @@ export function biomassKgDays(input: BatchTimelineInput, batchId: string, from: 
   kgDays += (kgNow() * (to.getTime() - cursor)) / DAY_MS;
   return kgDays;
 }
+
+/** Live biomass (kg) at one instant — the same state `biomassKgDays` integrates over. */
+export function biomassKgAt(input: BatchTimelineInput, batchId: string, at: Date): number {
+  let count = 0;
+  let weightG = input.initialAvgWeightG;
+  let latestSampleAt = -Infinity;
+  for (const m of input.movements) {
+    if (m.occurredAt.getTime() <= at.getTime()) count += batchCountDelta(m, batchId);
+  }
+  for (const m of input.mortality) {
+    if (m.occurredAt.getTime() <= at.getTime()) count -= m.fishCount;
+  }
+  for (const s of input.weightSamples) {
+    const t = s.occurredAt.getTime();
+    if (t <= at.getTime() && t >= latestSampleAt) {
+      latestSampleAt = t;
+      weightG = s.avgWeightG;
+    }
+  }
+  return (Math.max(count, 0) * weightG) / 1000;
+}

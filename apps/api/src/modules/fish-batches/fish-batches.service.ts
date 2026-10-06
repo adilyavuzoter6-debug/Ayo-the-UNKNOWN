@@ -8,6 +8,7 @@ import type { CreateFishBatchDto } from "./dto/create-fish-batch.dto";
 import type { CreateMovementDto } from "./dto/create-movement.dto";
 import type { SplitBatchDto } from "./dto/split-batch.dto";
 import type { MergeBatchesDto } from "./dto/merge-batches.dto";
+import type { UpdateStockingDto } from "./dto/update-stocking.dto";
 
 @Injectable()
 export class FishBatchesService {
@@ -257,6 +258,49 @@ export class FishBatchesService {
       where: { batchId },
       orderBy: { occurredAt: "desc" },
     });
+  }
+
+  /** Corrects how a batch was stocked and its price; the stocking cost entry follows the batch. */
+  async updateStocking(companyId: string, batchId: string, userId: string, dto: UpdateStockingDto) {
+    const batch = await this.findById(companyId, batchId);
+    const prepared = await this.stockingCosts.prepare(
+      {
+        source: dto.stockingSource,
+        fishCount: batch.initialCount,
+        eggCount: dto.eggCount,
+        unitPrice: dto.stockingUnitPrice,
+        currency: dto.stockingCurrency,
+        exchangeRate: dto.stockingExchangeRate,
+      },
+      batch.farmEntryDate,
+    );
+
+    await this.stockingCosts.replace(companyId, userId, {
+      batchId,
+      farmEntryDate: batch.farmEntryDate,
+      prepared,
+    });
+
+    await this.tenantPrisma.forTenant(companyId).fishBatch.updateMany({
+      where: { id: batchId },
+      data: {
+        stockingSource: dto.stockingSource ?? null,
+        eggCount: dto.eggCount ?? null,
+        stockingUnitPrice: prepared ? dto.stockingUnitPrice : null,
+        stockingCurrency: prepared ? prepared.currency : null,
+        stockingExchangeRate: prepared ? prepared.exchangeRate : null,
+      },
+    });
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "UPDATE",
+      entityType: "FishBatch",
+      entityId: batchId,
+      newValue: { stockingSource: dto.stockingSource ?? null, priced: prepared !== null },
+    });
+    return this.findById(companyId, batchId);
   }
 
   async split(companyId: string, batchId: string, userId: string, dto: SplitBatchDto) {

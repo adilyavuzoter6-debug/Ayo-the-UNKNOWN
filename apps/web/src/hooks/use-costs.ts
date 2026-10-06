@@ -132,3 +132,62 @@ export function useCostForecast(farmId: string, input: CostForecastInput) {
     placeholderData: (previous) => previous,
   });
 }
+
+export interface UpdateCostEntryInput {
+  category?: CostCategory;
+  amount?: number;
+  currency?: ExchangeCurrency;
+  exchangeRate?: number;
+  incurredAt?: string;
+  notes?: string;
+}
+
+function invalidateCosts(queryClient: ReturnType<typeof useQueryClient>, companyId: string | null, farmId: string) {
+  queryClient.invalidateQueries({ queryKey: ["cost-entries", companyId, farmId] });
+  queryClient.invalidateQueries({ queryKey: ["cost-summary", companyId, farmId] });
+  queryClient.invalidateQueries({ queryKey: ["cost-forecast", companyId, farmId] });
+}
+
+export function useUpdateCostEntry(farmId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: UpdateCostEntryInput & { id: string }) =>
+      api.patch<CostEntry>(`/farms/${farmId}/cost-entries/${id}`, input),
+    onSuccess: () => invalidateCosts(queryClient, companyId, farmId),
+  });
+}
+
+export function useDeleteCostEntry(farmId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.del<{ deleted: true }>(`/farms/${farmId}/cost-entries/${id}`),
+    onSuccess: () => invalidateCosts(queryClient, companyId, farmId),
+  });
+}
+
+/** Corrects how a batch was stocked. An empty input clears the stocking cost. */
+export interface UpdateStockingInput {
+  stockingSource?: "FINGERLINGS_PURCHASED" | "EGGS_PURCHASED" | "EGGS_IN_HOUSE";
+  eggCount?: number;
+  stockingUnitPrice?: number;
+  stockingCurrency?: ExchangeCurrency;
+  stockingExchangeRate?: number;
+}
+
+export function useUpdateStocking(farmId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ batchId, ...input }: UpdateStockingInput & { batchId: string }) =>
+      api.patch(`/fish-batches/${batchId}/stocking`, input),
+    onSuccess: () => {
+      invalidateCosts(queryClient, companyId, farmId);
+      queryClient.invalidateQueries({ queryKey: ["fish-batches"] });
+    },
+  });
+}

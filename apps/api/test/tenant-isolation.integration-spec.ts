@@ -3044,6 +3044,170 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(await stockingCostSum(parentId)).toBe(1200);
       expect(await stockingCostSum(childTwoId!)).toBe(200);
     });
+    async function isolatedFarm(code: string) {
+      const farm = await prisma.farm.create({
+        data: { companyId: companyA.companyId, name: `Izole ${code}`, code: `ISO-${code}-${Date.now()}` },
+      });
+      const section = await prisma.farmSection.create({
+        data: { companyId: companyA.companyId, farmId: farm.id, name: "S" },
+      });
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: section.id,
+          code: `ISO${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+          type: "TANK",
+        },
+      });
+      return { farmId: farm.id, tankId: tank.id };
+    }
+
+    it("the cost of fish sold is matched to the sale: unit cost = cost to date ÷ kg produced", async () => {
+      const iso = await isolatedFarm("MATCH");
+      const today = new Date().toISOString().slice(0, 10);
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: iso.tankId,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: today,
+          stockingSource: "FINGERLINGS_PURCHASED",
+          stockingUnitPrice: 2,
+          stockingCurrency: "TRY",
+        })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+
+      // 100 fish die (10 kg produced and lost); the 900 left are harvested and sold at 200 TRY/kg.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${iso.tankId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 100, reason: "DISEASE" })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${iso.tankId}/harvest-records`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, type: "ACTUAL", fullness: "FULL", salePricePerKg: 200, saleCurrency: "TRY" })
+        .expect(201);
+
+      const from = new Date(Date.now() - 86400000).toISOString();
+      const to = new Date(Date.now() + 86400000).toISOString();
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${iso.farmId}/cost-summary`)
+        .query({ periodStart: from, periodEnd: to })
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const row = res.body.data.batchBreakdown.find((b: { batchId: string }) => b.batchId === batchId);
+
+      // Cost to date 2000 TRY over 100 kg produced (90 harvested + 10 dead + 0 live) = 20 TRY/kg.
+      expect(row.unitCostPerKg).toBe(20);
+      expect(row.producedKg).toBe(100);
+      expect(row.revenueTry).toBe(18000); // 90 kg × 200
+      expect(row.cogsTry).toBe(1800); // 90 kg sold × 20
+      expect(row.netProfitTry).toBe(16200);
+      expect(row.mortalityLossTry).toBe(200); // 10 kg dead × 20
+      expect(res.body.data.periodResultTry).toBe(16200);
+      expect(res.body.data.unallocatedFarmCostTry).toBe(0);
+
+      // A sourced stocking entry is changed at its batch, not deleted from the cost list.
+      const stocking = await prisma.costEntry.findFirst({ where: { batchId, sourceType: "FishBatchStocking" } });
+      await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${iso.farmId}/cost-entries/${stocking!.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(400);
+    });
+
+    it("a manual cost can be corrected and removed", async () => {
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ category: "OTHER", amount: 1000, incurredAt: new Date().toISOString(), notes: "yanlış" })
+        .expect(201);
+      const id = created.body.data.id as string;
+
+      const fixed = await request(app.getHttpServer())
+        .patch(`/api/v1/farms/${companyA.farmId}/cost-entries/${id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ amount: 1500, notes: "düzeltildi" })
+        .expect(200);
+      expect(Number(fixed.body.data.amount)).toBe(1500);
+      expect(Number(fixed.body.data.amountTry)).toBe(1500);
+      expect(fixed.body.data.notes).toBe("düzeltildi");
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/farms/${companyA.farmId}/cost-entries/${id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const gone = await prisma.costEntry.findFirst({ where: { id } });
+      expect(gone).toBeNull();
+    });
+
+    it("the stocking price can be corrected, cleared and re-entered while the batch is whole; refused once split", async () => {
+      const tank = await newTankForStocking("STK-FIX");
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 1000,
+          avgWeightG: 100,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+          stockingSource: "FINGERLINGS_PURCHASED",
+          stockingUnitPrice: 2,
+          stockingCurrency: "TRY",
+        })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+      expect(await stockingCostSum(batchId)).toBe(2000);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/fish-batches/${batchId}/stocking`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ stockingSource: "FINGERLINGS_PURCHASED", stockingUnitPrice: 3, stockingCurrency: "TRY" })
+        .expect(200);
+      expect(await stockingCostSum(batchId)).toBe(3000);
+
+      // Cleared: the cost disappears with the price.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/fish-batches/${batchId}/stocking`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({})
+        .expect(200);
+      expect(await stockingCostSum(batchId)).toBe(0);
+
+      // Re-entered on a batch that had no cost: booked again, same as creation.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/fish-batches/${batchId}/stocking`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ stockingSource: "FINGERLINGS_PURCHASED", stockingUnitPrice: 2, stockingCurrency: "TRY" })
+        .expect(200);
+      expect(await stockingCostSum(batchId)).toBe(2000);
+
+      const splitA = await newTankForStocking("STK-FIX-A");
+      const splitB = await newTankForStocking("STK-FIX-B");
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/split`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          fromTankId: tank.id,
+          splits: [
+            { toTankId: splitA.id, lotCode: nextLotCode(), fishCount: 300 },
+            { toTankId: splitB.id, lotCode: nextLotCode(), fishCount: 100 },
+          ],
+        })
+        .expect(201);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/fish-batches/${batchId}/stocking`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ stockingSource: "FINGERLINGS_PURCHASED", stockingUnitPrice: 5, stockingCurrency: "TRY" })
+        .expect(409);
+    });
   });
 
   describe("regulatory inspection report", () => {

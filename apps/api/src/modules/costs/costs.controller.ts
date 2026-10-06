@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { parsePeriodEnd } from "../../common/utils/period-end";
@@ -7,6 +7,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { CreateCostEntryDto } from "./dto/create-cost-entry.dto";
+import { UpdateCostEntryDto } from "./dto/update-cost-entry.dto";
 import { CostsService } from "./costs.service";
 
 @ApiTags("costs")
@@ -24,6 +25,29 @@ export class CostsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.costsService.create(tenant.companyId, farmId, user.id, dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission(Permission.COST_ENTRY_CREATE)
+  update(
+    @Param("farmId") farmId: string,
+    @Param("id") id: string,
+    @Body() dto: UpdateCostEntryDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.costsService.update(tenant.companyId, farmId, user.id, id, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermission(Permission.COST_ENTRY_CREATE)
+  remove(
+    @Param("farmId") farmId: string,
+    @Param("id") id: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.costsService.remove(tenant.companyId, farmId, user.id, id);
   }
 
   @Get()

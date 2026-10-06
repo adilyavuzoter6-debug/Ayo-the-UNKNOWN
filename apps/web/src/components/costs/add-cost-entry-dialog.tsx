@@ -27,11 +27,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CURRENCY_SYMBOL, CurrencyToggle } from "@/components/shared/currency-toggle";
-import { useCreateCostEntry } from "@/hooks/use-costs";
+import { useCreateCostEntry, useUpdateCostEntry } from "@/hooks/use-costs";
 import { useExchangeRate } from "@/hooks/use-exchange-rate";
 import { ApiError } from "@/lib/api-error";
 import { COST_CATEGORIES, COST_CATEGORY_LABEL } from "@/lib/costs";
-import type { CostCategory, ExchangeCurrency, FishBatch } from "@/lib/types";
+import type { CostCategory, CostEntry, ExchangeCurrency, FishBatch } from "@/lib/types";
 
 const schema = z
   .object({
@@ -56,17 +56,45 @@ type FormValues = z.infer<typeof schema>;
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batches: FishBatch[] }) {
-  const [open, setOpen] = React.useState(false);
+/** Adds a manual cost, or corrects one when `entry` is given (then the trigger button is not shown). */
+export function AddCostEntryDialog({
+  farmId,
+  batches,
+  entry,
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  farmId: string;
+  batches: FishBatch[];
+  entry?: CostEntry;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const createCostEntry = useCreateCostEntry(farmId);
+  const updateCostEntry = useUpdateCostEntry(farmId);
+
+  const entryDefaults = (): FormValues =>
+    entry
+      ? {
+          category: entry.category,
+          amount: Number(entry.amount),
+          currency: entry.currency as FormValues["currency"],
+          exchangeRate: entry.exchangeRate !== null ? Number(entry.exchangeRate) : undefined,
+          batchId: entry.batchId ?? "",
+          incurredAt: entry.incurredAt.slice(0, 10),
+          notes: entry.notes ?? "",
+        }
+      : { category: "LABOR", amount: undefined as unknown as number, currency: "TRY", incurredAt: todayIso() };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      category: "LABOR",
-      currency: "TRY",
-      incurredAt: todayIso(),
-    },
+    defaultValues: entryDefaults(),
   });
 
   const currency = useWatch({ control: form.control, name: "currency" });
@@ -90,17 +118,30 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
 
   async function onSubmit(values: FormValues) {
     try {
-      await createCostEntry.mutateAsync({
-        category: values.category as CostCategory,
-        amount: values.amount,
-        currency: values.currency as ExchangeCurrency,
-        exchangeRate: values.currency === "TRY" ? undefined : values.exchangeRate,
-        batchId: values.batchId || undefined,
-        incurredAt: values.incurredAt,
-        notes: values.notes,
-      });
-      toast.success("Maliyet kaydedildi.");
-      form.reset({ category: "LABOR", currency: "TRY", incurredAt: todayIso() });
+      if (entry) {
+        await updateCostEntry.mutateAsync({
+          id: entry.id,
+          category: values.category as CostCategory,
+          amount: values.amount,
+          currency: values.currency as ExchangeCurrency,
+          exchangeRate: values.currency === "TRY" ? undefined : values.exchangeRate,
+          incurredAt: values.incurredAt,
+          notes: values.notes ?? "",
+        });
+        toast.success("Maliyet güncellendi.");
+      } else {
+        await createCostEntry.mutateAsync({
+          category: values.category as CostCategory,
+          amount: values.amount,
+          currency: values.currency as ExchangeCurrency,
+          exchangeRate: values.currency === "TRY" ? undefined : values.exchangeRate,
+          batchId: values.batchId || undefined,
+          incurredAt: values.incurredAt,
+          notes: values.notes,
+        });
+        toast.success("Maliyet kaydedildi.");
+        form.reset({ category: "LABOR", currency: "TRY", incurredAt: todayIso() });
+      }
       setOpen(false);
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Maliyet kaydedilirken bir sorun oluştu.");
@@ -112,21 +153,25 @@ export function AddCostEntryDialog({ farmId, batches }: { farmId: string; batche
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) form.reset();
+        if (!next) form.reset(entryDefaults());
       }}
     >
-      <DialogTrigger
-        render={
-          <Button size="sm">
-            <Plus className="size-3.5" />
-            Maliyet ekle
-          </Button>
-        }
-      />
+      {entry ? null : (
+        <DialogTrigger
+          render={
+            <Button size="sm">
+              <Plus className="size-3.5" />
+              Maliyet ekle
+            </Button>
+          }
+        />
+      )}
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Maliyet ekle</DialogTitle>
-          <DialogDescription>Bu çiftlik için manuel bir gider kaydı.</DialogDescription>
+          <DialogTitle>{entry ? "Maliyeti düzenle" : "Maliyet ekle"}</DialogTitle>
+          <DialogDescription>
+            {entry ? "Yanlış girilen tutarı, kuru, tarihi ya da notu düzeltin." : "Bu çiftlik için manuel bir gider kaydı."}
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>

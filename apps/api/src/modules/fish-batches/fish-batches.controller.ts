@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { UpdateStockingDto } from "./dto/update-stocking.dto";
+import { Body, Controller, Get, Param, Post, Patch } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
@@ -77,6 +78,17 @@ export class FishBatchesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.fishBatchesService.addMovement(tenant.companyId, id, user.id, dto);
+  }
+
+  @Patch(":id/stocking")
+  @RequirePermission(Permission.FISH_BATCH_CREATE)
+  updateStocking(
+    @Param("id") id: string,
+    @Body() dto: UpdateStockingDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fishBatchesService.updateStocking(tenant.companyId, id, user.id, dto);
   }
 
   @Post(":id/split")
