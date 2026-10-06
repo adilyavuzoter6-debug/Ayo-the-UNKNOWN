@@ -1,5 +1,6 @@
 "use client";
 
+import { batchWeightLabel } from "@/lib/fish-batch-weight";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Fish, Wheat } from "lucide-react";
 import { toast } from "sonner";
@@ -181,6 +182,9 @@ function TankStockCard({ farmId, tank }: { farmId: string; tank: Tank }) {
                   >
                     <span className="font-mono">{allocation.batch.lotCode}</span>
                     <span className="text-muted-foreground"> · {allocation.batch.species.name}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {batchWeightLabel(allocation.batch)}
+                    </span>
                   </Link>
                   <div className="flex shrink-0 items-center gap-1">
                     <span className="font-mono">{allocation.estimatedCount.toLocaleString("tr")}</span>

@@ -50,7 +50,7 @@ export class FishBatchesService {
     await this.assertTankInTenant(companyId, tankId);
     return this.tenantPrisma.forTenant(companyId).batchTankState.findMany({
       where: { tankId, estimatedCount: { gt: 0 } },
-      include: { batch: { include: { species: true } } },
+      include: { batch: { include: { species: true, currentState: true } } },
     });
   }
 
@@ -74,7 +74,7 @@ export class FishBatchesService {
     await this.assertFarmInTenant(companyId, farmId);
     return this.tenantPrisma.forTenant(companyId).batchTankState.findMany({
       where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId }, deletedAt: null } },
-      include: { batch: { include: { species: true } } },
+      include: { batch: { include: { species: true, currentState: true } } },
     });
   }
 

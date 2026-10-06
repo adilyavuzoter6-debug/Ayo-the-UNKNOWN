@@ -1,5 +1,6 @@
 "use client";
 
+import { batchWeightLabel } from "@/lib/fish-batch-weight";
 import * as React from "react";
 import Link from "next/link";
 import { Fish } from "lucide-react";
@@ -132,9 +133,14 @@ export default function ProductionPage() {
                           href={`/batches/${a.batchId}`}
                           className="flex items-center justify-between gap-2 text-foreground hover:text-teal-500"
                         >
-                          <span className="flex min-w-0 items-center gap-1">
-                            <Fish className="size-3 shrink-0 text-muted-foreground" />
-                            <span className="truncate font-mono">{a.batch.lotCode}</span>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="flex min-w-0 items-center gap-1">
+                              <Fish className="size-3 shrink-0 text-muted-foreground" />
+                              <span className="truncate font-mono">{a.batch.lotCode}</span>
+                            </span>
+                            <span className="truncate pl-4 text-[11px] text-muted-foreground">
+                              {batchWeightLabel(a.batch)}
+                            </span>
                           </span>
                           <span className="shrink-0 font-mono text-muted-foreground">
                             {a.estimatedCount.toLocaleString("tr")}
