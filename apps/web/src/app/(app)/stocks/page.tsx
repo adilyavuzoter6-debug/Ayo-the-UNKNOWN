@@ -1,12 +1,21 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { Fish } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
-import { useFishBatches } from "@/hooks/use-fish-batches";
-import type { BatchStatus } from "@/lib/types";
+import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
+import { useBatchTankStates, useFishBatches } from "@/hooks/use-fish-batches";
+import type { BatchStatus, FishBatch } from "@/lib/types";
 
 const BATCH_STATUS_KIND: Record<BatchStatus, StatusKind> = {
   ACTIVE: "active",
@@ -24,16 +33,20 @@ const BATCH_STATUS_LABEL: Record<BatchStatus, string> = {
 
 export default function StocksPage() {
   const { data: batches, isLoading, isError } = useFishBatches();
+  const [selected, setSelected] = React.useState<FishBatch | null>(null);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
-          Balık Partileri (Stoklar)
-        </h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          {batches?.length ?? 0} parti · şirket genelinde tüm çiftliklerdeki stoklamalar
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
+            Balık Partileri (Stoklar)
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {batches?.length ?? 0} parti · şirket genelinde tüm çiftliklerdeki stoklamalar
+          </p>
+        </div>
+        <ReceiveStockDialog />
       </div>
 
       {isLoading || batches === undefined ? (
@@ -53,7 +66,7 @@ export default function StocksPage() {
       ) : batches && batches.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {batches.map((batch) => (
-            <Link key={batch.id} href={`/batches/${batch.id}`}>
+            <button key={batch.id} type="button" onClick={() => setSelected(batch)} className="block w-full text-left">
               <Card className="h-full gap-0 overflow-hidden py-0 transition-colors hover:ring-teal-500/60">
                 <div className="flex items-center justify-between border-b border-border bg-secondary px-3.5 py-2.5">
                   <span className="min-w-0 truncate font-mono text-sm font-bold text-navy-900">
@@ -85,7 +98,7 @@ export default function StocksPage() {
                   </div>
                 </CardContent>
               </Card>
-            </Link>
+            </button>
           ))}
         </div>
       ) : (
@@ -103,6 +116,81 @@ export default function StocksPage() {
           </CardContent>
         </Card>
       )}
+
+      <BatchPondsDialog batch={selected} onClose={() => setSelected(null)} />
     </div>
+  );
+}
+
+/** The ponds one batch is in, as cards: where the fish are, how many, and how much they weigh. */
+function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose: () => void }) {
+  const { data: tankStates, isLoading, isError } = useBatchTankStates(batch?.id);
+  const avgWeightG = batch?.currentState ? Number(batch.currentState.estimatedAvgWeightG) : null;
+
+  const sorted = [...(tankStates ?? [])].sort((a, b) =>
+    a.tank.code.localeCompare(b.tank.code, "tr", { numeric: true }),
+  );
+
+  return (
+    <Dialog open={batch !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="font-mono">{batch?.lotCode}</DialogTitle>
+          <DialogDescription>Partinin şu an bulunduğu havuzlar.</DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+          </div>
+        ) : isError ? (
+          <p className="text-sm text-muted-foreground">Havuzlar yüklenemedi. Tekrar deneyin.</p>
+        ) : sorted.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Bu partinin canlı balığı olan bir havuzu yok.</p>
+        ) : (
+          <div className="grid max-h-[60vh] gap-2 overflow-y-auto sm:grid-cols-2">
+            {sorted.map((s) => {
+              const biomassKg = avgWeightG !== null ? (s.estimatedCount * avgWeightG) / 1000 : null;
+              return (
+                <Link
+                  key={s.tankId}
+                  href={`/farms/${s.tank.farmSection.farm.id}/tanks/${s.tankId}`}
+                  className="rounded-lg border border-border bg-card p-3 text-xs transition-colors hover:ring-teal-500/60"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-sm font-bold text-navy-900">{s.tank.code}</span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {s.tank.farmSection.farm.name}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-muted-foreground">Canlı adet</div>
+                      <div className="font-mono font-medium text-foreground">
+                        {s.estimatedCount.toLocaleString("tr")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Biyokütle</div>
+                      <div className="font-mono font-medium text-teal-500">
+                        {biomassKg !== null ? `${(biomassKg / 1000).toFixed(2)} t` : "—"}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        {batch ? (
+          <Link href={`/batches/${batch.id}`} className="text-sm font-medium text-teal-500 hover:underline">
+            Parti detayına git
+          </Link>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }

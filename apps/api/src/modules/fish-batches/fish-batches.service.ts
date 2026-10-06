@@ -41,6 +41,15 @@ export class FishBatchesService {
     return batch;
   }
 
+  /** The ponds a batch is in right now (live count above zero), each with its farm. Read-only. */
+  async listTankStates(companyId: string, batchId: string) {
+    await this.findById(companyId, batchId);
+    return this.tenantPrisma.forTenant(companyId).batchTankState.findMany({
+      where: { batchId, estimatedCount: { gt: 0 } },
+      include: { tank: { include: { farmSection: { include: { farm: true } } } } },
+    });
+  }
+
   async listForCompany(companyId: string) {
     return this.tenantPrisma.forTenant(companyId).fishBatch.findMany({
       where: { deletedAt: null },

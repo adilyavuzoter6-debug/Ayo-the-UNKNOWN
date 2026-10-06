@@ -3566,6 +3566,36 @@ describe("Tenant isolation & authorization (integration)", () => {
         .send({ ranges: [{ minG: 5, maxG: 20 }] })
         .expect(404);
     });
+
+    it("lists the ponds a batch is in, each with its farm; another company's batch is refused", async () => {
+      const iso = await isolatedFarm("TANKSTATES");
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: iso.tankId,
+          fishCount: 1000,
+          avgWeightG: 50,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+        })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/tank-states`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({ tankId: iso.tankId, estimatedCount: 1000 });
+      expect(res.body.data[0].tank.farmSection.farm.id).toBe(iso.farmId);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}/tank-states`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(404);
+    });
   });
 
   describe("regulatory inspection report", () => {

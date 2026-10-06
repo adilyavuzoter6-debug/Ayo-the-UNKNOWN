@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { BatchHistory, BatchMovement, BatchTankAllocation, FishBatch } from "@/lib/types";
+import type { BatchHistory, BatchMovement, BatchTankAllocation, BatchTankState, FishBatch } from "@/lib/types";
 
 export function useFishBatches() {
   const api = useApiClient();
@@ -159,5 +159,16 @@ export function useMergeBatches(farmId: string) {
     onSuccess: () => {
       invalidateAfterMovement(queryClient, companyId, farmId);
     },
+  });
+}
+
+/** The ponds a batch is in right now. Read-only; loads when a batch is opened. */
+export function useBatchTankStates(batchId: string | undefined) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  return useQuery({
+    queryKey: ["batch-tank-states", companyId, batchId],
+    queryFn: () => api.get<BatchTankState[]>(`/fish-batches/${batchId}/tank-states`),
+    enabled: !!companyId && !!batchId,
   });
 }

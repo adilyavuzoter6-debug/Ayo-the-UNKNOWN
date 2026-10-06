@@ -817,3 +817,11 @@ export interface GrowthProfile {
   periodCount: number;
   ranges: GrowthRangeEstimate[];
 }
+
+/** One pond a batch is in right now, with the farm it belongs to. */
+export interface BatchTankState {
+  batchId: string;
+  tankId: string;
+  estimatedCount: number;
+  tank: Tank & { farmSection: { farm: { id: string; name: string } } };
+}

@@ -57,6 +57,12 @@ export class FishBatchesController {
     return this.fishBatchesService.findById(tenant.companyId, id);
   }
 
+  @Get(":id/tank-states")
+  @RequirePermission(Permission.FISH_BATCH_READ)
+  listTankStates(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {
+    return this.fishBatchesService.listTankStates(tenant.companyId, id);
+  }
+
   @Get(":id/history")
   @RequirePermission(Permission.FISH_BATCH_READ)
   getHistory(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {
