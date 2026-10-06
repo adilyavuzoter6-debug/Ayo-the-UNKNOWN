@@ -43,11 +43,8 @@ export class MortalityService {
     await this.assertTankInTenant(companyId, tankId);
     await this.assertBatchInTenant(companyId, dto.batchId);
 
-    const liveCount = await this.projection.getLiveTankCount(companyId, dto.batchId, tankId);
-    if (dto.fishCount > liveCount) {
-      throw new BadRequestException(
-        `Cannot report ${dto.fishCount} mortalities — only ${liveCount} live in this tank.`,
-      );
+    if ((dto.fishCount === undefined) === (dto.totalWeightG === undefined)) {
+      throw new BadRequestException("Adet veya toplam ağırlıktan tam olarak birini girin.");
     }
 
     // Captured at record time (before recompute() moves the projection forward) so the FCR
@@ -58,14 +55,36 @@ export class MortalityService {
       .fishBatch.findUnique({ where: { id: dto.batchId }, include: { currentState: true } });
     const avgWeightG = Number(batch?.currentState?.estimatedAvgWeightG ?? batch?.initialAvgWeightG ?? 0);
 
+    let fishCount: number;
+    if (dto.fishCount !== undefined) {
+      fishCount = dto.fishCount;
+    } else {
+      if (avgWeightG <= 0) {
+        throw new BadRequestException("Ortalama ağırlık bilinmiyor; adet olarak girin.");
+      }
+      fishCount = Math.round(dto.totalWeightG! / avgWeightG);
+      if (fishCount < 1) {
+        throw new BadRequestException("Bu ağırlık en az bir balığa karşılık gelmiyor.");
+      }
+    }
+
+    const liveCount = await this.projection.getLiveTankCount(companyId, dto.batchId, tankId);
+    if (fishCount > liveCount) {
+      throw new BadRequestException(
+        `Cannot report ${fishCount} mortalities — only ${liveCount} live in this tank.`,
+      );
+    }
+
+    const biomassKg = dto.totalWeightG !== undefined ? dto.totalWeightG / 1000 : (fishCount * avgWeightG) / 1000;
+
     const event = await this.tenantPrisma.forTenant(companyId).mortalityEvent.create({
       data: {
         companyId,
         tankId,
         batchId: dto.batchId,
-        fishCount: dto.fishCount,
+        fishCount,
         estimatedAvgWeightG: avgWeightG,
-        estimatedBiomassKg: (dto.fishCount * avgWeightG) / 1000,
+        estimatedBiomassKg: biomassKg,
         reason: dto.reason,
         occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
         createdById: userId,
@@ -74,7 +93,7 @@ export class MortalityService {
     });
 
     await this.projection.recompute(companyId, dto.batchId);
-    await this.alertsService.evaluateMortalitySpikeRule(companyId, tankId, dto.fishCount, liveCount);
+    await this.alertsService.evaluateMortalitySpikeRule(companyId, tankId, fishCount, liveCount);
 
     await this.auditService.record({
       companyId,
@@ -82,7 +101,7 @@ export class MortalityService {
       action: "CREATE",
       entityType: "MortalityEvent",
       entityId: event.id,
-      newValue: { tankId, batchId: dto.batchId, fishCount: dto.fishCount, reason: dto.reason },
+      newValue: { tankId, batchId: dto.batchId, fishCount, reason: dto.reason },
     });
 
     return event;

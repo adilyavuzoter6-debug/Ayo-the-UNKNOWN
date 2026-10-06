@@ -17,7 +17,8 @@ export function useTankMortalityEvents(tankId: string) {
 
 export interface ReportMortalityInput {
   batchId: string;
-  fishCount: number;
+  fishCount?: number;
+  totalWeightG?: number;
   reason: MortalityReason;
   occurredAt?: string;
   notes?: string;

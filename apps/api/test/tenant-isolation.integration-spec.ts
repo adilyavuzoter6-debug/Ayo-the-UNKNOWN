@@ -2711,6 +2711,61 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("mortality reported by total weight", () => {
+    async function stockBatch(avgWeightG: number) {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `WGT-${Date.now()}-${lotSeq}`,
+          type: "TANK",
+        },
+      });
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount: 1000,
+          avgWeightG,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      return { tank, batchId: create.body.data.id as string };
+    }
+
+    it("converts grams to a count using the batch's average weight and stores the weighed biomass", async () => {
+      const { tank, batchId } = await stockBatch(100);
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, totalWeightG: 500, reason: "OXYGEN" })
+        .expect(201);
+
+      expect(res.body.data.fishCount).toBe(5);
+      expect(Number(res.body.data.estimatedBiomassKg)).toBeCloseTo(0.5);
+    });
+
+    it("rejects sending both a count and a weight, or neither", async () => {
+      const { tank, batchId } = await stockBatch(100);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 2, totalWeightG: 200, reason: "OXYGEN" })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, reason: "OXYGEN" })
+        .expect(400);
+    });
+  });
+
   describe("farm overview — one request for the farms page", () => {
     it("GET /farm-overview lists only the caller's farms, each with the same summary as its per-farm endpoint", async () => {
       const overview = await request(app.getHttpServer())

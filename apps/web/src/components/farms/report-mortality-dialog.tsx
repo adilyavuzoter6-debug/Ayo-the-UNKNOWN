@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Skull } from "lucide-react";
@@ -39,8 +39,10 @@ import { MORTALITY_REASON_LABEL as REASON_LABELS } from "@/lib/tanks";
 import type { MortalityReason } from "@/lib/types";
 
 function buildSchema(maxCount: number) {
-  return z.object({
-    fishCount: z.coerce.number().int().positive().max(maxCount, `En fazla ${maxCount} balık`),
+  return z
+    .object({
+    unit: z.enum(["COUNT", "GRAMS"]),
+    amount: z.coerce.number().positive("Pozitif bir değer girin"),
     reason: z.enum([
       "UNKNOWN",
       "DISEASE",
@@ -54,7 +56,19 @@ function buildSchema(maxCount: number) {
     ]),
     occurredAt: z.string().min(1),
     notes: z.string().max(500).optional(),
-  });
+    })
+    .superRefine((values, ctx) => {
+      if (values.unit !== "COUNT") return;
+      if (!Number.isInteger(values.amount)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["amount"], message: "Adet tam sayı olmalı" });
+      } else if (values.amount > maxCount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["amount"],
+          message: `En fazla ${maxCount} balık`,
+        });
+      }
+    });
 }
 
 export function ReportMortalityDialog({
@@ -79,16 +93,24 @@ export function ReportMortalityDialog({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      fishCount: undefined,
+      unit: "COUNT",
+      amount: undefined,
       reason: "UNKNOWN",
       occurredAt: new Date().toISOString().slice(0, 10),
       notes: "",
     },
   });
 
+  const unit = useWatch({ control: form.control, name: "unit" });
+
   async function onSubmit(values: FormValues) {
     try {
-      await reportMortality.mutateAsync({ batchId, ...values });
+      const { unit, amount, ...rest } = values;
+      await reportMortality.mutateAsync({
+        batchId,
+        ...rest,
+        ...(unit === "COUNT" ? { fishCount: amount } : { totalWeightG: amount }),
+      });
       toast.success("Ölüm kaydı eklendi.");
       form.reset();
       setOpen(false);
@@ -126,12 +148,40 @@ export function ReportMortalityDialog({
             <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}
-                name="fishCount"
+                name="unit"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Adet</FormLabel>
+                    <FormLabel>Birim</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue>
+                            {(v: "COUNT" | "GRAMS") => (v === "COUNT" ? "Adet" : "Gram (toplam)")}
+                          </SelectValue>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="COUNT">Adet</SelectItem>
+                        <SelectItem value="GRAMS">Gram (toplam)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{unit === "COUNT" ? "Ölen balık (adet)" : "Ölen balık (g)"}</FormLabel>
                     <FormControl>
-                      <Input type="number" min={1} max={liveCount} step={1} {...field} />
+                      <Input
+                        type="number"
+                        min={0}
+                        step={unit === "COUNT" ? 1 : "any"}
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

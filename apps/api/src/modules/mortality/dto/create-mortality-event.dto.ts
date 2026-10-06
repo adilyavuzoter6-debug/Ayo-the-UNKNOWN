@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -15,10 +16,24 @@ export class CreateMortalityEventDto {
   @IsString()
   batchId!: string;
 
-  @ApiProperty({ example: 12 })
+  @ApiPropertyOptional({
+    example: 12,
+    description: "Number of dead fish. Exactly one of fishCount or totalWeightG is required.",
+  })
+  @IsOptional()
   @IsInt()
   @IsPositive()
-  fishCount!: number;
+  fishCount?: number;
+
+  @ApiPropertyOptional({
+    example: 450,
+    description:
+      "Total weight of the dead fish in grams; converted to a count using the batch's average weight at the time of death.",
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  totalWeightG?: number;
 
   @ApiProperty({ enum: MortalityReason })
   @IsEnum(MortalityReason)
