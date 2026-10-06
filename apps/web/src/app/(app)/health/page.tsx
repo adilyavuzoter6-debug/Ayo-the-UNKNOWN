@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RecordTreatmentDialog } from "@/components/health/record-treatment-dialog";
+import { ReportMortalityDialog } from "@/components/farms/report-mortality-dialog";
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useTankFishBatches } from "@/hooks/use-fish-batches";
@@ -115,6 +116,11 @@ export default function HealthPage() {
       : (tanks?.[0]?.id ?? "");
 
   const { data: allocations } = useTankFishBatches(tankId);
+  const [selectedBatchId, setSelectedBatchId] = React.useState<string>("");
+  const mortalityBatchId = allocations?.some((a) => a.batchId === selectedBatchId)
+    ? selectedBatchId
+    : (allocations?.[0]?.batchId ?? "");
+  const mortalityAllocation = allocations?.find((a) => a.batchId === mortalityBatchId);
   const { data: treatments, isLoading: treatmentsLoading } = useTankTreatments(tankId);
 
   const { entries, isLoading } = useFarmMortalityLog(farmId);
@@ -283,6 +289,31 @@ export default function HealthPage() {
       ) : null}
 
       <PanelCard title="Ölüm kayıtları">
+        {farmId && tankId && mortalityAllocation ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4.5 py-2.5">
+            <Select value={mortalityBatchId} onValueChange={(v) => setSelectedBatchId(v ?? "")}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Parti seçin">
+                  {(v: string) => allocations?.find((a) => a.batchId === v)?.batch.lotCode}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {(allocations ?? []).map((a) => (
+                  <SelectItem key={a.batchId} value={a.batchId}>
+                    {a.batch.lotCode}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <ReportMortalityDialog
+              farmId={farmId}
+              batchId={mortalityAllocation.batchId}
+              tankId={tankId}
+              lotCode={mortalityAllocation.batch.lotCode}
+              liveCount={mortalityAllocation.estimatedCount}
+            />
+          </div>
+        ) : null}
         {farms === undefined ? (
           <div className="p-4">
             <Skeleton className="h-48 rounded" />
@@ -308,6 +339,9 @@ export default function HealthPage() {
                 <div className="flex items-center gap-3">
                   <Link href={`/batches/${e.batchId}`} className="font-mono text-destructive hover:underline">
                     {e.fishCount.toLocaleString("tr")} adet
+                    {e.estimatedBiomassKg
+                      ? ` · ${Number(e.estimatedBiomassKg).toLocaleString("tr", { maximumFractionDigits: 1 })} kg`
+                      : ""}
                   </Link>
                   <span className="font-mono text-muted-foreground">
                     {new Date(e.occurredAt).toLocaleString("tr")}
