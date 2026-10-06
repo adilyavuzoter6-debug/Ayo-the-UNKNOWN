@@ -32,7 +32,10 @@ export interface StageInput {
   maxG: number;
   feedPriceTryPerKg: number;
   fcr: number;
-  durationDays: number;
+  /** Typed-in stage duration. When absent, sgrPctPerDay gives it. */
+  durationDays?: number;
+  /** Specific growth rate of this stage (%/day), used when durationDays is not given. */
+  sgrPctPerDay?: number;
   mortalityPct: number;
 }
 
@@ -118,6 +121,21 @@ function requireMortality(value: unknown, message: string): number {
   return value;
 }
 
+/**
+ * A stage's full duration: typed in when given, otherwise the time exponential growth at the stage's
+ * growth rate takes to go from its lower bound to its upper bound. The same rule as the simple mode, per stage.
+ */
+export function stageDurationDays(stage: StageInput, label: string): number {
+  if (stage.durationDays !== undefined) {
+    return requirePositive(stage.durationDays, `${label}: yetiştirme süresi sıfırdan büyük olmalı.`);
+  }
+  if (stage.sgrPctPerDay === undefined) {
+    throw new ScenarioError(`${label}: yetiştirme süresi (gün) ya da büyüme hızı (SGR) girilmeli.`);
+  }
+  const sgr = requirePositive(stage.sgrPctPerDay, `${label}: büyüme hızı (SGR) sıfırdan büyük olmalı.`);
+  return Math.log(stage.maxG / stage.minG) / (sgr / 100);
+}
+
 /** The stages must be disjoint and must cover every weight from the start to the target, with no gaps. */
 export function validateStages(stages: StageInput[], startG: number, targetG: number): StageInput[] {
   if (stages.length === 0) throw new ScenarioError("Aşamalı hesapta en az bir aşama tanımlayın.");
@@ -129,7 +147,7 @@ export function validateStages(stages: StageInput[], startG: number, targetG: nu
     }
     requirePositive(s.feedPriceTryPerKg, `${label}: yem fiyatı girilmeli ve sıfırdan büyük olmalı.`);
     requirePositive(s.fcr, `${label}: FCR girilmeli ve sıfırdan büyük olmalı.`);
-    requirePositive(s.durationDays, `${label}: yetiştirme süresi girilmeli ve sıfırdan büyük olmalı.`);
+    stageDurationDays(s, label);
     requireMortality(s.mortalityPct, `${label}: ölüm oranı 0 ile 100 arasında olmalı.`);
     return s;
   });
@@ -224,7 +242,7 @@ function segmentsFor(input: ScenarioInput): Segment[] {
     segments.push({
       fromG: from,
       toG: to,
-      days: stage.durationDays * fraction,
+      days: stageDurationDays(stage, "Aşama") * fraction,
       survival: Math.pow(1 - stage.mortalityPct / 100, fraction),
       fcr: stage.fcr,
       feedPriceTryPerKg: stage.feedPriceTryPerKg,

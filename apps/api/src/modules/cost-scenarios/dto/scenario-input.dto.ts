@@ -49,6 +49,11 @@ export class StageDto {
   @IsNumber()
   durationDays?: number;
 
+  @ApiPropertyOptional({ description: "STAGED mode: used when durationDays is not given" })
+  @IsOptional()
+  @IsNumber()
+  sgrPctPerDay?: number;
+
   @IsOptional()
   @IsNumber()
   mortalityPct?: number;
@@ -125,6 +130,23 @@ export class CalculateScenariosDto {
   @ValidateNested({ each: true })
   @Type(() => ScenarioInputDto)
   scenarios!: ScenarioInputDto[];
+}
+
+export class WeightRangeDto {
+  @IsNumber()
+  minG!: number;
+
+  @IsNumber()
+  maxG!: number;
+}
+
+export class GrowthProfileDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => WeightRangeDto)
+  ranges!: WeightRangeDto[];
 }
 
 export class SaveScenarioDto {

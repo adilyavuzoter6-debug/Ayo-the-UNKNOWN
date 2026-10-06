@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   useCalculateScenarios,
   useDeleteScenario,
+  useGrowthProfile,
   useSaveScenario,
   useSavedScenarios,
   useScenarioPrefill,
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 import type {
   ExpenseMode,
   FishBatch,
+  GrowthProfile,
   ProjectionMode,
   SavedCostScenario,
   ScenarioExpenseInput,
@@ -54,6 +56,7 @@ interface StageRow {
   price: string;
   fcr: string;
   days: string;
+  sgr: string;
   mortality: string;
 }
 
@@ -65,10 +68,10 @@ interface ExpenseRow {
 
 /** The four ranges from the planning brief. Only the ranges are prefilled; every number stays for the user. */
 const DEFAULT_STAGES: StageRow[] = [
-  { minG: "3", maxG: "5", price: "", fcr: "", days: "", mortality: "" },
-  { minG: "5", maxG: "20", price: "", fcr: "", days: "", mortality: "" },
-  { minG: "20", maxG: "100", price: "", fcr: "", days: "", mortality: "" },
-  { minG: "100", maxG: "350", price: "", fcr: "", days: "", mortality: "" },
+  { minG: "3", maxG: "5", price: "", fcr: "", days: "", sgr: "", mortality: "" },
+  { minG: "5", maxG: "20", price: "", fcr: "", days: "", sgr: "", mortality: "" },
+  { minG: "20", maxG: "100", price: "", fcr: "", days: "", sgr: "", mortality: "" },
+  { minG: "100", maxG: "350", price: "", fcr: "", days: "", sgr: "", mortality: "" },
 ];
 
 /** A target weight and, optionally, its own duration. An empty duration is derived from the growth rate. */
@@ -102,6 +105,8 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
   const saved = useSavedScenarios(farmId);
   const saveScenario = useSaveScenario(farmId);
   const deleteScenario = useDeleteScenario(farmId);
+  const growthProfile = useGrowthProfile(farmId);
+  const [growth, setGrowth] = React.useState<GrowthProfile | null>(null);
 
   // Pulls what is recorded for the chosen batch into the start fields. Explicit, so a value the user has
   // typed is never overwritten by surprise.
@@ -155,11 +160,34 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
                 feedPriceTryPerKg: num(st.price),
                 fcr: num(st.fcr),
                 durationDays: num(st.days),
+                sgrPctPerDay: num(st.sgr),
                 mortalityPct: num(st.mortality),
               })),
               expenses: expenseInputs,
             },
       );
+  }
+
+  // Fills the empty stage rates from the farm's own weighings. Typed rates are kept.
+  async function onGrowthProfile() {
+    const ranges = stages.map((st) => ({ minG: num(st.minG), maxG: num(st.maxG) }));
+    if (ranges.some((r) => r.minG === undefined || r.maxG === undefined)) {
+      toast.error("Her aşamanın alt ve üst gramajını girin; ölçümler bu aralıklara göre okunur.");
+      return;
+    }
+    try {
+      const profile = await growthProfile.mutateAsync(ranges as { minG: number; maxG: number }[]);
+      setGrowth(profile);
+      setStages((rows) =>
+        rows.map((row, i) => {
+          const estimate = profile.ranges[i];
+          if (row.sgr.trim() !== "" || !estimate || estimate.sgrPctPerDay === null) return row;
+          return { ...row, sgr: String(Math.round(estimate.sgrPctPerDay * 100) / 100) };
+        }),
+      );
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Tartım verisi alınamadı.");
+    }
   }
 
   async function onCalculate() {
@@ -226,6 +254,7 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
             price: String(st.feedPriceTryPerKg ?? ""),
             fcr: String(st.fcr ?? ""),
             days: String(st.durationDays ?? ""),
+            sgr: String(st.sgrPctPerDay ?? ""),
             mortality: String(st.mortalityPct ?? ""),
           }))
         : DEFAULT_STAGES,
@@ -337,6 +366,7 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
                     <TableHead>Yem ₺/kg</TableHead>
                     <TableHead>FCR</TableHead>
                     <TableHead>Süre (gün)</TableHead>
+                    <TableHead>SGR %/gün</TableHead>
                     <TableHead>Ölüm %</TableHead>
                     <TableHead />
                   </TableRow>
@@ -360,6 +390,9 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
                         <Input value={s.days} onChange={(e) => updateStage(i, { days: e.target.value })} />
                       </TableCell>
                       <TableCell>
+                        <Input value={s.sgr} onChange={(e) => updateStage(i, { sgr: e.target.value })} />
+                      </TableCell>
+                      <TableCell>
                         <Input value={s.mortality} onChange={(e) => updateStage(i, { mortality: e.target.value })} />
                       </TableCell>
                       <TableCell>
@@ -381,15 +414,40 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
               variant="outline"
               size="sm"
               onClick={() =>
-                setStages((rows) => [...rows, { minG: "", maxG: "", price: "", fcr: "", days: "", mortality: "" }])
+                setStages((rows) => [
+                  ...rows,
+                  { minG: "", maxG: "", price: "", fcr: "", days: "", sgr: "", mortality: "" },
+                ])
               }
             >
               <Plus className="size-3.5" /> Aşama ekle
             </Button>
+            <Button variant="outline" size="sm" disabled={growthProfile.isPending} onClick={onGrowthProfile}>
+              {growthProfile.isPending ? "Okunuyor…" : "Kendi tartımlarımdan SGR getir"}
+            </Button>
             <p className="text-[11px] text-muted-foreground">
               Aralıklar birbirine değmeli, boşluk ve çakışma olmamalı. Hedef gramaj bir aralığın ortasındaysa hesap o
-              gramajda durur.
+              gramajda durur. Süre boşsa aşamanın SGR&apos;si kullanılır: süre = ln(üst ÷ alt) ÷ (SGR ÷ 100). İkisi de
+              boşsa o aşama için hesap yapılmaz.
             </p>
+            {growth ? (
+              <div className="space-y-1 rounded-md border border-border p-3 text-[11px]">
+                <p className="text-muted-foreground">
+                  {growth.batchCount} partinin {growth.periodCount} ölçüm arasından okundu. Boş SGR alanları dolduruldu;
+                  dolu olanlara dokunulmadı.
+                </p>
+                {growth.ranges.map((r) => (
+                  <p key={`${r.minG}-${r.maxG}`}>
+                    <span className="font-medium">
+                      {r.minG}–{r.maxG} g:
+                    </span>{" "}
+                    {r.sgrPctPerDay === null
+                      ? "bu aralıkta ölçüm yok"
+                      : `%${fmt(r.sgrPctPerDay, 2)}/gün · ${r.periods} ölçüm, ${fmt(r.days, 0)} gün veri`}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
 

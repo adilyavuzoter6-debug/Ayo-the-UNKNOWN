@@ -5,7 +5,7 @@ import { CurrentTenant } from "../../common/decorators/current-tenant.decorator"
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
-import { CalculateScenariosDto, SaveScenarioDto } from "./dto/scenario-input.dto";
+import { CalculateScenariosDto, GrowthProfileDto, SaveScenarioDto } from "./dto/scenario-input.dto";
 import { CostScenariosService } from "./cost-scenarios.service";
 
 @ApiTags("cost-scenarios")
@@ -33,6 +33,17 @@ export class CostScenariosController {
     @CurrentTenant() tenant: TenantContext,
   ) {
     return this.scenarios.calculate(tenant.companyId, farmId, dto);
+  }
+
+  /** The farm's own growth rate per weight range, from its weighings. Calculation only. */
+  @Post("growth-profile")
+  @RequirePermission(Permission.COST_ENTRY_READ)
+  growthProfile(
+    @Param("farmId") farmId: string,
+    @Body() dto: GrowthProfileDto,
+    @CurrentTenant() tenant: TenantContext,
+  ) {
+    return this.scenarios.growthProfile(tenant.companyId, farmId, dto.ranges);
   }
 
   @Get()

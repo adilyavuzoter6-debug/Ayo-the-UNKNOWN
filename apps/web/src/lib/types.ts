@@ -726,6 +726,7 @@ export interface ScenarioStageInput {
   feedPriceTryPerKg?: number;
   fcr?: number;
   durationDays?: number;
+  sgrPctPerDay?: number;
   mortalityPct?: number;
 }
 
@@ -800,4 +801,19 @@ export interface SavedCostScenario {
   tankId: string | null;
   input: ScenarioInput;
   createdAt: string;
+}
+
+export interface GrowthRangeEstimate {
+  minG: number;
+  maxG: number;
+  /** Pooled SGR (%/day) from the farm's weighings, or null when no measured period touches the range. */
+  sgrPctPerDay: number | null;
+  periods: number;
+  days: number;
+}
+
+export interface GrowthProfile {
+  batchCount: number;
+  periodCount: number;
+  ranges: GrowthRangeEstimate[];
 }

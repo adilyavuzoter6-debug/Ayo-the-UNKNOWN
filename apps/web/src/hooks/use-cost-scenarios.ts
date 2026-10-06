@@ -3,7 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { SavedCostScenario, ScenarioInput, ScenarioOutcome, ScenarioPrefill } from "@/lib/types";
+import type {
+  GrowthProfile,
+  SavedCostScenario,
+  ScenarioInput,
+  ScenarioOutcome,
+  ScenarioPrefill,
+} from "@/lib/types";
 
 export function useScenarioPrefill(farmId: string, batchId: string | undefined) {
   const api = useApiClient();
@@ -23,6 +29,15 @@ export function useCalculateScenarios(farmId: string) {
   return useMutation({
     mutationFn: (scenarios: ScenarioInput[]) =>
       api.post<{ results: ScenarioOutcome[] }>(`/farms/${farmId}/cost-scenarios/calculate`, { scenarios }),
+  });
+}
+
+/** The farm's own growth rate for each weight range, from its weighings. Stores nothing. */
+export function useGrowthProfile(farmId: string) {
+  const api = useApiClient();
+  return useMutation({
+    mutationFn: (ranges: { minG: number; maxG: number }[]) =>
+      api.post<GrowthProfile>(`/farms/${farmId}/cost-scenarios/growth-profile`, { ranges }),
   });
 }
 

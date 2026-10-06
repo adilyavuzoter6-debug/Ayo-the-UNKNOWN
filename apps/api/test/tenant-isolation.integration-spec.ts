@@ -3507,6 +3507,65 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyA.ownerToken))
         .expect(404);
     });
+
+    it("reads the farm's own growth rate per weight range from its weighings; another company's farm is refused", async () => {
+      const iso = await isolatedFarm("GROWTH");
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: iso.tankId,
+          fishCount: 1000,
+          avgWeightG: 5,
+          farmEntryDate: new Date().toISOString().slice(0, 10),
+        })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+
+      // 5 g → 20 g over 30 days: one measured period, ln(4) / 30 per day.
+      const day = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      for (const [avgWeightG, daysAgo] of [
+        [5, 30],
+        [20, 0],
+      ] as const) {
+        await request(app.getHttpServer())
+          .post(`/api/v1/tanks/${iso.tankId}/weight-samples`)
+          .set("Authorization", auth(companyA.ownerToken))
+          .send({
+            batchId,
+            sampleMethod: "AGGREGATE",
+            sampleSize: 50,
+            avgWeightG,
+            occurredAt: new Date(now - daysAgo * day).toISOString(),
+          })
+          .expect(201);
+      }
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/farms/${iso.farmId}/cost-scenarios/growth-profile`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          ranges: [
+            { minG: 5, maxG: 20 },
+            { minG: 100, maxG: 350 },
+          ],
+        })
+        .expect(201);
+      expect(res.body.data.periodCount).toBe(1);
+      const [inside, outside] = res.body.data.ranges;
+      expect(inside.sgrPctPerDay).toBeCloseTo((Math.log(4) / 30) * 100, 6);
+      expect(inside.days).toBeCloseTo(30, 6);
+      expect(outside.sgrPctPerDay).toBeNull();
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/farms/${companyB.farmId}/cost-scenarios/growth-profile`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ ranges: [{ minG: 5, maxG: 20 }] })
+        .expect(404);
+    });
   });
 
   describe("regulatory inspection report", () => {

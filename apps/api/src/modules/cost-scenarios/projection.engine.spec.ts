@@ -117,6 +117,65 @@ describe("calculateScenario — staged", () => {
       /yem fiyatı/,
     );
   });
+
+  describe("stage duration from its growth rate", () => {
+    // One stage from 0.1 g to 1 g. At 8 %/day: ln(10) / 0.08 ≈ 28.78 days.
+    const fry = { minG: 0.1, maxG: 1, feedPriceTryPerKg: 60, fcr: 1, mortalityPct: 0 };
+
+    it("derives the stage duration from its SGR when no duration is typed", () => {
+      const r = calculateScenario({
+        ...base,
+        mode: "STAGED",
+        startAvgWeightG: 0.1,
+        targetWeightG: 1,
+        stages: [{ ...fry, sgrPctPerDay: 8 }],
+      });
+      expect(r.days).toBeCloseTo(Math.log(10) / 0.08, 9);
+      expect(r.durationSource).toBe("STAGED");
+    });
+
+    it("keeps the same growth path for a part of the stage: start to 0.3 g at 8 %/day is ln(3) / 0.08 days", () => {
+      const r = calculateScenario({
+        ...base,
+        mode: "STAGED",
+        startAvgWeightG: 0.1,
+        targetWeightG: 0.3,
+        stages: [{ ...fry, sgrPctPerDay: 8 }],
+      });
+      expect(r.days).toBeCloseTo(Math.log(3) / 0.08, 9);
+    });
+
+    it("uses a typed stage duration over the stage's growth rate when both are given", () => {
+      const r = calculateScenario({
+        ...base,
+        mode: "STAGED",
+        startAvgWeightG: 0.1,
+        targetWeightG: 1,
+        stages: [{ ...fry, durationDays: 10, sgrPctPerDay: 8 }],
+      });
+      expect(r.days).toBeCloseTo(10, 9);
+    });
+
+    it("refuses a stage with neither a duration nor a growth rate", () => {
+      expect(() =>
+        calculateScenario({ ...base, mode: "STAGED", startAvgWeightG: 0.1, targetWeightG: 1, stages: [fry] }),
+      ).toThrow(/yetiştirme süresi \(gün\) ya da büyüme hızı \(SGR\) girilmeli/);
+    });
+
+    it("refuses a zero or negative stage growth rate instead of inventing a duration", () => {
+      for (const sgrPctPerDay of [0, -2]) {
+        expect(() =>
+          calculateScenario({
+            ...base,
+            mode: "STAGED",
+            startAvgWeightG: 0.1,
+            targetWeightG: 1,
+            stages: [{ ...fry, sgrPctPerDay }],
+          }),
+        ).toThrow(/SGR/);
+      }
+    });
+  });
 });
 
 describe("calculateScenario — input checks", () => {

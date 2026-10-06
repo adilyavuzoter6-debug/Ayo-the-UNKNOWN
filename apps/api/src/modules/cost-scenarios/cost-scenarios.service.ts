@@ -5,6 +5,7 @@ import { AuditService } from "../audit/audit.service";
 import { CostsService } from "../costs/costs.service";
 import { SgrCalculationService } from "../batch-performance/sgr-calculation.service";
 import type { CalculateScenariosDto, ScenarioInputDto, SaveScenarioDto } from "./dto/scenario-input.dto";
+import { growthRangeEstimate, GrowthPair, WeightRange } from "./growth-profile";
 import { calculateScenario, ScenarioError, ScenarioInput, ScenarioResult } from "./projection.engine";
 
 const MAX_SCENARIOS = 8;
@@ -30,7 +31,8 @@ export function toEngineInput(dto: ScenarioInputDto): ScenarioInput {
       maxG: s.maxG as number,
       feedPriceTryPerKg: s.feedPriceTryPerKg as number,
       fcr: s.fcr as number,
-      durationDays: s.durationDays as number,
+      durationDays: s.durationDays,
+      sgrPctPerDay: s.sgrPctPerDay,
       mortalityPct: s.mortalityPct as number,
     })),
     expenses: dto.expenses ?? [],
@@ -125,6 +127,37 @@ export class CostScenariosService {
       sgrPctPerDay,
       feedPriceTryPerKg: lastLot ? Number(lastLot.unitCostPerKg) : null,
       feedPriceSource: lastLot ? "LAST_PURCHASE" : null,
+    };
+  }
+
+  /**
+   * The farm's own growth rate for each weight range, pooled from every consecutive pair of weighings of
+   * every batch that has been in this farm. Calculation only: nothing is stored.
+   */
+  async growthProfile(companyId: string, farmId: string, ranges: WeightRange[]) {
+    await this.assertFarm(companyId, farmId);
+    for (const r of ranges) {
+      if (!(r.minG > 0) || !(r.maxG > r.minG)) {
+        throw new BadRequestException("Her aralığın alt gramajı sıfırdan büyük, üst gramajı alt gramajdan büyük olmalı.");
+      }
+    }
+
+    const client = this.tenantPrisma.forTenant(companyId);
+    const links = await client.batchTankState.findMany({
+      where: { batch: { deletedAt: null }, tank: { farmSection: { farmId } } },
+      select: { batchId: true },
+      distinct: ["batchId"],
+    });
+
+    const pairs: GrowthPair[] = [];
+    for (const { batchId } of links) {
+      pairs.push(...(await this.sgr.calculateSeries(companyId, batchId)));
+    }
+
+    return {
+      batchCount: links.length,
+      periodCount: pairs.length,
+      ranges: ranges.map((r) => growthRangeEstimate(pairs, r)),
     };
   }
 
