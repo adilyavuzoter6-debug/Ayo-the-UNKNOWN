@@ -31,7 +31,7 @@ import { useTankFishBatches } from "@/hooks/use-fish-batches";
 import { useTankTreatments } from "@/hooks/use-treatments";
 import { useFarmMortalityLog, type MortalityLogEntry } from "@/hooks/use-farm-mortality-log";
 import { MORTALITY_REASON_LABEL as REASON_LABEL } from "@/lib/tanks";
-import type { MortalityReason } from "@/lib/types";
+import type { BatchTankAllocation, MortalityReason } from "@/lib/types";
 
 const TREND_WEEKS = 12;
 const TREND_SERIES_COLORS = [
@@ -40,6 +40,10 @@ const TREND_SERIES_COLORS = [
   "#8b5cf6",
   "var(--color-muted-foreground)",
 ];
+
+function batchOptionLabel(allocation: BatchTankAllocation) {
+  return `${allocation.batch.lotCode} · ${allocation.batch.species.name} · ${allocation.estimatedCount.toLocaleString("tr")} adet`;
+}
 
 /** Buckets entries into ISO-week-aligned columns, keeping only the top 3 reasons as their own
  * series (everything else folds into "Diğer") so the chart stays readable with a short legend. */
@@ -320,13 +324,16 @@ export default function HealthPage() {
               <Select value={mortalityBatchId} onValueChange={(v) => setSelectedBatchId(v ?? "")}>
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Parti seçin">
-                    {(v: string) => mortalityAllocations?.find((a) => a.batchId === v)?.batch.lotCode}
+                    {(v: string) => {
+                      const a = mortalityAllocations?.find((x) => x.batchId === v);
+                      return a ? batchOptionLabel(a) : undefined;
+                    }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {(mortalityAllocations ?? []).map((a) => (
                     <SelectItem key={a.batchId} value={a.batchId}>
-                      {a.batch.lotCode}
+                      {batchOptionLabel(a)}
                     </SelectItem>
                   ))}
                 </SelectContent>
