@@ -163,6 +163,16 @@ export function TargetWeightScenariosPanel({ farmId, batches }: { farmId: string
   }
 
   async function onCalculate() {
+    // A gider with a name or a number but no amount cannot be calculated; say so in words, here.
+    const incomplete = expenses.find(
+      (e) => (e.label.trim() !== "" || e.amount.trim() !== "") && num(e.amount) === undefined,
+    );
+    if (incomplete) {
+      toast.error(
+        `"${incomplete.label.trim() || "Adsız gider"}" için tutar girin (sağdaki "Tutar" alanına).`,
+      );
+      return;
+    }
     const inputs = buildInputs();
     if (inputs.length === 0) {
       toast.error("En az bir hedef gramaj girin.");
