@@ -3,8 +3,10 @@
  * everything here is computed at full precision.
  *
  * Model (stated so it can be challenged):
- * - Within a growth stage the average individual weight rises linearly with time from the stage's
- *   start weight to its end weight over the stage's duration.
+ * - Growth is exponential, as the specific growth rate (SGR) defines it: each day the individual weight
+ *   rises by a fixed percentage of its current weight. Within a stage the weight goes from the stage's
+ *   lower to its upper bound in exactly the stage's duration; a manually typed simple duration uses the
+ *   same kind of path between start and target.
  * - Survival within a stage is a constant daily rate, so the stage's mortality percentage is reached
  *   exactly at the end of the stage. Stage mortalities chain multiplicatively, never add up.
  * - The population is advanced in steps of at most one day. In each step the feed needed is the
@@ -122,8 +124,8 @@ export function validateStages(stages: StageInput[], startG: number, targetG: nu
 
   const checked = stages.map((s, i) => {
     const label = `${i + 1}. aşama`;
-    if (!finite(s.minG) || !finite(s.maxG) || s.minG < 0 || s.maxG <= s.minG) {
-      throw new ScenarioError(`${label}: alt gramaj üst gramajdan küçük olmalı.`);
+    if (!finite(s.minG) || !finite(s.maxG) || s.minG <= 0 || s.maxG <= s.minG) {
+      throw new ScenarioError(`${label}: alt gramaj sıfırdan büyük ve üst gramajdan küçük olmalı.`);
     }
     requirePositive(s.feedPriceTryPerKg, `${label}: yem fiyatı girilmeli ve sıfırdan büyük olmalı.`);
     requirePositive(s.fcr, `${label}: FCR girilmeli ve sıfırdan büyük olmalı.`);
@@ -217,8 +219,8 @@ function segmentsFor(input: ScenarioInput): Segment[] {
     const from = Math.max(stage.minG, start);
     const to = Math.min(stage.maxG, target);
     if (to <= from) continue;
-    // The part of the stage the fish pass through, at the stage's own growth rate.
-    const fraction = (to - from) / (stage.maxG - stage.minG);
+    // Time spent between from and to on the stage's exponential path (minG → maxG over durationDays).
+    const fraction = Math.log(to / from) / Math.log(stage.maxG / stage.minG);
     segments.push({
       fromG: from,
       toG: to,
@@ -278,8 +280,8 @@ export function calculateScenario(input: ScenarioInput): ScenarioResult {
     };
 
     for (let i = 0; i < steps; i++) {
-      const wa = seg.fromG + ((seg.toG - seg.fromG) * i) / steps;
-      const wb = seg.fromG + ((seg.toG - seg.fromG) * (i + 1)) / steps;
+      const wa = seg.fromG * Math.pow(seg.toG / seg.fromG, i / steps);
+      const wb = seg.fromG * Math.pow(seg.toG / seg.fromG, (i + 1) / steps);
       const next = count * stepSurvival;
       const averageCount = (count + next) / 2;
       const growth = (averageCount * (wb - wa)) / 1000;

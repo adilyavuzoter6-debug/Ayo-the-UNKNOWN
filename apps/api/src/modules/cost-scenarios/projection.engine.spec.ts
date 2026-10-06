@@ -53,10 +53,15 @@ describe("calculateScenario — with mortality", () => {
     const r = calculateScenario({ ...base, mortalityPct: 10 });
     expect(r.aliveAtTarget).toBeCloseTo(900, 6);
     expect(r.deadCount).toBeCloseTo(100, 6);
-    // Naive: 900 × 100 g − 1000 × 5 g = 85 kg of growth. The modelled population grows 90.2 kg.
+    // Naive: 900 × 100 g − 1000 × 5 g = 85 kg of growth. The modelled population grows more, because the
+    // dead fish were alive, growing, while they were in the water. Closed form for exponential growth
+    // with exponential survival: growth = 5 · k · (e^((k−λ)T) − 1) / (k − λ), k = ln(20)/T, λ = −ln(0.9)/T.
     expect(r.feedKg).toBeGreaterThan(85);
-    expect(r.feedKg).toBeGreaterThan(89);
-    expect(r.feedKg).toBeLessThan(91);
+    const T = 120;
+    const k = Math.log(20) / T;
+    const lambda = -Math.log(0.9) / T;
+    const exact = (5 * k * (Math.exp((k - lambda) * T) - 1)) / (k - lambda);
+    expect(Math.abs(r.feedKg - exact) / exact).toBeLessThan(0.001);
     // Cost already in the fish is carried by the survivors: no separate charge for the dead.
     expect(r.startAccumulatedCostTry).toBe(2000);
     expect(r.totalCostTry).toBeCloseTo(2000 + r.feedCostTry + 1000, 6);
@@ -86,9 +91,11 @@ describe("calculateScenario — staged", () => {
       [5, 20],
       [20, 50],
     ]);
-    // Third stage: 30 of its 80 g, so 30/80 of its 40 days = 15 days. Total 10 + 20 + 15.
-    expect(r.days).toBeCloseTo(45, 9);
-    expect(r.stages[2]!.days).toBeCloseTo(15, 9);
+    // Third stage, exponential from 20 g to 100 g over 40 days: the part from 20 g to 50 g takes
+    // 40 × ln(50/20) / ln(100/20) days. Total 10 + 20 + that.
+    const partial = (40 * Math.log(50 / 20)) / Math.log(100 / 20);
+    expect(r.stages[2]!.days).toBeCloseTo(partial, 9);
+    expect(r.days).toBeCloseTo(10 + 20 + partial, 9);
     expect(r.stages[2]!.fcr).toBe(1.2);
   });
 

@@ -611,9 +611,7 @@ function ScenarioComparison({ outcomes, targets }: { outcomes: ScenarioOutcome[]
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        Süre: elle girilen değer kullanılır; boşsa SGR&apos;den ln(hedef ÷ başlangıç) ÷ (SGR ÷ 100) gün türetilir. Bu
-        türetmede büyümenin üstel olduğu varsayılır; hesap ise süre boyunca ağırlığı doğrusal artırır. Yem ve ölüm
-        gün gün hesaplanır.
+        Süre: elle girilen değer kullanılır; boşsa SGR&apos;den ln(hedef ÷ başlangıç) ÷ (SGR ÷ 100) gün türetilir. Ağırlık üstel büyür (SGR tanımı gereği): her gün mevcut ağırlığın sabit bir yüzdesi kadar artar. Yem ve ölüm gün gün hesaplanır.
       </p>
       {outcomes.map((o, i) =>
         o.ok && o.result.warnings.length > 0 ? (
