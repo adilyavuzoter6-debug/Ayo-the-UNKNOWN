@@ -79,3 +79,42 @@ export function summarizeFarmProduction(loads: TankLoad[]): FarmProductionSummar
     emptyVolumeM3: withVolume.filter((l) => l.count === 0).reduce((sum, l) => sum + l.volumeM3, 0),
   };
 }
+
+export interface HarvestEtaEstimate {
+  /** Stocked ponds with a weight to compare against the target. */
+  pondsTracked: number;
+  /** Of those, how many are already at or above the target. */
+  pondsAtTarget: number;
+  /** Average days for the ponds below target to reach it, at the given growth rate. Null when there is
+   *  no growth rate, or every tracked pond is already at the target. */
+  avgDays: number | null;
+}
+
+/**
+ * How long the ponds below a target weight would take to reach it, assuming each grows at the given
+ * specific growth rate (exponential, the same rule the cost-scenario engine uses): days =
+ * ln(target / current) / (SGR / 100). One farm-wide rate stands in for each pond's own, since a
+ * per-pond rate is not tracked here — a rough estimate, not a harvest plan.
+ */
+export function estimateDaysToTarget(
+  loads: TankLoad[],
+  targetWeightG: number,
+  sgrPctPerDay: number | null,
+): HarvestEtaEstimate {
+  const stocked = loads.filter((l) => l.count > 0);
+  const pondsAtTarget = stocked.filter((l) => (l.biomassKg * 1000) / l.count >= targetWeightG).length;
+  const below = stocked.filter((l) => (l.biomassKg * 1000) / l.count < targetWeightG);
+
+  if (sgrPctPerDay === null || sgrPctPerDay <= 0 || below.length === 0) {
+    return { pondsTracked: stocked.length, pondsAtTarget, avgDays: null };
+  }
+  const days = below.map((l) => {
+    const avgWeightG = (l.biomassKg * 1000) / l.count;
+    return Math.log(targetWeightG / avgWeightG) / (sgrPctPerDay / 100);
+  });
+  return {
+    pondsTracked: stocked.length,
+    pondsAtTarget,
+    avgDays: days.reduce((a, b) => a + b, 0) / days.length,
+  };
+}

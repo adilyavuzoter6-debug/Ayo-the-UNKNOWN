@@ -20,9 +20,11 @@ import { useFarmDashboardKpis } from "@/hooks/use-dashboard-kpis";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import {
   CROWDED_CAPACITY_RATIO,
+  estimateDaysToTarget,
   summarizeFarmProduction,
   tankLoad,
   type FarmProductionSummary,
+  type TankLoad,
 } from "@/lib/farm-production-summary";
 import type { FarmDashboardKpis, TankStatus } from "@/lib/types";
 
@@ -45,7 +47,8 @@ export default function ProductionPage() {
 
   const activeCount = rows.filter((r) => r.allocations.length > 0).length;
   const emptyCount = rows.filter((r) => r.allocations.length === 0).length;
-  const summary = summarizeFarmProduction(rows.map(({ tank, allocations }) => tankLoad(tank, allocations)));
+  const loads = rows.map(({ tank, allocations }) => tankLoad(tank, allocations));
+  const summary = summarizeFarmProduction(loads);
 
   return (
     <div className="space-y-6">
@@ -94,7 +97,7 @@ export default function ProductionPage() {
         </div>
       ) : rows.length > 0 ? (
         <>
-          <FarmSummaryCards summary={summary} kpis={kpis} />
+          <FarmSummaryCards summary={summary} kpis={kpis} loads={loads} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map(({ tank, allocations }) => {
             const { count: totalCount, biomassKg: totalBiomassKg, maxBiomassKg, volumeM3 } = tankLoad(
@@ -183,10 +186,17 @@ const tons = (kg: number) => `${(kg / 1000).toLocaleString("tr", { maximumFracti
 function FarmSummaryCards({
   summary,
   kpis,
+  loads,
 }: {
   summary: FarmProductionSummary;
   kpis: FarmDashboardKpis | undefined;
+  loads: TankLoad[];
 }) {
+  const [targetWeightText, setTargetWeightText] = React.useState("");
+  const targetWeightG = Number(targetWeightText);
+  const hasTarget = targetWeightText.trim() !== "" && targetWeightG > 0;
+  const eta = hasTarget ? estimateDaysToTarget(loads, targetWeightG, kpis?.avgSgrPctPerDay ?? null) : null;
+
   const cards = [
     {
       label: "Toplam biyokütle",
@@ -241,6 +251,21 @@ function FarmSummaryCards({
       value: kpis?.avgSgrPctPerDay != null ? `${kpis.avgSgrPctPerDay.toFixed(2)} %/gün` : "—",
       note: kpis?.avgSgrPctPerDay != null ? "partilerin ortalaması" : "en az 2 tartım gerekir",
     },
+    {
+      label: "Hasada kalan gün (ort.)",
+      value: !hasTarget
+        ? "—"
+        : eta?.avgDays != null
+          ? `${Math.round(eta.avgDays)} gün`
+          : "—",
+      note: !hasTarget
+        ? "Hedef gramaj girin"
+        : eta?.avgDays != null
+          ? `${eta.pondsTracked - eta.pondsAtTarget} havuz için, çiftlik SGR ortalamasına göre`
+          : kpis?.avgSgrPctPerDay == null
+            ? "SGR verisi yok"
+            : `${eta?.pondsAtTarget ?? 0} havuz zaten hedefte`,
+    },
   ];
 
   const gaps: string[] = [];
@@ -249,6 +274,22 @@ function FarmSummaryCards({
 
   return (
     <section aria-label="Çiftlik özeti" className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor="harvest-target-weight" className="text-[11px] text-muted-foreground">
+          Hasada kalan gün için hedef gramaj (g):
+        </label>
+        <input
+          id="harvest-target-weight"
+          type="number"
+          min={0}
+          step="1"
+          value={targetWeightText}
+          onChange={(e) => setTargetWeightText(e.target.value)}
+          placeholder="örn. 300"
+          className="w-24 rounded-md border border-border bg-background px-2 py-1 text-xs"
+        />
+        <span className="text-[11px] text-muted-foreground">Kaydedilmez, yalnızca bu ekranda kullanılır.</span>
+      </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {cards.map((c) => (
           <Card key={c.label} className="gap-0 py-3">
