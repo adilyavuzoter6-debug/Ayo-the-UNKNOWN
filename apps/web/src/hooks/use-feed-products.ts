@@ -61,6 +61,33 @@ export function useDeleteFeedProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.del<{ deleted: true }>(`/feed-products/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["feed-products", companyId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["feed-products", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["feed-products-deleted", companyId] });
+    },
+  });
+}
+
+/** Removed products, so one taken out by mistake can be found and brought back. */
+export function useDeletedFeedProducts() {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  return useQuery({
+    queryKey: ["feed-products-deleted", companyId],
+    queryFn: () => api.get<FeedProduct[]>("/feed-products/deleted"),
+    enabled: !!companyId,
+  });
+}
+
+export function useRestoreFeedProduct() {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<FeedProduct>(`/feed-products/${id}/restore`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["feed-products", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["feed-products-deleted", companyId] });
+    },
   });
 }

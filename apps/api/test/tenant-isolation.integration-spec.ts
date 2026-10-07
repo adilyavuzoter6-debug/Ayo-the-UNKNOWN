@@ -1355,6 +1355,41 @@ describe("Tenant isolation & authorization (integration)", () => {
         .expect(404);
     });
 
+    it("a removed feed product shows up among deleted products and can be restored; another company can do neither", async () => {
+      const created = await request(app.getHttpServer())
+        .post("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: `Restorable ${Date.now()}` })
+        .expect(201);
+      const productId = created.body.data.id as string;
+      await request(app.getHttpServer())
+        .delete(`/api/v1/feed-products/${productId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const deletedList = await request(app.getHttpServer())
+        .get("/api/v1/feed-products/deleted")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(deletedList.body.data.find((p: { id: string }) => p.id === productId)).toBeDefined();
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/feed-products/${productId}/restore`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/feed-products/${productId}/restore`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(201);
+
+      const activeList = await request(app.getHttpServer())
+        .get("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(activeList.body.data.find((p: { id: string }) => p.id === productId)).toBeDefined();
+    });
+
     it("farm stock-summary's todayFeedKg reflects same-day FeedingEvents", async () => {
       const tank = await createTank("FEED-B");
       const inventoryBatchId = await receiveStock(200);

@@ -94,4 +94,36 @@ export class FeedProductsService {
     });
     return { deleted: true as const };
   }
+
+  /** Removed products, newest first — so one removed by mistake can be found and brought back. */
+  async listDeleted(companyId: string) {
+    return this.tenantPrisma.forTenant(companyId).feedProduct.findMany({
+      where: { deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+      take: 50,
+    });
+  }
+
+  /** Undoes a removal. The product reappears wherever active products are offered. */
+  async restore(companyId: string, userId: string, id: string) {
+    const existing = await this.tenantPrisma
+      .forTenant(companyId)
+      .feedProduct.findFirst({ where: { id, deletedAt: { not: null } } });
+    if (!existing) {
+      throw new NotFoundException("Removed feed product not found.");
+    }
+    const restored = await this.tenantPrisma.forTenant(companyId).feedProduct.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "RESTORE",
+      entityType: "FeedProduct",
+      entityId: id,
+      newValue: { name: restored.name },
+    });
+    return restored;
+  }
 }

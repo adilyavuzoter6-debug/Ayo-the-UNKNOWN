@@ -452,6 +452,7 @@ export interface FeedProduct {
   proteinPct: string | null;
   fatPct: string | null;
   createdAt: string;
+  deletedAt?: string | null;
 }
 
 export interface Warehouse {

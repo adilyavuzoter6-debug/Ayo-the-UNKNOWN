@@ -11,7 +11,12 @@ import { CreateFeedProductDialog } from "@/components/feeding/create-feed-produc
 import { EditFeedProductDialog } from "@/components/feeding/edit-feed-product-dialog";
 import { EditInventoryBatchDialog } from "@/components/feeding/edit-inventory-batch-dialog";
 import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
-import { useDeleteFeedProduct, useFeedProducts } from "@/hooks/use-feed-products";
+import {
+  useDeleteFeedProduct,
+  useDeletedFeedProducts,
+  useFeedProducts,
+  useRestoreFeedProduct,
+} from "@/hooks/use-feed-products";
 import { useDeleteInventoryBatch, useInventoryBatches } from "@/hooks/use-feed-inventory";
 import { ApiError } from "@/lib/api-error";
 import type { FeedInventoryBatch, FeedProduct } from "@/lib/types";
@@ -19,6 +24,7 @@ import type { FeedInventoryBatch, FeedProduct } from "@/lib/types";
 export default function FeedingPage() {
   const { data: products, isLoading: productsLoading } = useFeedProducts();
   const { data: batches, isLoading: batchesLoading } = useInventoryBatches();
+  const { data: deletedProducts } = useDeletedFeedProducts();
 
   return (
     <div className="space-y-6">
@@ -58,6 +64,19 @@ export default function FeedingPage() {
             </CardContent>
           </Card>
         )}
+
+        {deletedProducts && deletedProducts.length > 0 ? (
+          <div className="rounded-md border border-border bg-secondary/40 p-3">
+            <p className="mb-2 text-[11px] font-medium text-muted-foreground">
+              Silinen ürünler — yanlışlıkla silindiyse geri getirin:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {deletedProducts.map((product) => (
+                <DeletedFeedProductChip key={product.id} product={product} />
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-3">
@@ -158,6 +177,29 @@ function FeedProductCard({ product }: { product: FeedProduct }) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** A removed product, with a one-click way back. Lots already received show its name either way. */
+function DeletedFeedProductChip({ product }: { product: FeedProduct }) {
+  const restore = useRestoreFeedProduct();
+
+  async function onRestore() {
+    try {
+      await restore.mutateAsync(product.id);
+      toast.success(`"${product.name}" geri getirildi.`);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Ürün geri getirilemedi.");
+    }
+  }
+
+  return (
+    <span className="flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs">
+      <span className="text-muted-foreground line-through">{product.name}</span>
+      <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[11px]" onClick={onRestore} disabled={restore.isPending}>
+        {restore.isPending ? "…" : "Geri getir"}
+      </Button>
+    </span>
   );
 }
 

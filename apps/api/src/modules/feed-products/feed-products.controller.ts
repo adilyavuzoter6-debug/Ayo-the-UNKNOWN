@@ -20,6 +20,12 @@ export class FeedProductsController {
     return this.feedProductsService.listForCompany(tenant.companyId);
   }
 
+  @Get("deleted")
+  @RequirePermission(Permission.FEED_PRODUCT_CREATE)
+  listDeleted(@CurrentTenant() tenant: TenantContext) {
+    return this.feedProductsService.listDeleted(tenant.companyId);
+  }
+
   @Post()
   @RequirePermission(Permission.FEED_PRODUCT_CREATE)
   create(
@@ -49,5 +55,15 @@ export class FeedProductsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.feedProductsService.remove(tenant.companyId, user.id, id);
+  }
+
+  @Post(":id/restore")
+  @RequirePermission(Permission.FEED_PRODUCT_CREATE)
+  restore(
+    @Param("id") id: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.feedProductsService.restore(tenant.companyId, user.id, id);
   }
 }
