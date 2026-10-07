@@ -33,7 +33,7 @@ export class FeedProductsService {
         companyId,
         name: dto.name,
         manufacturer: dto.manufacturer,
-        pelletSizeMm: dto.pelletSizeMm,
+        pelletSizeMm: dto.pelletSizeMm?.trim(),
         proteinPct: dto.proteinPct,
         fatPct: dto.fatPct,
       },
@@ -59,7 +59,7 @@ export class FeedProductsService {
       data: {
         name: dto.name ?? existing.name,
         manufacturer: dto.manufacturer !== undefined ? dto.manufacturer : existing.manufacturer,
-        pelletSizeMm: dto.pelletSizeMm !== undefined ? dto.pelletSizeMm : existing.pelletSizeMm,
+        pelletSizeMm: dto.pelletSizeMm !== undefined ? dto.pelletSizeMm.trim() : existing.pelletSizeMm,
         proteinPct: dto.proteinPct !== undefined ? dto.proteinPct : existing.proteinPct,
         fatPct: dto.fatPct !== undefined ? dto.fatPct : existing.fatPct,
       },

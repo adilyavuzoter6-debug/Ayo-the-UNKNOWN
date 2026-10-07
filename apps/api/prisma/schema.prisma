@@ -755,7 +755,9 @@ model FeedProduct {
   companyId    String
   name         String
   manufacturer String?
-  pelletSizeMm Decimal?  @db.Decimal(5, 2)
+  /// Free text: a single size ("4") or a range ("0.3-0.5"), the way the industry actually labels
+  /// granule/fry feeds. Never computed on, so there was no reason to force it into a Decimal.
+  pelletSizeMm String?  @db.VarChar(40)
   proteinPct   Decimal?  @db.Decimal(5, 2)
   fatPct       Decimal?  @db.Decimal(5, 2)
   createdAt    DateTime  @default(now())

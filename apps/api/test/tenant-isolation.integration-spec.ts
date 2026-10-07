@@ -1355,6 +1355,28 @@ describe("Tenant isolation & authorization (integration)", () => {
         .expect(404);
     });
 
+    it("pellet size is free text, so a range (fry/granule feed) is kept as typed, not forced into a number", async () => {
+      const created = await request(app.getHttpServer())
+        .post("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: `Granül ${Date.now()}`, pelletSizeMm: "0.3-0.5" })
+        .expect(201);
+      expect(created.body.data.pelletSizeMm).toBe("0.3-0.5");
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/feed-products/${created.body.data.id}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ pelletSizeMm: "0.5-0.8" })
+        .expect(200);
+      const list = await request(app.getHttpServer())
+        .get("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(list.body.data.find((p: { id: string }) => p.id === created.body.data.id).pelletSizeMm).toBe(
+        "0.5-0.8",
+      );
+    });
+
     it("a removed feed product shows up among deleted products and can be restored; another company can do neither", async () => {
       const created = await request(app.getHttpServer())
         .post("/api/v1/feed-products")

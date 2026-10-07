@@ -18,7 +18,7 @@ export function useFeedProducts() {
 export interface CreateFeedProductInput {
   name: string;
   manufacturer?: string;
-  pelletSizeMm?: number;
+  pelletSizeMm?: string;
   proteinPct?: number;
   fatPct?: number;
 }
@@ -39,7 +39,7 @@ export function useCreateFeedProduct() {
 export interface UpdateFeedProductInput {
   name?: string;
   manufacturer?: string;
-  pelletSizeMm?: number;
+  pelletSizeMm?: string;
   proteinPct?: number;
   fatPct?: number;
 }

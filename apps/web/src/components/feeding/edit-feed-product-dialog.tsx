@@ -24,7 +24,7 @@ import type { FeedProduct } from "@/lib/types";
 const schema = z.object({
   name: z.string().trim().min(1, "Ürün adı girin").max(150),
   manufacturer: z.string().trim().max(100).optional(),
-  pelletSizeMm: z.coerce.number().positive().optional(),
+  pelletSizeMm: z.string().trim().max(40).optional(),
   proteinPct: z.coerce.number().positive().optional(),
   fatPct: z.coerce.number().positive().optional(),
 });
@@ -35,7 +35,7 @@ export function EditFeedProductDialog({ product }: { product: FeedProduct }) {
   const initial = (): FormValues => ({
     name: product.name,
     manufacturer: product.manufacturer ?? "",
-    pelletSizeMm: product.pelletSizeMm ? Number(product.pelletSizeMm) : undefined,
+    pelletSizeMm: product.pelletSizeMm ?? undefined,
     proteinPct: product.proteinPct ? Number(product.proteinPct) : undefined,
     fatPct: product.fatPct ? Number(product.fatPct) : undefined,
   });
@@ -48,7 +48,7 @@ export function EditFeedProductDialog({ product }: { product: FeedProduct }) {
         id: product.id,
         name: values.name,
         manufacturer: values.manufacturer || undefined,
-        pelletSizeMm: values.pelletSizeMm,
+        pelletSizeMm: values.pelletSizeMm || undefined,
         proteinPct: values.proteinPct,
         fatPct: values.fatPct,
       });
@@ -107,9 +107,9 @@ export function EditFeedProductDialog({ product }: { product: FeedProduct }) {
                 name="pelletSizeMm"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-[11px] text-muted-foreground">Pellet (mm)</FormLabel>
+                    <FormLabel className="text-[11px] text-muted-foreground">Pelet (mm)</FormLabel>
                     <FormControl>
-                      <Input type="number" step="0.1" {...field} value={field.value ?? ""} />
+                      <Input placeholder="4 ya da 0,3-0,5" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

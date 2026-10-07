@@ -14,11 +14,13 @@ export class CreateFeedProductDto {
   @MaxLength(100)
   manufacturer?: string;
 
-  @ApiPropertyOptional({ description: "Pellet size in millimeters" })
+  @ApiPropertyOptional({
+    description: "Pellet size, free text so a range (e.g. 0.3-0.5) or a single size (4) both work",
+  })
   @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  pelletSizeMm?: number;
+  @IsString()
+  @MaxLength(40)
+  pelletSizeMm?: string;
 
   @ApiPropertyOptional({ description: "Protein percentage" })
   @IsOptional()
@@ -47,11 +49,13 @@ export class UpdateFeedProductDto {
   @MaxLength(100)
   manufacturer?: string;
 
-  @ApiPropertyOptional({ description: "Pellet size in millimeters" })
+  @ApiPropertyOptional({
+    description: "Pellet size, free text so a range (e.g. 0.3-0.5) or a single size (4) both work",
+  })
   @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  pelletSizeMm?: number;
+  @IsString()
+  @MaxLength(40)
+  pelletSizeMm?: string;
 
   @ApiPropertyOptional({ description: "Protein percentage" })
   @IsOptional()

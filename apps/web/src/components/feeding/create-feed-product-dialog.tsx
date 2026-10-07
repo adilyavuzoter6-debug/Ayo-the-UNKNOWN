@@ -31,7 +31,7 @@ import { ApiError } from "@/lib/api-error";
 const schema = z.object({
   name: z.string().trim().min(1).max(150),
   manufacturer: z.string().trim().max(100).optional(),
-  pelletSizeMm: z.coerce.number().positive().optional(),
+  pelletSizeMm: z.string().trim().max(40).optional(),
   proteinPct: z.coerce.number().positive().optional(),
 });
 type FormValues = z.infer<typeof schema>;
@@ -117,7 +117,7 @@ export function CreateFeedProductDialog() {
                   <FormItem>
                     <FormLabel>Pelet (mm)</FormLabel>
                     <FormControl>
-                      <Input type="number" min={0} step="0.1" {...field} />
+                      <Input placeholder="4 ya da 0,3-0,5" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
