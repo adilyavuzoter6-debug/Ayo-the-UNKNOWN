@@ -20,6 +20,7 @@ import { InspectionReportSection } from "@/components/reports/inspection-report-
 import { useFarm } from "@/hooks/use-farms";
 import { useFarmSections } from "@/hooks/use-farm-sections";
 import { useFarmTanks } from "@/hooks/use-tanks";
+import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import { useFarmStockSummary } from "@/hooks/use-farm-stock-summary";
 import { useCompanyMembers } from "@/hooks/use-members";
 import { TANK_TYPE_LABEL } from "@/lib/tanks";
@@ -314,6 +315,16 @@ function OverviewStat({
 
 function FacilitiesTab({ farmId }: { farmId: string }) {
   const { data: sections, isLoading: sectionsLoading } = useFarmSections(farmId);
+  // One farm-wide fetch (tanks + their live stock), grouped by section below — a block's card
+  // needs the same biomass/count figures the Üretim Birimleri tab computes, so this reuses that
+  // hook instead of each block card fetching its own tanks and recomputing them separately.
+  const { rows, isLoading: rowsLoading } = useFarmProductionOverview(farmId);
+  const rowsBySection = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const list = rowsBySection.get(row.tank.farmSectionId) ?? [];
+    list.push(row);
+    rowsBySection.set(row.tank.farmSectionId, list);
+  }
 
   return (
     <div className="space-y-4">
@@ -333,7 +344,13 @@ function FacilitiesTab({ farmId }: { farmId: string }) {
       ) : sections && sections.length > 0 ? (
         <div className="space-y-4">
           {sections.map((section) => (
-            <SectionCard key={section.id} farmId={farmId} section={section} />
+            <SectionCard
+              key={section.id}
+              farmId={farmId}
+              section={section}
+              rows={rowsBySection.get(section.id) ?? []}
+              rowsLoading={rowsLoading}
+            />
           ))}
         </div>
       ) : (
