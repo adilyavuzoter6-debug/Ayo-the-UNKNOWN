@@ -1,8 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { batchWeightLabel } from "@/lib/fish-batch-weight";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Fish, Wheat } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Fish, Wheat } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -69,6 +70,9 @@ export function StocksTab({ farmId }: { farmId: string }) {
 function OpenAlertsSection({ farmId }: { farmId: string }) {
   const { data: alerts, isLoading } = useFarmAlerts(farmId, "OPEN");
   const resolveAlert = useResolveAlert();
+  // Collapsed by default — a freshly-stocked farm can throw dozens of these at once, and they
+  // shouldn't bury the rest of the Stoklar tab under them.
+  const [expanded, setExpanded] = React.useState(false);
 
   if (isLoading || !alerts || alerts.length === 0) {
     return null;
@@ -89,31 +93,48 @@ function OpenAlertsSection({ farmId }: { farmId: string }) {
 
   return (
     <div className="space-y-2">
-      <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-        Açık uyarılar
-      </h2>
-      <div className="space-y-2">
-        {alerts.map((alert) => (
-          <Card key={alert.id} className="border-warning/40 bg-warning/5">
-            <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
-              <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
-                <p className="min-w-0 text-sm text-foreground">{alert.message}</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                disabled={resolveAlert.isPending}
-                onClick={() => handleResolve(alert.id)}
-              >
-                <CheckCircle2 className="size-3.5" />
-                Çözüldü
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 text-left"
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+          Açık uyarılar
+        </h2>
+        <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
+          {alerts.length}
+        </span>
+      </button>
+      {expanded ? (
+        <div className="space-y-2">
+          {alerts.map((alert) => (
+            <Card key={alert.id} className="border-warning/40 bg-warning/5">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+                  <p className="min-w-0 text-sm text-foreground">{alert.message}</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={resolveAlert.isPending}
+                  onClick={() => handleResolve(alert.id)}
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  Çözüldü
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
