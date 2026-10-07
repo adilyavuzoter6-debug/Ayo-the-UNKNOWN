@@ -107,6 +107,34 @@ export class MortalityService {
     return event;
   }
 
+  /**
+   * Removes a mortality event entirely. The projection is rebuilt from scratch afterward (same
+   * recompute as on create), so the fish it counted as dead go back to being counted as live —
+   * for a wrongly-recorded event, not a correction of the count by other means.
+   */
+  async remove(companyId: string, tankId: string, userId: string, id: string) {
+    await this.assertTankInTenant(companyId, tankId);
+    const client = this.tenantPrisma.forTenant(companyId);
+    const event = await client.mortalityEvent.findFirst({ where: { id, tankId } });
+    if (!event) {
+      throw new NotFoundException("Mortality event not found.");
+    }
+
+    await client.mortalityEvent.delete({ where: { id } });
+    await this.projection.recompute(companyId, event.batchId);
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "DELETE",
+      entityType: "MortalityEvent",
+      entityId: id,
+      previousValue: { tankId, batchId: event.batchId, fishCount: event.fishCount, reason: event.reason },
+    });
+
+    return { deleted: true as const };
+  }
+
   async listForTank(companyId: string, tankId: string) {
     await this.assertTankInTenant(companyId, tankId);
 

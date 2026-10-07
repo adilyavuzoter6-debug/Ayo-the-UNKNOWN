@@ -8,6 +8,7 @@ import { RequirePermission } from "../../common/decorators/require-permission.de
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { CreateFishBatchDto } from "./dto/create-fish-batch.dto";
 import { CreateMovementDto } from "./dto/create-movement.dto";
+import { CreateBatchAdjustmentDto } from "./dto/create-adjustment.dto";
 import { SplitBatchDto } from "./dto/split-batch.dto";
 import { MergeBatchesDto } from "./dto/merge-batches.dto";
 import { FishBatchesService } from "./fish-batches.service";
@@ -84,6 +85,17 @@ export class FishBatchesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.fishBatchesService.addMovement(tenant.companyId, id, user.id, dto);
+  }
+
+  @Post(":id/adjustments")
+  @RequirePermission(Permission.BATCH_MOVEMENT_CREATE)
+  addAdjustment(
+    @Param("id") id: string,
+    @Body() dto: CreateBatchAdjustmentDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fishBatchesService.createAdjustment(tenant.companyId, id, user.id, dto);
   }
 
   @Patch(":id/stocking")

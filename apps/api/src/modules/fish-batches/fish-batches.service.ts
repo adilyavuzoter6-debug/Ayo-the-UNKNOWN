@@ -6,6 +6,7 @@ import { StockingCostService } from "../costs/stocking-cost.service";
 import { BatchProjectionService } from "./batch-projection.service";
 import type { CreateFishBatchDto } from "./dto/create-fish-batch.dto";
 import type { CreateMovementDto } from "./dto/create-movement.dto";
+import type { CreateBatchAdjustmentDto } from "./dto/create-adjustment.dto";
 import type { SplitBatchDto } from "./dto/split-batch.dto";
 import type { MergeBatchesDto } from "./dto/merge-batches.dto";
 import type { UpdateStockingDto } from "./dto/update-stocking.dto";
@@ -257,6 +258,55 @@ export class FishBatchesService {
     });
 
     await this.alertsService.evaluateBiomassRule(companyId, dto.toTankId);
+
+    return this.findById(companyId, batchId);
+  }
+
+  /**
+   * A direct correction to the batch's count in one tank — not mortality, not a transfer. Kept out
+   * of BatchMovement's STOCKING/TRANSFER/HARVEST_REMOVAL accounting on purpose: it exists so a count
+   * can be fixed without the fish reading as dead or as moved anywhere.
+   */
+  async createAdjustment(companyId: string, batchId: string, userId: string, dto: CreateBatchAdjustmentDto) {
+    await this.findById(companyId, batchId);
+    await this.assertTankInTenant(companyId, dto.tankId);
+    if (dto.fishCount === 0) {
+      throw new BadRequestException("Düzeltme sıfır olamaz.");
+    }
+
+    if (dto.fishCount < 0) {
+      const liveCount = await this.projection.getLiveTankCount(companyId, batchId, dto.tankId);
+      if (-dto.fishCount > liveCount) {
+        throw new BadRequestException(
+          `Bu havuzda yalnızca ${liveCount} canlı balık var; ${-dto.fishCount} düşülemez.`,
+        );
+      }
+    }
+
+    await this.tenantPrisma.forTenant(companyId).batchMovement.create({
+      data: {
+        companyId,
+        movementType: "ADJUSTMENT",
+        batchId,
+        fromTankId: dto.fishCount < 0 ? dto.tankId : undefined,
+        toTankId: dto.fishCount > 0 ? dto.tankId : undefined,
+        fishCount: Math.abs(dto.fishCount),
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+        createdById: userId,
+        notes: dto.notes,
+      },
+    });
+
+    await this.projection.recompute(companyId, batchId);
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "CREATE",
+      entityType: "BatchMovement",
+      entityId: batchId,
+      newValue: { movementType: "ADJUSTMENT", tankId: dto.tankId, fishCount: dto.fishCount },
+    });
 
     return this.findById(companyId, batchId);
   }

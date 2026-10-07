@@ -4149,6 +4149,86 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("batch count adjustment — corrects a count without it reading as mortality", () => {
+    async function stockBatch(fishCount: number) {
+      const tank = await prisma.tank.create({
+        data: {
+          companyId: companyA.companyId,
+          farmSectionId: companyA.sectionId,
+          code: `ADJ-${Date.now()}-${lotSeq}`,
+          type: "TANK",
+        },
+      });
+      const create = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tank.id,
+          fishCount,
+          avgWeightG: 100,
+          farmEntryDate: "2026-01-01",
+        })
+        .expect(201);
+      return { tank, batchId: create.body.data.id as string };
+    }
+
+    it("a negative adjustment lowers the count and never appears as mortality; a positive one raises it back", async () => {
+      const { tank, batchId } = await stockBatch(1000);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ tankId: tank.id, fishCount: -40, notes: "Sayım düzeltmesi" })
+        .expect(201);
+
+      const afterDown = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(afterDown.body.data.currentState.estimatedCount).toBe(960);
+
+      const mortalityList = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(mortalityList.body.data).toHaveLength(0);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ tankId: tank.id, fishCount: 40 })
+        .expect(201);
+
+      const afterUp = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(afterUp.body.data.currentState.estimatedCount).toBe(1000);
+    });
+
+    it("refuses an adjustment that would take a tank below zero, and a zero adjustment; another company gets 404", async () => {
+      const { tank, batchId } = await stockBatch(1000);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ tankId: tank.id, fishCount: -1001 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ tankId: tank.id, fishCount: 0 })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post(`/api/v1/fish-batches/${batchId}/adjustments`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .send({ tankId: tank.id, fishCount: -1 })
+        .expect(404);
+    });
+  });
+
   describe("mortality reported by total weight", () => {
     async function stockBatch(avgWeightG: number) {
       const tank = await prisma.tank.create({
@@ -4201,6 +4281,44 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyA.ownerToken))
         .send({ batchId, reason: "OXYGEN" })
         .expect(400);
+    });
+
+    it("removing a mortality event restores the fish it counted as dead; another company gets 404", async () => {
+      const { tank, batchId } = await stockBatch(100);
+      const created = await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount: 40, reason: "DISEASE" })
+        .expect(201);
+      const eventId = created.body.data.id as string;
+
+      const afterMortality = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(afterMortality.body.data.currentState.estimatedCount).toBe(960);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${tank.id}/mortality-events/${eventId}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/tanks/${tank.id}/mortality-events/${eventId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+
+      const afterRemoval = await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${batchId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(afterRemoval.body.data.currentState.estimatedCount).toBe(1000);
+
+      const list = await request(app.getHttpServer())
+        .get(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(list.body.data.find((e: { id: string }) => e.id === eventId)).toBeUndefined();
     });
   });
 

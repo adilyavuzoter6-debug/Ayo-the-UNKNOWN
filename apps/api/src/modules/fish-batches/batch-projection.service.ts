@@ -56,6 +56,12 @@ export class BatchProjectionService {
           case "HARVEST_REMOVAL":
             bump(movement.fromTankId, -movement.fishCount);
             break;
+          case "ADJUSTMENT":
+            // Exactly one of these is set (createAdjustment picks one per the sign given); the
+            // other bump() call is a no-op against a null tankId.
+            bump(movement.toTankId, movement.fishCount);
+            bump(movement.fromTankId, -movement.fishCount);
+            break;
           default:
             break;
         }

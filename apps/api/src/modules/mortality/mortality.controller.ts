@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
@@ -29,6 +29,17 @@ export class MortalityEventsController {
   @RequirePermission(Permission.MORTALITY_EVENT_READ)
   list(@Param("tankId") tankId: string, @CurrentTenant() tenant: TenantContext) {
     return this.mortalityService.listForTank(tenant.companyId, tankId);
+  }
+
+  @Delete(":id")
+  @RequirePermission(Permission.MORTALITY_EVENT_CREATE)
+  remove(
+    @Param("tankId") tankId: string,
+    @Param("id") id: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.mortalityService.remove(tenant.companyId, tankId, user.id, id);
   }
 }
 
