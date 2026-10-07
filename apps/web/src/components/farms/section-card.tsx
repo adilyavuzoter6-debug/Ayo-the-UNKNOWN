@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, Layers, Trash2, Waves } from "lucide-react";
+import { ChevronDown, ChevronRight, Fish, Layers, Trash2, Waves, Weight } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CreateTankDialog } from "@/components/tanks/create-tank-dialog";
 import { TankDetailsSheet } from "@/components/tanks/tank-details-sheet";
 import { EditSectionDialog } from "@/components/farms/edit-section-dialog";
+import { OverviewStat } from "@/components/farms/overview-stat";
 import { useDeleteFarmSection } from "@/hooks/use-farm-sections";
 import type { TankProductionRow } from "@/hooks/use-production-overview";
 import { ApiError } from "@/lib/api-error";
@@ -33,6 +34,15 @@ const STATUS_VARIANT: Record<TankStatus, "default" | "secondary" | "outline"> = 
   INACTIVE: "secondary",
   MAINTENANCE: "outline",
 };
+
+/** One accent color per block, so a farm with several blocks reads as distinct cards, not one grey
+ *  list. Picked deterministically from the section id — the same block keeps its color across visits. */
+const BLOCK_COLORS = ["#14b8a6", "#8b5cf6", "#f59e0b", "#3b82f6", "#ec4899", "#10b981", "#ef4444", "#06b6d4"];
+function blockColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return BLOCK_COLORS[hash % BLOCK_COLORS.length]!;
+}
 
 export function SectionCard({
   farmId,
@@ -52,6 +62,7 @@ export function SectionCard({
   // their ponds on screen at once. Each card opens on its own.
   const [expanded, setExpanded] = React.useState(false);
   const tanks = rows.map((r) => r.tank);
+  const accent = blockColor(section.id);
 
   async function onDeleteSection() {
     try {
@@ -65,24 +76,38 @@ export function SectionCard({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+    <Card className="overflow-hidden py-0">
+      <div
+        className="h-1 w-full"
+        style={{ background: `linear-gradient(90deg, ${accent}, ${accent}55)` }}
+        aria-hidden
+      />
+      <CardHeader className="flex items-center justify-between gap-3 px-4.5 py-4 space-y-0">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
           aria-expanded={expanded}
         >
           {expanded ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
           ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
           )}
-          <Layers className="size-4 shrink-0 text-muted-foreground" />
-          <CardTitle className="truncate text-base">{section.name}</CardTitle>
-          {!expanded ? <SectionSummary tanks={tanks} rows={rows} isLoading={rowsLoading} /> : null}
+          <div
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl"
+            style={{ backgroundColor: `${accent}1f` }}
+          >
+            <Layers className="size-5" style={{ color: accent }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <CardTitle className="truncate text-base">{section.name}</CardTitle>
+            <div className="mt-1">
+              <SectionChips tanks={tanks} rows={rows} isLoading={rowsLoading} accent={accent} />
+            </div>
+          </div>
         </button>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           <EditSectionDialog farmId={farmId} section={section} />
           <CreateTankDialog farmId={farmId} sectionId={section.id} />
           <AlertDialog>
@@ -111,11 +136,15 @@ export function SectionCard({
         </div>
       </CardHeader>
       {expanded ? (
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4 border-t border-border bg-muted/20 px-4.5 py-4">
           {rowsLoading ? (
-            <Skeleton className="h-4 w-48" />
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 rounded-lg" />
+              ))}
+            </div>
           ) : (
-            <SectionSummary tanks={tanks} rows={rows} isLoading={false} detailed />
+            <BlockDetailStats tanks={tanks} rows={rows} />
           )}
           {rowsLoading ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -132,7 +161,7 @@ export function SectionCard({
                     key={tank.id}
                     type="button"
                     onClick={() => setSelectedTank(tank)}
-                    className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+                    className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-left transition-colors hover:border-teal-500/40 hover:bg-muted/40"
                   >
                     <div className="flex items-center gap-2">
                       <Waves className="size-4 text-muted-foreground" />
@@ -171,27 +200,44 @@ export function SectionCard({
   );
 }
 
-/**
- * What a block shows about itself: pond count and status collapsed, plus biomass, live fish and a
- * stocked/empty split once opened. The same arithmetic the Üretim Birimleri tab uses, scoped to this
- * block's own ponds.
- */
-function SectionSummary({
+/** A small colored pill: an icon and a value, tinted with the block's own accent or a status color. */
+function Chip({
+  icon: Icon,
+  text,
+  color,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  text: string;
+  color: string;
+}) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-medium"
+      style={{ backgroundColor: `${color}1a`, color }}
+    >
+      <Icon className="size-3" />
+      {text}
+    </span>
+  );
+}
+
+/** The collapsed line: pond count, biomass and live fish as colored chips, plus status. */
+function SectionChips({
   tanks,
   rows,
   isLoading,
-  detailed,
+  accent,
 }: {
   tanks: Tank[];
   rows: TankProductionRow[];
   isLoading: boolean;
-  detailed?: boolean;
+  accent: string;
 }) {
   if (isLoading) {
-    return <Skeleton className="h-4 w-24" />;
+    return <Skeleton className="h-4 w-40" />;
   }
   if (tanks.length === 0) {
-    return <span className="shrink-0 text-xs text-muted-foreground">Havuz yok</span>;
+    return <span className="text-xs text-muted-foreground">Havuz yok</span>;
   }
 
   const summary = summarizeFarmProduction(rows.map(({ tank, allocations }) => tankLoad(tank, allocations)));
@@ -200,55 +246,50 @@ function SectionSummary({
     return acc;
   }, {});
   const allSameStatus = Object.keys(byStatus).length === 1;
-  const statusBadges = allSameStatus ? (
-    <Badge variant={STATUS_VARIANT[tanks[0]!.status]} className="shrink-0 text-[10px]">
-      {TANK_STATUS_LABEL[tanks[0]!.status]}
-    </Badge>
-  ) : (
-    (Object.entries(byStatus) as [TankStatus, number][]).map(([status, count]) => (
-      <Badge key={status} variant={STATUS_VARIANT[status]} className="shrink-0 text-[10px]">
-        {count} {TANK_STATUS_LABEL[status]}
-      </Badge>
-    ))
-  );
-
-  if (!detailed) {
-    return (
-      <span className="ml-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="shrink-0">{tanks.length} havuz</span>
-        {summary.liveFish > 0 ? (
-          <span className="shrink-0 font-mono">
-            {(summary.biomassKg / 1000).toFixed(2)} t · {summary.liveFish.toLocaleString("tr")} balık
-          </span>
-        ) : null}
-        {statusBadges}
-      </span>
-    );
-  }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-      <span>
-        <span className="font-mono font-medium text-foreground">{tanks.length}</span> havuz ·{" "}
-        <span className="font-mono font-medium text-foreground">{summary.stockedCount}</span> dolu ·{" "}
-        <span className="font-mono font-medium text-foreground">{summary.emptyCount}</span> boş
-      </span>
-      <span>
-        Biyokütle:{" "}
-        <span className="font-mono font-medium text-teal-500">{(summary.biomassKg / 1000).toFixed(2)} t</span>
-      </span>
-      <span>
-        Canlı balık:{" "}
-        <span className="font-mono font-medium text-foreground">{summary.liveFish.toLocaleString("tr")}</span>
-      </span>
-      {summary.avgWeightG !== null ? (
-        <span>
-          Ort. ağırlık:{" "}
-          <span className="font-mono font-medium text-foreground">
-            {Math.round(summary.avgWeightG).toLocaleString("tr")} g
-          </span>
-        </span>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Chip icon={Waves} color={accent} text={`${tanks.length} havuz`} />
+      {summary.liveFish > 0 ? (
+        <>
+          <Chip icon={Weight} color="#14b8a6" text={`${(summary.biomassKg / 1000).toFixed(2)} t`} />
+          <Chip icon={Fish} color="#8b5cf6" text={summary.liveFish.toLocaleString("tr")} />
+        </>
       ) : null}
+      {allSameStatus ? (
+        <Badge variant={STATUS_VARIANT[tanks[0]!.status]} className="shrink-0 text-[10px]">
+          {TANK_STATUS_LABEL[tanks[0]!.status]}
+        </Badge>
+      ) : (
+        (Object.entries(byStatus) as [TankStatus, number][]).map(([status, count]) => (
+          <Badge key={status} variant={STATUS_VARIANT[status]} className="shrink-0 text-[10px]">
+            {count} {TANK_STATUS_LABEL[status]}
+          </Badge>
+        ))
+      )}
     </div>
   );
 }
+
+/** The opened block's own overview row — the same tiles the farm's Genel Bakış tab uses, scoped to
+ *  just this block's ponds. */
+function BlockDetailStats({ tanks, rows }: { tanks: Tank[]; rows: TankProductionRow[] }) {
+  const summary = summarizeFarmProduction(rows.map(({ tank, allocations }) => tankLoad(tank, allocations)));
+  return (
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+      <OverviewStat icon={Waves} label="Havuz" value={`${summary.stockedCount}/${tanks.length} dolu`} />
+      <OverviewStat icon={Fish} label="Canlı Balık" value={summary.liveFish.toLocaleString("tr")} />
+      <OverviewStat icon={Weight} label="Biyokütle" value={`${(summary.biomassKg / 1000).toFixed(2)} t`} accent />
+      <OverviewStat
+        label="Ort. Ağırlık"
+        value={summary.avgWeightG !== null ? `${Math.round(summary.avgWeightG).toLocaleString("tr")} g` : "—"}
+      />
+      <OverviewStat
+        label="Kapasite"
+        value={summary.capacityUsedPct !== null ? `%${Math.round(summary.capacityUsedPct)}` : "—"}
+        warn={summary.capacityUsedPct !== null && summary.capacityUsedPct >= 80}
+      />
+    </div>
+  );
+}
+
