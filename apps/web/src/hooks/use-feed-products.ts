@@ -35,3 +35,32 @@ export function useCreateFeedProduct() {
     },
   });
 }
+
+export interface UpdateFeedProductInput {
+  name?: string;
+  manufacturer?: string;
+  pelletSizeMm?: number;
+  proteinPct?: number;
+  fatPct?: number;
+}
+
+export function useUpdateFeedProduct() {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string } & UpdateFeedProductInput) =>
+      api.patch<FeedProduct>(`/feed-products/${input.id}`, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["feed-products", companyId] }),
+  });
+}
+
+export function useDeleteFeedProduct() {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.del<{ deleted: true }>(`/feed-products/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["feed-products", companyId] }),
+  });
+}

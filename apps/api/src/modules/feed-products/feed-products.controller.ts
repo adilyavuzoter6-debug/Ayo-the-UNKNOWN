@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
-import { CreateFeedProductDto } from "./dto/create-feed-product.dto";
+import { CreateFeedProductDto, UpdateFeedProductDto } from "./dto/create-feed-product.dto";
 import { FeedProductsService } from "./feed-products.service";
 
 @ApiTags("feed-products")
@@ -28,5 +28,26 @@ export class FeedProductsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.feedProductsService.create(tenant.companyId, user.id, dto);
+  }
+
+  @Patch(":id")
+  @RequirePermission(Permission.FEED_PRODUCT_CREATE)
+  update(
+    @Param("id") id: string,
+    @Body() dto: UpdateFeedProductDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.feedProductsService.update(tenant.companyId, user.id, id, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermission(Permission.FEED_PRODUCT_CREATE)
+  remove(
+    @Param("id") id: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.feedProductsService.remove(tenant.companyId, user.id, id);
   }
 }

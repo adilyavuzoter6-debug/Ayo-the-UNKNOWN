@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
@@ -6,7 +6,7 @@ import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { ReceiveStockDto } from "./dto/receive-stock.dto";
-import { CreateAdjustmentDto } from "./dto/create-adjustment.dto";
+import { CreateAdjustmentDto, UpdateInventoryBatchDto } from "./dto/create-adjustment.dto";
 import { FeedInventoryService } from "./feed-inventory.service";
 
 @ApiTags("feed-inventory")
@@ -31,6 +31,27 @@ export class InventoryBatchesController {
   @RequirePermission(Permission.FEED_INVENTORY_READ)
   listTransactions(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {
     return this.feedInventoryService.listTransactions(tenant.companyId, id);
+  }
+
+  @Patch(":id")
+  @RequirePermission(Permission.FEED_INVENTORY_CREATE)
+  update(
+    @Param("id") id: string,
+    @Body() dto: UpdateInventoryBatchDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.feedInventoryService.update(tenant.companyId, user.id, id, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermission(Permission.FEED_INVENTORY_CREATE)
+  remove(
+    @Param("id") id: string,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.feedInventoryService.remove(tenant.companyId, user.id, id);
   }
 
   @Post(":id/adjustments")

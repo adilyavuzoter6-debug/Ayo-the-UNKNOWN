@@ -96,3 +96,34 @@ export function useCreateAdjustment(feedInventoryBatchId: string) {
     },
   });
 }
+
+export interface UpdateInventoryBatchInput {
+  supplierLotCode?: string;
+  manufactureDate?: string;
+  expiryDate?: string;
+  unitCostAmount?: number;
+  unitCostCurrency?: ExchangeCurrency;
+  exchangeRate?: number;
+}
+
+export function useUpdateInventoryBatch(feedInventoryBatchId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateInventoryBatchInput) =>
+      api.patch<FeedInventoryBatch>(`/inventory-batches/${feedInventoryBatchId}`, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory-batches", companyId] }),
+  });
+}
+
+export function useDeleteInventoryBatch() {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (feedInventoryBatchId: string) =>
+      api.del<{ deleted: true }>(`/inventory-batches/${feedInventoryBatchId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory-batches", companyId] }),
+  });
+}

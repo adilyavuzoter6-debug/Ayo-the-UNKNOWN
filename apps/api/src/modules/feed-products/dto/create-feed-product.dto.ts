@@ -32,3 +32,36 @@ export class CreateFeedProductDto {
   @IsPositive()
   fatPct?: number;
 }
+
+export class UpdateFeedProductDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(150)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  manufacturer?: string;
+
+  @ApiPropertyOptional({ description: "Pellet size in millimeters" })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  pelletSizeMm?: number;
+
+  @ApiPropertyOptional({ description: "Protein percentage" })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  proteinPct?: number;
+
+  @ApiPropertyOptional({ description: "Fat percentage" })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  fatPct?: number;
+}

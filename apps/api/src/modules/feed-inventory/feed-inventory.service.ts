@@ -5,7 +5,7 @@ import { AlertsService } from "../alerts/alerts.service";
 import { ExchangeRatesService, roundRate } from "../exchange-rates/exchange-rates.service";
 import { FeedInventoryProjectionService } from "./feed-inventory-projection.service";
 import type { ReceiveStockDto } from "./dto/receive-stock.dto";
-import type { CreateAdjustmentDto } from "./dto/create-adjustment.dto";
+import type { CreateAdjustmentDto, UpdateInventoryBatchDto } from "./dto/create-adjustment.dto";
 
 const INCLUDE_DETAIL = { warehouse: true, feedProduct: true, balance: true } as const;
 
@@ -190,5 +190,118 @@ export class FeedInventoryService {
     });
 
     return this.findById(companyId, feedInventoryBatchId);
+  }
+
+  /**
+   * Corrects a lot's own details (lot code, dates, price). Not the quantity it holds — that is an
+   * adjustment, kept in the transaction history. A price correction re-prices the lot's one PURCHASE
+   * and its auto-derived FEED cost entry together, at the purchase's own date.
+   */
+  async update(companyId: string, userId: string, feedInventoryBatchId: string, dto: UpdateInventoryBatchDto) {
+    const batch = await this.findById(companyId, feedInventoryBatchId);
+    const client = this.tenantPrisma.forTenant(companyId);
+
+    if (dto.unitCostAmount !== undefined) {
+      const purchase = await client.feedInventoryTransaction.findFirst({
+        where: { feedInventoryBatchId, type: "PURCHASE" },
+        orderBy: { occurredAt: "asc" },
+      });
+      if (!purchase) {
+        throw new BadRequestException("Bu lotun alım kaydı yok; fiyat düzeltilemiyor.");
+      }
+      const currency = dto.unitCostCurrency ?? "TRY";
+      const rate = await this.exchangeRates.resolveTryRate(currency, purchase.occurredAt, dto.exchangeRate);
+      const unitCostPerKgTry = roundRate(dto.unitCostAmount * rate);
+      const quantityKg = Number(purchase.quantityKg);
+      const amount = Math.round(dto.unitCostAmount * quantityKg * 100) / 100;
+      const amountTry = Math.round(amount * rate * 100) / 100;
+      const notes = `${quantityKg} kg × ${dto.unitCostAmount} ${currency}/kg (düzeltildi)`;
+
+      const existingCost = await client.costEntry.findFirst({
+        where: { sourceType: "FeedInventoryTransaction", sourceId: feedInventoryBatchId },
+      });
+      if (existingCost) {
+        await client.costEntry.update({
+          where: { id: existingCost.id },
+          data: { amount, currency, exchangeRate: rate, amountTry, notes },
+        });
+      } else {
+        await client.costEntry.create({
+          data: {
+            companyId,
+            farmId: batch.warehouse.farmId,
+            category: "FEED",
+            amount,
+            currency,
+            exchangeRate: rate,
+            amountTry,
+            incurredAt: purchase.occurredAt,
+            sourceType: "FeedInventoryTransaction",
+            sourceId: feedInventoryBatchId,
+            createdById: userId,
+            notes,
+          },
+        });
+      }
+      await client.feedInventoryBatch.update({
+        where: { id: feedInventoryBatchId },
+        data: { unitCostPerKg: unitCostPerKgTry },
+      });
+    }
+
+    if (dto.supplierLotCode !== undefined || dto.manufactureDate !== undefined || dto.expiryDate !== undefined) {
+      await client.feedInventoryBatch.update({
+        where: { id: feedInventoryBatchId },
+        data: {
+          supplierLotCode: dto.supplierLotCode !== undefined ? dto.supplierLotCode.trim() || null : undefined,
+          manufactureDate: dto.manufactureDate !== undefined ? new Date(dto.manufactureDate) : undefined,
+          expiryDate: dto.expiryDate !== undefined ? new Date(dto.expiryDate) : undefined,
+        },
+      });
+    }
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "UPDATE",
+      entityType: "FeedInventoryBatch",
+      entityId: feedInventoryBatchId,
+      newValue: { ...dto },
+    });
+    return this.findById(companyId, feedInventoryBatchId);
+  }
+
+  /**
+   * Removes a lot entirely, with its purchase and its auto-derived FEED cost entry. Refused once
+   * anything has been fed from it or adjusted on it — correct it instead, so that history stays.
+   */
+  async remove(companyId: string, userId: string, feedInventoryBatchId: string) {
+    const batch = await this.findById(companyId, feedInventoryBatchId);
+    const client = this.tenantPrisma.forTenant(companyId);
+
+    const transactions = await client.feedInventoryTransaction.findMany({ where: { feedInventoryBatchId } });
+    const untouched = transactions.length <= 1 && transactions.every((t) => t.type === "PURCHASE");
+    if (!untouched) {
+      throw new BadRequestException(
+        "Bu lottan yemleme ya da düzeltme yapılmış; silmek yerine düzeltme kullanın.",
+      );
+    }
+
+    await client.feedInventoryBalance.deleteMany({ where: { feedInventoryBatchId } });
+    await client.feedInventoryTransaction.deleteMany({ where: { feedInventoryBatchId } });
+    await client.costEntry.deleteMany({
+      where: { sourceType: "FeedInventoryTransaction", sourceId: feedInventoryBatchId },
+    });
+    await client.feedInventoryBatch.delete({ where: { id: feedInventoryBatchId } });
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "DELETE",
+      entityType: "FeedInventoryBatch",
+      entityId: feedInventoryBatchId,
+      previousValue: { feedProductId: batch.feedProductId, warehouseId: batch.warehouseId },
+    });
+    return { deleted: true as const };
   }
 }

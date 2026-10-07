@@ -1269,6 +1269,92 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(negativeRes.status).toBe(400);
     });
 
+    it("a lot's price, lot code and expiry can be corrected; the correction re-prices its FEED cost entry", async () => {
+      const inventoryBatchId = await receiveStock(100);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/inventory-batches/${inventoryBatchId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ supplierLotCode: "LOT-FIXED", expiryDate: "2027-01-01", unitCostAmount: 30 })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/inventory-batches/${inventoryBatchId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data.supplierLotCode).toBe("LOT-FIXED");
+      expect(Number(res.body.data.unitCostPerKg)).toBe(30);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/inventory-batches/${inventoryBatchId}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .send({ supplierLotCode: "NOPE" })
+        .expect(404);
+    });
+
+    it("an untouched lot can be removed entirely; one that has been fed from or adjusted is refused", async () => {
+      const untouchedId = await receiveStock(50);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/inventory-batches/${untouchedId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      await request(app.getHttpServer())
+        .get(`/api/v1/inventory-batches/${untouchedId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(404);
+
+      const adjustedId = await receiveStock(50);
+      await request(app.getHttpServer())
+        .post(`/api/v1/inventory-batches/${adjustedId}/adjustments`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ quantityKg: -5 })
+        .expect(201);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/inventory-batches/${adjustedId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/inventory-batches/${untouchedId}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(404);
+    });
+
+    it("a feed product can be corrected and removed from the catalog; another company gets 404", async () => {
+      const created = await request(app.getHttpServer())
+        .post("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ name: `Throwaway ${Date.now()}`, proteinPct: 40 })
+        .expect(201);
+      const productId = created.body.data.id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/feed-products/${productId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ proteinPct: 42 })
+        .expect(200);
+      const list = await request(app.getHttpServer())
+        .get("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(Number(list.body.data.find((p: { id: string }) => p.id === productId).proteinPct)).toBe(42);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/feed-products/${productId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const afterDelete = await request(app.getHttpServer())
+        .get("/api/v1/feed-products")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(afterDelete.body.data.find((p: { id: string }) => p.id === productId)).toBeUndefined();
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/feed-products/${productId}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .send({ proteinPct: 1 })
+        .expect(404);
+    });
+
     it("farm stock-summary's todayFeedKg reflects same-day FeedingEvents", async () => {
       const tank = await createTank("FEED-B");
       const inventoryBatchId = await receiveStock(200);
