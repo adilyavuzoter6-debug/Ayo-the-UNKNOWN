@@ -90,7 +90,7 @@ export function CreateFeedProductDialog() {
                 <FormItem>
                   <FormLabel>Ürün adı</FormLabel>
                   <FormControl>
-                    <Input placeholder="Skretting Nutra Olympic 6mm" {...field} />
+                    <Input placeholder="Özpekler 45/20 5mm" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -103,7 +103,7 @@ export function CreateFeedProductDialog() {
                 <FormItem>
                   <FormLabel>Üretici (opsiyonel)</FormLabel>
                   <FormControl>
-                    <Input placeholder="Skretting" {...field} />
+                    <Input placeholder="Özpekler" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

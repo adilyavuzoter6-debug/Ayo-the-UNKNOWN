@@ -2,13 +2,13 @@ import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { IsNumber, IsOptional, IsPositive, IsString, MaxLength, MinLength } from "class-validator";
 
 export class CreateFeedProductDto {
-  @ApiProperty({ example: "Skretting Nutra Olympic 6mm" })
+  @ApiProperty({ example: "Özpekler 45/20 5mm" })
   @IsString()
   @MinLength(1)
   @MaxLength(150)
   name!: string;
 
-  @ApiPropertyOptional({ example: "Skretting" })
+  @ApiPropertyOptional({ example: "Özpekler" })
   @IsOptional()
   @IsString()
   @MaxLength(100)

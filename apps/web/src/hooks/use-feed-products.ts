@@ -49,8 +49,8 @@ export function useUpdateFeedProduct() {
   const { companyId } = useActiveCompany();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string } & UpdateFeedProductInput) =>
-      api.patch<FeedProduct>(`/feed-products/${input.id}`, input),
+    mutationFn: ({ id, ...body }: { id: string } & UpdateFeedProductInput) =>
+      api.patch<FeedProduct>(`/feed-products/${id}`, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["feed-products", companyId] }),
   });
 }
