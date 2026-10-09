@@ -17,8 +17,10 @@ import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
 import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
 import { ColdStorageSection } from "@/components/stocks/cold-storage-section";
 import { SupplyStockSection } from "@/components/stocks/supply-stock-section";
+import { SectionCard } from "@/components/farms/section-card";
 import { useBatchTankStates, useFishBatches } from "@/hooks/use-fish-batches";
-import { useCompanyTanks } from "@/hooks/use-tanks";
+import { useFarms } from "@/hooks/use-farms";
+import { useFarmSections } from "@/hooks/use-farm-sections";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import { tankLoad } from "@/lib/farm-production-summary";
 import { TANK_STATUS_LABEL } from "@/lib/tanks";
@@ -64,7 +66,7 @@ export default function StocksPage() {
             <p className="mt-0.5 text-sm text-muted-foreground">
               {view === "batch"
                 ? `${batches?.length ?? 0} parti · şirket genelinde tüm çiftliklerdeki stoklamalar`
-                : "şirket genelindeki tüm havuzlar — dolu veya boş"}
+                : "çiftlik ve blok bazında tüm havuzlar — dolu veya boş"}
             </p>
           </div>
           <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground group-hover:text-teal-500" />
@@ -75,7 +77,7 @@ export default function StocksPage() {
       {view === "batch" ? (
         <BatchCardsGrid batches={batches} isLoading={isLoading} isError={isError} onSelect={setSelected} />
       ) : (
-        <PondCardsGrid />
+        <PondBlocksView />
       )}
 
       <SupplyStockSection />
@@ -175,17 +177,19 @@ function BatchCardsGrid({
   );
 }
 
-/** Every pond company-wide, stocked or empty, as its own card — the alternate view toggled from
- *  the page title. Each pond shows which farm it's in since, unlike the batch view, codes repeat
- *  across farms (every farm has its own "A1"). */
-function PondCardsGrid() {
-  const { data: tanks, isLoading, isError } = useCompanyTanks();
+/**
+ * Every farm's blocks, as the same collapsible SectionCard the farm's own Tesisler tab uses —
+ * collapsed by default, click to expand and see that block's ponds (stocked or empty), click
+ * again to collapse. The alternate view toggled from the page title.
+ */
+function PondBlocksView() {
+  const { data: farms, isLoading, isError } = useFarms();
 
-  if (isLoading || tanks === undefined) {
+  if (isLoading || farms === undefined) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="space-y-3">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-lg" />
+          <Skeleton key={i} className="h-20 rounded-lg" />
         ))}
       </div>
     );
@@ -194,54 +198,57 @@ function PondCardsGrid() {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          Havuzlar yüklenemedi. Sayfayı yenilemeyi deneyin.
+          Çiftlikler yüklenemedi. Sayfayı yenilemeyi deneyin.
         </CardContent>
       </Card>
     );
   }
-  if (tanks.length === 0) {
+  if (farms.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
           <div className="flex size-12 items-center justify-center rounded-full bg-muted">
             <Waves className="size-6 text-muted-foreground" />
           </div>
-          <p className="font-medium">Henüz havuz yok</p>
+          <p className="font-medium">Henüz çiftlik yok</p>
         </CardContent>
       </Card>
     );
   }
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {tanks.map((tank) => (
-        <Link key={tank.id} href={`/farms/${tank.farmId}/tanks/${tank.id}`} className="block w-full">
-          <Card className="h-full gap-0 overflow-hidden py-0 transition-colors hover:ring-teal-500/60">
-            <div className="flex items-center justify-between border-b border-border bg-secondary px-3.5 py-2.5">
-              <span className="min-w-0 truncate font-mono text-sm font-bold text-navy-900">{tank.code}</span>
-              <Badge variant={TANK_STATUS_VARIANT[tank.status]} className="shrink-0 text-[10px]">
-                {TANK_STATUS_LABEL[tank.status]}
-              </Badge>
-            </div>
-            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-3.5 text-xs">
-              <div className="col-span-2 flex items-center gap-1.5 text-foreground">
-                <Waves className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{tank.farmName}</span>
-              </div>
-              <div>
-                <div className="mb-0.5 text-muted-foreground">Canlı Adet</div>
-                <div className="font-mono font-medium text-foreground">
-                  {tank.liveCount.toLocaleString("tr")}
-                </div>
-              </div>
-              <div>
-                <div className="mb-0.5 text-muted-foreground">Biyokütle</div>
-                <div className="font-mono font-medium text-teal-500">
-                  {tank.liveCount > 0 ? `${(tank.biomassKg / 1000).toFixed(1)} t` : "—"}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
+    <div className="space-y-6">
+      {farms.map((farm) => (
+        <div key={farm.id} className="space-y-3">
+          <h2 className="font-display text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+            {farm.name}
+          </h2>
+          <FarmBlockCards farmId={farm.id} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FarmBlockCards({ farmId }: { farmId: string }) {
+  const { data: sections, isLoading: sectionsLoading } = useFarmSections(farmId);
+  const { rows, isLoading: rowsLoading } = useFarmProductionOverview(farmId);
+
+  if (sectionsLoading || sections === undefined) {
+    return <Skeleton className="h-20 rounded-lg" />;
+  }
+  if (sections.length === 0) {
+    return <p className="text-sm text-muted-foreground">Bu çiftlikte henüz blok yok.</p>;
+  }
+  return (
+    <div className="space-y-3">
+      {sections.map((section) => (
+        <SectionCard
+          key={section.id}
+          farmId={farmId}
+          section={section}
+          rows={rows.filter((r) => r.tank.farmSectionId === section.id)}
+          rowsLoading={rowsLoading}
+        />
       ))}
     </div>
   );

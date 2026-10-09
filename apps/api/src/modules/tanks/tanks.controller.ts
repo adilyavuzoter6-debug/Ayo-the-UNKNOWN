@@ -15,13 +15,6 @@ import { TanksService } from "./tanks.service";
 export class TanksController {
   constructor(private readonly tanksService: TanksService) {}
 
-  /** Every tank across every farm, with live count/biomass — the Stoklar page's pond view. */
-  @Get()
-  @RequirePermission(Permission.TANK_READ)
-  list(@CurrentTenant() tenant: TenantContext) {
-    return this.tanksService.listForCompany(tenant.companyId);
-  }
-
   @Get(":id")
   @RequirePermission(Permission.TANK_READ)
   getById(@Param("id") id: string, @CurrentTenant() tenant: TenantContext) {

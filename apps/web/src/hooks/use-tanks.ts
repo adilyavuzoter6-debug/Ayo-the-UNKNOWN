@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
-import type { Tank, TankOverviewRow, TankStatus, TankType } from "@/lib/types";
+import type { Tank, TankStatus, TankType } from "@/lib/types";
 
 export function useFarmTanks(farmId: string) {
   const api = useApiClient();
@@ -12,17 +12,6 @@ export function useFarmTanks(farmId: string) {
     queryKey: ["tanks", "farm", companyId, farmId],
     queryFn: () => api.get<Tank[]>(`/farms/${farmId}/tanks`),
     enabled: !!companyId && !!farmId,
-  });
-}
-
-/** Every pond/tank across every farm, stocked or empty — the Stoklar page's pond view. */
-export function useCompanyTanks() {
-  const api = useApiClient();
-  const { companyId } = useActiveCompany();
-  return useQuery({
-    queryKey: ["tanks", "company", companyId],
-    queryFn: () => api.get<TankOverviewRow[]>("/tanks"),
-    enabled: !!companyId,
   });
 }
 
