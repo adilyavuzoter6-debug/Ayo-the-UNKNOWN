@@ -12,12 +12,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge, type StatusKind } from "@/components/shared/status-badge";
 import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
 import { ColdStorageSection } from "@/components/stocks/cold-storage-section";
 import { SupplyStockSection } from "@/components/stocks/supply-stock-section";
 import { useBatchTankStates, useFishBatches } from "@/hooks/use-fish-batches";
-import type { BatchStatus, FishBatch } from "@/lib/types";
+import { useFarmSections } from "@/hooks/use-farm-sections";
+import { useFarmProductionOverview } from "@/hooks/use-production-overview";
+import { tankLoad } from "@/lib/farm-production-summary";
+import { TANK_STATUS_LABEL } from "@/lib/tanks";
+import { cn } from "@/lib/utils";
+import type { BatchStatus, FishBatch, TankStatus } from "@/lib/types";
+
+const TANK_STATUS_VARIANT: Record<TankStatus, "default" | "secondary" | "outline"> = {
+  ACTIVE: "default",
+  INACTIVE: "secondary",
+  MAINTENANCE: "outline",
+};
 
 const BATCH_STATUS_KIND: Record<BatchStatus, StatusKind> = {
   ACTIVE: "active",
@@ -127,21 +139,37 @@ export default function StocksPage() {
   );
 }
 
-/** The ponds one batch is in, as cards: where the fish are, how many, and how much they weigh. */
+/**
+ * The whole block (farm section) the clicked batch's pond belongs to, as cards — not just that
+ * one pond, so the other ponds around it are one click away too. The batch's own pond(s) are
+ * highlighted within the block.
+ */
 function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose: () => void }) {
-  const { data: tankStates, isLoading, isError } = useBatchTankStates(batch?.id);
-  const avgWeightG = batch?.currentState ? Number(batch.currentState.estimatedAvgWeightG) : null;
+  const { data: tankStates, isLoading: statesLoading, isError: statesError } = useBatchTankStates(batch?.id);
+  const primary = tankStates?.[0];
+  const farmId = primary?.tank.farmSection.farm.id;
+  const sectionId = primary?.tank.farmSectionId;
+  const ownTankIds = new Set((tankStates ?? []).map((s) => s.tankId));
 
-  const sorted = [...(tankStates ?? [])].sort((a, b) =>
-    a.tank.code.localeCompare(b.tank.code, "tr", { numeric: true }),
-  );
+  const { rows, isLoading: overviewLoading } = useFarmProductionOverview(farmId ?? "");
+  const { data: sections } = useFarmSections(farmId ?? "");
+  const sectionName = sections?.find((s) => s.id === sectionId)?.name;
+
+  const blockRows = [...rows]
+    .filter((r) => r.tank.farmSectionId === sectionId)
+    .sort((a, b) => a.tank.code.localeCompare(b.tank.code, "tr", { numeric: true }));
+  const isLoading = statesLoading || (!!farmId && overviewLoading);
 
   return (
     <Dialog open={batch !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-mono">{batch?.lotCode}</DialogTitle>
-          <DialogDescription>Partinin şu an bulunduğu havuzlar.</DialogDescription>
+          <DialogDescription>
+            {sectionName
+              ? `${sectionName} bloğundaki havuzlar${primary ? ` · ${primary.tank.farmSection.farm.name}` : ""}`
+              : "Partinin bulunduğu bloktaki havuzlar."}
+          </DialogDescription>
         </DialogHeader>
 
         {isLoading ? (
@@ -150,37 +178,41 @@ function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose
               <Skeleton key={i} className="h-20 rounded-lg" />
             ))}
           </div>
-        ) : isError ? (
+        ) : statesError ? (
           <p className="text-sm text-muted-foreground">Havuzlar yüklenemedi. Tekrar deneyin.</p>
-        ) : sorted.length === 0 ? (
+        ) : !primary || blockRows.length === 0 ? (
           <p className="text-sm text-muted-foreground">Bu partinin canlı balığı olan bir havuzu yok.</p>
         ) : (
           <div className="grid max-h-[60vh] gap-2 overflow-y-auto sm:grid-cols-2">
-            {sorted.map((s) => {
-              const biomassKg = avgWeightG !== null ? (s.estimatedCount * avgWeightG) / 1000 : null;
+            {blockRows.map(({ tank, allocations }) => {
+              const load = tankLoad(tank, allocations);
+              const isOwn = ownTankIds.has(tank.id);
               return (
                 <Link
-                  key={s.tankId}
-                  href={`/farms/${s.tank.farmSection.farm.id}/tanks/${s.tankId}`}
-                  className="rounded-lg border border-border bg-card p-3 text-xs transition-colors hover:ring-teal-500/60"
+                  key={tank.id}
+                  href={`/farms/${farmId}/tanks/${tank.id}`}
+                  className={cn(
+                    "rounded-lg border p-3 text-xs transition-colors hover:ring-teal-500/60",
+                    isOwn ? "border-teal-500/60 bg-teal-500/5" : "border-border bg-card",
+                  )}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-sm font-bold text-navy-900">{s.tank.code}</span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {s.tank.farmSection.farm.name}
-                    </span>
+                    <span className="font-mono text-sm font-bold text-navy-900">{tank.code}</span>
+                    <Badge variant={TANK_STATUS_VARIANT[tank.status]} className="shrink-0 text-[10px]">
+                      {TANK_STATUS_LABEL[tank.status]}
+                    </Badge>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <div>
                       <div className="text-muted-foreground">Canlı adet</div>
                       <div className="font-mono font-medium text-foreground">
-                        {s.estimatedCount.toLocaleString("tr")}
+                        {load.count.toLocaleString("tr")}
                       </div>
                     </div>
                     <div>
                       <div className="text-muted-foreground">Biyokütle</div>
                       <div className="font-mono font-medium text-teal-500">
-                        {biomassKg !== null ? `${(biomassKg / 1000).toFixed(2)} t` : "—"}
+                        {load.count > 0 ? `${(load.biomassKg / 1000).toFixed(2)} t` : "—"}
                       </div>
                     </div>
                   </div>

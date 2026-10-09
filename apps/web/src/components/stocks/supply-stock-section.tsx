@@ -46,26 +46,109 @@ type FarmOption = { id: string; name: string };
 
 const fmt = (n: number) => n.toLocaleString("tr", { maximumFractionDigits: 3 });
 
+const MEDICINE_CATEGORY_KEYWORDS = ["ilaç", "ilac", "aşı", "asi", "medic", "vaccin"];
+/** A supply item is treated as a medicine (its own "İlaçlar" section, not "Malzeme stoku") when its
+ *  category reads as medical — same heuristic the API uses to book MEDICINE/VACCINATION costs. */
+function isMedicineCategory(category: string): boolean {
+  const normalized = category.trim().toLocaleLowerCase("tr");
+  return MEDICINE_CATEGORY_KEYWORDS.some((k) => normalized.includes(k));
+}
+
 export function SupplyStockSection() {
   const { data: items, isLoading, isError } = useSupplyItems();
   const { data: farms } = useFarms();
   const farmOptions: FarmOption[] = (farms ?? []).map((f) => ({ id: f.id, name: f.name }));
 
+  const medicineItems = (items ?? []).filter((i) => isMedicineCategory(i.category));
+  const otherItems = (items ?? []).filter((i) => !isMedicineCategory(i.category));
+
+  return (
+    <div className="space-y-6">
+      <StockGroup
+        title="İlaçlar"
+        description="Gelen ilaçlar burada kaydedilir. Bir havuza tedavi/aşı kaydedilirken, girilen litre burada belirtilen ilaçtan otomatik düşülür. Aynı depoyu paylaşan çiftlikler (Çiftlik → Ayarlar) tek satırda birlikte gösterilir."
+        emptyLabel='Henüz ilaç yok. "Yeni ilaç" ile tanımlayın.'
+        newItemLabel="Yeni ilaç"
+        newItemTitle="Yeni ilaç"
+        newItemDescription='Ne zaman geleceği belli olmayan bir ilacı tanımlayın. Geldiğinde "Gelen" ile stoka alın.'
+        namePlaceholder="Örn. Florfenicol %20"
+        defaultCategory="İlaç"
+        defaultUnit="L"
+        items={medicineItems}
+        farms={farmOptions}
+        isLoading={isLoading}
+        isError={isError}
+        errorLabel="İlaçlar yüklenemedi. Sayfayı yenilemeyi deneyin."
+      />
+      <StockGroup
+        title="Malzeme stoku"
+        description="Yem dışı malzemeler (boru, panel, filtre, çuval). Geldiğinde bir çiftliğe kaydedilir, çiftlikler arasında transfer edilebilir, fiyatı girilebilir."
+        emptyLabel='Henüz malzeme yok. "Yeni malzeme" ile tanımlayın.'
+        newItemLabel="Yeni malzeme"
+        newItemTitle="Yeni malzeme"
+        newItemDescription='Ne zaman geleceği belli olmayan bir malzemeyi tanımlayın. Geldiğinde "Gelen" ile stoka alın.'
+        namePlaceholder="Örn. Metal panel"
+        defaultCategory=""
+        defaultUnit="adet"
+        items={otherItems}
+        farms={farmOptions}
+        isLoading={isLoading}
+        isError={isError}
+        errorLabel="Malzeme stoku yüklenemedi. Sayfayı yenilemeyi deneyin."
+      />
+    </div>
+  );
+}
+
+function StockGroup({
+  title,
+  description,
+  emptyLabel,
+  errorLabel,
+  newItemLabel,
+  newItemTitle,
+  newItemDescription,
+  namePlaceholder,
+  defaultCategory,
+  defaultUnit,
+  items,
+  farms,
+  isLoading,
+  isError,
+}: {
+  title: string;
+  description: string;
+  emptyLabel: string;
+  errorLabel: string;
+  newItemLabel: string;
+  newItemTitle: string;
+  newItemDescription: string;
+  namePlaceholder: string;
+  defaultCategory: string;
+  defaultUnit: string;
+  items: SupplyItemStock[];
+  farms: FarmOption[];
+  isLoading: boolean;
+  isError: boolean;
+}) {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-display text-base font-semibold tracking-tight text-foreground">Malzeme stoku</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Yem dışı malzemeler ve ilaçlar (boru, panel, filtre, çuval, ilaç). Geldiğinde bir çiftliğe
-            kaydedilir, çiftlikler arasında transfer edilebilir, fiyatı girilebilir. Aynı depoyu paylaşan
-            çiftlikler (Çiftlik → Ayarlar) tek satırda birlikte gösterilir.
-          </p>
+          <h2 className="font-display text-base font-semibold tracking-tight text-foreground">{title}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
         </div>
-        <NewSupplyItemDialog />
+        <NewSupplyItemDialog
+          triggerLabel={newItemLabel}
+          dialogTitle={newItemTitle}
+          dialogDescription={newItemDescription}
+          namePlaceholder={namePlaceholder}
+          defaultCategory={defaultCategory}
+          defaultUnit={defaultUnit}
+        />
       </div>
 
-      {isLoading || items === undefined ? (
+      {isLoading ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 2 }).map((_, i) => (
             <Skeleton key={i} className="h-36 rounded-lg" />
@@ -73,20 +156,16 @@ export function SupplyStockSection() {
         </div>
       ) : isError ? (
         <Card>
-          <CardContent className="py-6 text-center text-sm text-muted-foreground">
-            Malzeme stoku yüklenemedi. Sayfayı yenilemeyi deneyin.
-          </CardContent>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">{errorLabel}</CardContent>
         </Card>
       ) : items.length === 0 ? (
         <Card>
-          <CardContent className="py-6 text-center text-sm text-muted-foreground">
-            Henüz malzeme yok. &quot;Yeni malzeme&quot; ile tanımlayın.
-          </CardContent>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">{emptyLabel}</CardContent>
         </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
-            <SupplyItemCard key={item.id} item={item} farms={farmOptions} />
+            <SupplyItemCard key={item.id} item={item} farms={farms} />
           ))}
         </div>
       )}
@@ -143,11 +222,25 @@ const newItemSchema = z.object({
 });
 type NewItemValues = z.infer<typeof newItemSchema>;
 
-function NewSupplyItemDialog() {
+function NewSupplyItemDialog({
+  triggerLabel,
+  dialogTitle,
+  dialogDescription,
+  namePlaceholder,
+  defaultCategory,
+  defaultUnit,
+}: {
+  triggerLabel: string;
+  dialogTitle: string;
+  dialogDescription: string;
+  namePlaceholder: string;
+  defaultCategory: string;
+  defaultUnit: string;
+}) {
   const [open, setOpen] = React.useState(false);
   const form = useForm<NewItemValues>({
     resolver: zodResolver(newItemSchema),
-    defaultValues: { name: "", category: "", unit: "adet" },
+    defaultValues: { name: "", category: defaultCategory, unit: defaultUnit },
   });
   const create = useCreateSupplyItem();
 
@@ -158,7 +251,7 @@ function NewSupplyItemDialog() {
       form.reset();
       setOpen(false);
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Malzeme eklenemedi.");
+      toast.error(error instanceof ApiError ? error.message : "Eklenemedi.");
     }
   }
 
@@ -167,24 +260,21 @@ function NewSupplyItemDialog() {
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) form.reset();
+        if (!next) form.reset({ name: "", category: defaultCategory, unit: defaultUnit });
       }}
     >
       <DialogTrigger
         render={
           <Button size="sm" variant="outline">
             <Plus className="size-3.5" />
-            Yeni malzeme
+            {triggerLabel}
           </Button>
         }
       />
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Yeni malzeme</DialogTitle>
-          <DialogDescription>
-            Ne zaman geleceği belli olmayan bir malzeme veya ilaç tanımlayın. Geldiğinde &quot;Gelen&quot; ile
-            stoka alın.
-          </DialogDescription>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -195,7 +285,7 @@ function NewSupplyItemDialog() {
                 <FormItem>
                   <FormLabel>Ad</FormLabel>
                   <FormControl>
-                    <Input placeholder="Örn. Metal panel, Florfenicol %20" {...field} />
+                    <Input placeholder={namePlaceholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
