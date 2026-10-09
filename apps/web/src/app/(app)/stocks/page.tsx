@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Fish } from "lucide-react";
+import { ChevronsUpDown, Fish, Waves } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -18,6 +18,7 @@ import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
 import { ColdStorageSection } from "@/components/stocks/cold-storage-section";
 import { SupplyStockSection } from "@/components/stocks/supply-stock-section";
 import { useBatchTankStates, useFishBatches } from "@/hooks/use-fish-batches";
+import { useCompanyTanks } from "@/hooks/use-tanks";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import { tankLoad } from "@/lib/farm-production-summary";
 import { TANK_STATUS_LABEL } from "@/lib/tanks";
@@ -44,95 +45,204 @@ const BATCH_STATUS_LABEL: Record<BatchStatus, string> = {
 };
 
 export default function StocksPage() {
+  const [view, setView] = React.useState<"batch" | "pond">("batch");
   const { data: batches, isLoading, isError } = useFishBatches();
   const [selected, setSelected] = React.useState<FishBatch | null>(null);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
-            Balık Partileri (Stoklar)
-          </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {batches?.length ?? 0} parti · şirket genelinde tüm çiftliklerdeki stoklamalar
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={() => setView((v) => (v === "batch" ? "pond" : "batch"))}
+          className="group flex items-center gap-1.5 text-left"
+        >
+          <div>
+            <h1 className="font-display text-xl font-bold tracking-tight text-foreground group-hover:text-teal-500">
+              {view === "batch" ? "Balık Partileri (Stoklar)" : "Havuz Partileri (Stoklar)"}
+            </h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {view === "batch"
+                ? `${batches?.length ?? 0} parti · şirket genelinde tüm çiftliklerdeki stoklamalar`
+                : "şirket genelindeki tüm havuzlar — dolu veya boş"}
+            </p>
+          </div>
+          <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground group-hover:text-teal-500" />
+        </button>
         <ReceiveStockDialog />
       </div>
 
-      {isLoading || batches === undefined ? (
-        // See dashboard/page.tsx — undefined (not loaded yet, e.g. while companyId itself is
-        // still resolving) must not be read as "zero batches exist".
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-lg" />
-          ))}
-        </div>
-      ) : isError ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Partiler yüklenemedi. Sayfayı yenilemeyi deneyin.
-          </CardContent>
-        </Card>
-      ) : batches && batches.length > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {batches.map((batch) => (
-            <button key={batch.id} type="button" onClick={() => setSelected(batch)} className="block w-full text-left">
-              <Card className="h-full gap-0 overflow-hidden py-0 transition-colors hover:ring-teal-500/60">
-                <div className="flex items-center justify-between border-b border-border bg-secondary px-3.5 py-2.5">
-                  <span className="min-w-0 truncate font-mono text-sm font-bold text-navy-900">
-                    {batch.lotCode}
-                  </span>
-                  <StatusBadge
-                    status={BATCH_STATUS_KIND[batch.status]}
-                    label={BATCH_STATUS_LABEL[batch.status]}
-                  />
-                </div>
-                <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-3.5 text-xs">
-                  <div className="col-span-2 flex items-center gap-1.5 text-foreground">
-                    <Fish className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{batch.species.name}</span>
-                  </div>
-                  <div>
-                    <div className="mb-0.5 text-muted-foreground">Canlı Adet</div>
-                    <div className="font-mono font-medium text-foreground">
-                      {(batch.currentState?.estimatedCount ?? 0).toLocaleString("tr")}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="mb-0.5 text-muted-foreground">Biyokütle</div>
-                    <div className="font-mono font-medium text-teal-500">
-                      {batch.currentState
-                        ? `${(Number(batch.currentState.estimatedBiomassKg) / 1000).toFixed(1)} t`
-                        : "—"}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </button>
-          ))}
-        </div>
+      {view === "batch" ? (
+        <BatchCardsGrid batches={batches} isLoading={isLoading} isError={isError} onSelect={setSelected} />
       ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-            <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-              <Fish className="size-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-medium">Henüz parti yok</p>
-              <p className="text-sm text-muted-foreground">
-                Bir çiftliğin Stoklar sekmesinden ilk balık partinizi stoklayın.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <PondCardsGrid />
       )}
 
       <SupplyStockSection />
       <ColdStorageSection />
 
       <BatchPondsDialog batch={selected} onClose={() => setSelected(null)} />
+    </div>
+  );
+}
+
+function BatchCardsGrid({
+  batches,
+  isLoading,
+  isError,
+  onSelect,
+}: {
+  batches: FishBatch[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  onSelect: (batch: FishBatch) => void;
+}) {
+  if (isLoading || batches === undefined) {
+    // See dashboard/page.tsx — undefined (not loaded yet, e.g. while companyId itself is still
+    // resolving) must not be read as "zero batches exist".
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-muted-foreground">
+          Partiler yüklenemedi. Sayfayı yenilemeyi deneyin.
+        </CardContent>
+      </Card>
+    );
+  }
+  if (batches.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+            <Fish className="size-6 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="font-medium">Henüz parti yok</p>
+            <p className="text-sm text-muted-foreground">
+              Bir çiftliğin Stoklar sekmesinden ilk balık partinizi stoklayın.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {batches.map((batch) => (
+        <button key={batch.id} type="button" onClick={() => onSelect(batch)} className="block w-full text-left">
+          <Card className="h-full gap-0 overflow-hidden py-0 transition-colors hover:ring-teal-500/60">
+            <div className="flex items-center justify-between border-b border-border bg-secondary px-3.5 py-2.5">
+              <span className="min-w-0 truncate font-mono text-sm font-bold text-navy-900">
+                {batch.lotCode}
+              </span>
+              <StatusBadge
+                status={BATCH_STATUS_KIND[batch.status]}
+                label={BATCH_STATUS_LABEL[batch.status]}
+              />
+            </div>
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-3.5 text-xs">
+              <div className="col-span-2 flex items-center gap-1.5 text-foreground">
+                <Fish className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{batch.species.name}</span>
+              </div>
+              <div>
+                <div className="mb-0.5 text-muted-foreground">Canlı Adet</div>
+                <div className="font-mono font-medium text-foreground">
+                  {(batch.currentState?.estimatedCount ?? 0).toLocaleString("tr")}
+                </div>
+              </div>
+              <div>
+                <div className="mb-0.5 text-muted-foreground">Biyokütle</div>
+                <div className="font-mono font-medium text-teal-500">
+                  {batch.currentState
+                    ? `${(Number(batch.currentState.estimatedBiomassKg) / 1000).toFixed(1)} t`
+                    : "—"}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Every pond company-wide, stocked or empty, as its own card — the alternate view toggled from
+ *  the page title. Each pond shows which farm it's in since, unlike the batch view, codes repeat
+ *  across farms (every farm has its own "A1"). */
+function PondCardsGrid() {
+  const { data: tanks, isLoading, isError } = useCompanyTanks();
+
+  if (isLoading || tanks === undefined) {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-muted-foreground">
+          Havuzlar yüklenemedi. Sayfayı yenilemeyi deneyin.
+        </CardContent>
+      </Card>
+    );
+  }
+  if (tanks.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+            <Waves className="size-6 text-muted-foreground" />
+          </div>
+          <p className="font-medium">Henüz havuz yok</p>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {tanks.map((tank) => (
+        <Link key={tank.id} href={`/farms/${tank.farmId}/tanks/${tank.id}`} className="block w-full">
+          <Card className="h-full gap-0 overflow-hidden py-0 transition-colors hover:ring-teal-500/60">
+            <div className="flex items-center justify-between border-b border-border bg-secondary px-3.5 py-2.5">
+              <span className="min-w-0 truncate font-mono text-sm font-bold text-navy-900">{tank.code}</span>
+              <Badge variant={TANK_STATUS_VARIANT[tank.status]} className="shrink-0 text-[10px]">
+                {TANK_STATUS_LABEL[tank.status]}
+              </Badge>
+            </div>
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2.5 py-3.5 text-xs">
+              <div className="col-span-2 flex items-center gap-1.5 text-foreground">
+                <Waves className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{tank.farmName}</span>
+              </div>
+              <div>
+                <div className="mb-0.5 text-muted-foreground">Canlı Adet</div>
+                <div className="font-mono font-medium text-foreground">
+                  {tank.liveCount.toLocaleString("tr")}
+                </div>
+              </div>
+              <div>
+                <div className="mb-0.5 text-muted-foreground">Biyokütle</div>
+                <div className="font-mono font-medium text-teal-500">
+                  {tank.liveCount > 0 ? `${(tank.biomassKg / 1000).toFixed(1)} t` : "—"}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      ))}
     </div>
   );
 }

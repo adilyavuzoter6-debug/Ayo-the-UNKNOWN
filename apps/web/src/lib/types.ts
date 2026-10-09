@@ -28,6 +28,18 @@ export interface Farm {
   sharesDepotWithFarmId: string | null;
 }
 
+/** One pond/tank, company-wide — every farm's, stocked or empty — for the Stoklar page's pond view. */
+export interface TankOverviewRow {
+  id: string;
+  code: string;
+  type: TankType;
+  status: TankStatus;
+  farmId: string;
+  farmName: string;
+  liveCount: number;
+  biomassKg: number;
+}
+
 export interface FarmSection {
   id: string;
   companyId: string;

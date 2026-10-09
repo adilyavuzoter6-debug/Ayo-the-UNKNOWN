@@ -71,6 +71,48 @@ export class TanksService {
     return naturalSortByCode(tanks);
   }
 
+  /**
+   * Every tank across every farm, each with its own farm name and current live count/biomass —
+   * stocked or empty, so this is the company-wide "one card per pond" view (vs. /fish-batches'
+   * one-card-per-batch view). Mirrors FishBatchesService.listForFarm's BatchTankState query, just
+   * without the farmId filter, and aggregated per tank instead of returned per batch.
+   */
+  async listForCompany(companyId: string) {
+    const client = this.tenantPrisma.forTenant(companyId);
+    const [tanks, states] = await Promise.all([
+      client.tank.findMany({
+        where: { deletedAt: null },
+        include: { farmSection: { include: { farm: true } } },
+      }),
+      client.batchTankState.findMany({
+        where: { estimatedCount: { gt: 0 }, tank: { deletedAt: null } },
+        include: { batch: { include: { currentState: true } } },
+      }),
+    ]);
+
+    const byTank = new Map<string, { liveCount: number; biomassKg: number }>();
+    for (const state of states) {
+      const avgWeightG = Number(state.batch.currentState?.estimatedAvgWeightG ?? state.batch.initialAvgWeightG);
+      const biomassKg = (state.estimatedCount * avgWeightG) / 1000;
+      const current = byTank.get(state.tankId) ?? { liveCount: 0, biomassKg: 0 };
+      current.liveCount += state.estimatedCount;
+      current.biomassKg += biomassKg;
+      byTank.set(state.tankId, current);
+    }
+
+    const rows = tanks.map((tank) => ({
+      id: tank.id,
+      code: tank.code,
+      type: tank.type,
+      status: tank.status,
+      farmId: tank.farmSection.farm.id,
+      farmName: tank.farmSection.farm.name,
+      liveCount: byTank.get(tank.id)?.liveCount ?? 0,
+      biomassKg: byTank.get(tank.id)?.biomassKg ?? 0,
+    }));
+    return naturalSortByCode(rows);
+  }
+
   async findById(companyId: string, tankId: string) {
     const tank = await this.tenantPrisma
       .forTenant(companyId)
