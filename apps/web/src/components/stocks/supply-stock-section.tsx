@@ -26,6 +26,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CURRENCY_SYMBOL, CurrencyToggle } from "@/components/shared/currency-toggle";
+import { useExchangeRate } from "@/hooks/use-exchange-rate";
 import { useFarms } from "@/hooks/use-farms";
 import {
   useCreateSupplyItem,
@@ -38,9 +40,15 @@ import {
   type SupplyMovementRow,
 } from "@/hooks/use-supplies";
 import { ApiError } from "@/lib/api-error";
-import type { SupplyItemStock } from "@/lib/types";
+import type { ExchangeCurrency, SupplyItemStock } from "@/lib/types";
 
 type FarmOption = { id: string; name: string };
+
+/** Sentinel for "the shared depot" in every farm-picking Select below — translated back to
+ *  `undefined` (no farmId) right before the request goes out. Kept out of real farm ids since
+ *  cuids never look like this. */
+const SHARED = "__shared__";
+const SHARED_LABEL = "Ortak depo (çiftliğe bağlı değil)";
 
 const fmt = (n: number) => n.toLocaleString("tr", { maximumFractionDigits: 3 });
 
@@ -55,8 +63,9 @@ export function SupplyStockSection() {
         <div>
           <h2 className="font-display text-base font-semibold tracking-tight text-foreground">Malzeme stoku</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Yem dışı malzemeler (boru, panel, filtre, çuval). Geldiğinde kaydedilir; çiftlikler arasında
-            transfer edilebilir.
+            Yem dışı malzemeler ve ilaçlar (boru, panel, filtre, çuval, ilaç). Geldiğinde kaydedilir; bir
+            çiftliğe veya ortak depoya ait olabilir, çiftlikler arasında transfer edilebilir, fiyatı
+            girilebilir.
           </p>
         </div>
         <NewSupplyItemDialog />
@@ -107,11 +116,11 @@ function SupplyItemCard({ item, farms }: { item: SupplyItemStock; farms: FarmOpt
           </span>
         </div>
         {item.balances.length === 0 ? (
-          <p className="text-muted-foreground">Hiçbir çiftlikte stok yok.</p>
+          <p className="text-muted-foreground">Hiçbir yerde stok yok.</p>
         ) : (
           <ul className="space-y-1">
             {item.balances.map((b) => (
-              <li key={b.farmId} className="flex items-baseline justify-between gap-2">
+              <li key={b.farmId ?? "shared"} className="flex items-baseline justify-between gap-2">
                 <span className="truncate">{b.farmName ?? "Silinmiş çiftlik"}</span>
                 <span className="shrink-0 font-mono">
                   {fmt(b.quantity)} {item.unit}
@@ -179,7 +188,8 @@ function NewSupplyItemDialog() {
         <DialogHeader>
           <DialogTitle>Yeni malzeme</DialogTitle>
           <DialogDescription>
-            Ne zaman geleceği belli olmayan bir malzemeyi tanımlayın. Geldiğinde &quot;Gelen&quot; ile stoka alın.
+            Ne zaman geleceği belli olmayan bir malzeme veya ilaç tanımlayın. Geldiğinde &quot;Gelen&quot; ile
+            stoka alın.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -191,7 +201,7 @@ function NewSupplyItemDialog() {
                 <FormItem>
                   <FormLabel>Ad</FormLabel>
                   <FormControl>
-                    <Input placeholder="Örn. Metal panel" {...field} />
+                    <Input placeholder="Örn. Metal panel, Florfenicol %20" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -204,7 +214,7 @@ function NewSupplyItemDialog() {
                 <FormItem>
                   <FormLabel>Kategori</FormLabel>
                   <FormControl>
-                    <Input placeholder="Örn. Boru, Filtre, Çuval" {...field} />
+                    <Input placeholder="Örn. Boru, Filtre, Çuval, İlaç" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -217,7 +227,7 @@ function NewSupplyItemDialog() {
                 <FormItem>
                   <FormLabel>Birim</FormLabel>
                   <FormControl>
-                    <Input placeholder="adet, m, kg" {...field} />
+                    <Input placeholder="adet, m, kg, L" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -233,28 +243,74 @@ function NewSupplyItemDialog() {
   );
 }
 
-const receiveSchema = z.object({
-  farmId: z.string().min(1, "Çiftlik seçin"),
-  quantity: z.coerce.number().positive("Miktar sıfırdan büyük olmalı"),
-  note: z.string().trim().max(500).optional(),
-});
+const receiveSchema = z
+  .object({
+    farmId: z.string().min(1, "Çiftlik seçin"),
+    quantity: z.coerce.number().positive("Miktar sıfırdan büyük olmalı"),
+    note: z.string().trim().max(500).optional(),
+    unitPriceCurrency: z.enum(["TRY", "USD", "EUR"]),
+    unitPriceAmount: z.coerce.number().positive().optional(),
+    exchangeRate: z.coerce.number().positive().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.unitPriceCurrency !== "TRY" && values.unitPriceAmount !== undefined && !values.exchangeRate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Kur gerekli (TCMB kuru alınamadıysa elle girin)",
+        path: ["exchangeRate"],
+      });
+    }
+  });
 type ReceiveValues = z.infer<typeof receiveSchema>;
 
 function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: FarmOption[] }) {
   const [open, setOpen] = React.useState(false);
   const form = useForm<ReceiveValues>({
     resolver: zodResolver(receiveSchema),
-    defaultValues: { farmId: "", quantity: undefined, note: "" },
+    defaultValues: {
+      farmId: "",
+      quantity: undefined,
+      note: "",
+      unitPriceCurrency: "TRY",
+      unitPriceAmount: undefined,
+      exchangeRate: undefined,
+    },
   });
   const receive = useReceiveSupply();
+
+  const unitPriceCurrency = useWatch({ control: form.control, name: "unitPriceCurrency" });
+  const unitPriceAmount = useWatch({ control: form.control, name: "unitPriceAmount" });
+  const exchangeRate = useWatch({ control: form.control, name: "exchangeRate" });
+
+  const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const foreignRate = useExchangeRate(
+    unitPriceCurrency === "TRY" ? undefined : (unitPriceCurrency as Exclude<ExchangeCurrency, "TRY">),
+    today,
+  );
+  React.useEffect(() => {
+    if (!foreignRate.data || unitPriceCurrency === "TRY") return;
+    if (!form.getFieldState("exchangeRate").isDirty) {
+      form.setValue("exchangeRate", foreignRate.data.rate);
+    }
+  }, [foreignRate.data, unitPriceCurrency, open, form]);
+
+  const convertedTry =
+    unitPriceCurrency !== "TRY" && unitPriceAmount && exchangeRate
+      ? unitPriceAmount * exchangeRate
+      : unitPriceCurrency === "TRY"
+        ? unitPriceAmount
+        : undefined;
 
   async function onSubmit(values: ReceiveValues) {
     try {
       await receive.mutateAsync({
         itemId: item.id,
-        farmId: values.farmId,
+        farmId: values.farmId === SHARED ? undefined : values.farmId,
         quantity: values.quantity,
         note: values.note || undefined,
+        unitPriceAmount: values.unitPriceAmount,
+        unitPriceCurrency: values.unitPriceAmount !== undefined ? values.unitPriceCurrency : undefined,
+        exchangeRate: values.unitPriceCurrency !== "TRY" ? values.exchangeRate : undefined,
       });
       toast.success(`${item.name}: ${fmt(values.quantity)} ${item.unit} kaydedildi.`);
       form.reset();
@@ -276,7 +332,7 @@ function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: Fa
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Gelen malzeme — {item.name}</DialogTitle>
-          <DialogDescription>Geldiği çiftliği ve miktarı girin.</DialogDescription>
+          <DialogDescription>Geldiği yeri (bir çiftlik veya ortak depo) ve miktarı girin.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -285,16 +341,17 @@ function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: Fa
               name="farmId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Çiftlik</FormLabel>
+                  <FormLabel>Çiftlik / depo</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Çiftlik seçin">
-                          {(v: string) => farms.find((f) => f.id === v)?.name}
+                        <SelectValue placeholder="Seçin">
+                          {(v: string) => (v === SHARED ? SHARED_LABEL : farms.find((f) => f.id === v)?.name)}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
+                      <SelectItem value={SHARED}>{SHARED_LABEL}</SelectItem>
                       {farms.map((f) => (
                         <SelectItem key={f.id} value={f.id}>
                           {f.name}
@@ -319,6 +376,55 @@ function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: Fa
                 </FormItem>
               )}
             />
+
+            <div className="space-y-2.5 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between">
+                <FormLabel>Birim fiyat (opsiyonel)</FormLabel>
+                <CurrencyToggle value={unitPriceCurrency} onChange={(c) => form.setValue("unitPriceCurrency", c)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="unitPriceAmount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-[11px] text-muted-foreground">
+                        Tutar ({CURRENCY_SYMBOL[unitPriceCurrency]}/{item.unit})
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {unitPriceCurrency !== "TRY" ? (
+                  <FormField
+                    control={form.control}
+                    name="exchangeRate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-[11px] text-muted-foreground">Kur (1 birim = ? ₺)</FormLabel>
+                        <FormControl>
+                          <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+              </div>
+              {unitPriceCurrency !== "TRY" && convertedTry !== undefined ? (
+                <p className="text-[11px] text-muted-foreground">
+                  ≈{" "}
+                  <span className="font-mono font-medium text-foreground">
+                    {convertedTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/{item.unit}
+                  </span>{" "}
+                  olarak maliyete yansıyacak.
+                </p>
+              ) : null}
+            </div>
+
             <FormField
               control={form.control}
               name="note"
@@ -350,17 +456,18 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
     () =>
       z
         .object({
-          fromFarmId: z.string().min(1, "Kaynak çiftlik seçin"),
-          toFarmId: z.string().min(1, "Hedef çiftlik seçin"),
+          fromFarmId: z.string().min(1, "Kaynak seçin"),
+          toFarmId: z.string().min(1, "Hedef seçin"),
           quantity: z.coerce.number().positive("Miktar sıfırdan büyük olmalı"),
           note: z.string().trim().max(500).optional(),
         })
         .refine((v) => v.fromFarmId !== v.toFarmId, {
-          message: "Kaynak ve hedef çiftlik farklı olmalı",
+          message: "Kaynak ve hedef farklı olmalı",
           path: ["toFarmId"],
         })
         .superRefine((v, ctx) => {
-          const available = item.balances.find((b) => b.farmId === v.fromFarmId)?.quantity ?? 0;
+          const key = v.fromFarmId === SHARED ? null : v.fromFarmId;
+          const available = item.balances.find((b) => b.farmId === key)?.quantity ?? 0;
           if (v.quantity > available) {
             ctx.addIssue({
               code: "custom",
@@ -379,14 +486,16 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
   });
   const transfer = useTransferSupply();
   const fromFarmId = useWatch({ control: form.control, name: "fromFarmId" });
-  const availableAtSource = item.balances.find((b) => b.farmId === fromFarmId)?.quantity;
+  const availableAtSource = item.balances.find(
+    (b) => b.farmId === (fromFarmId === SHARED ? null : fromFarmId),
+  )?.quantity;
 
   async function onSubmit(values: TransferValues) {
     try {
       await transfer.mutateAsync({
         itemId: item.id,
-        fromFarmId: values.fromFarmId,
-        toFarmId: values.toFarmId,
+        fromFarmId: values.fromFarmId === SHARED ? undefined : values.fromFarmId,
+        toFarmId: values.toFarmId === SHARED ? undefined : values.toFarmId,
         quantity: values.quantity,
         note: values.note || undefined,
       });
@@ -410,7 +519,9 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Transfer — {item.name}</DialogTitle>
-          <DialogDescription>Bir çiftlikten diğerine taşınan miktar kaynaktan düşer, hedefe eklenir.</DialogDescription>
+          <DialogDescription>
+            Taşınan miktar kaynaktan düşer, hedefe eklenir. Kaynak veya hedef ortak depo olabilir.
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -419,16 +530,17 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
               name="fromFarmId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Kaynak çiftlik</FormLabel>
+                  <FormLabel>Kaynak</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Çiftlik seçin">
-                          {(v: string) => farms.find((f) => f.id === v)?.name}
+                        <SelectValue placeholder="Seçin">
+                          {(v: string) => (v === SHARED ? SHARED_LABEL : farms.find((f) => f.id === v)?.name)}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
+                      <SelectItem value={SHARED}>{SHARED_LABEL}</SelectItem>
                       {farms.map((f) => (
                         <SelectItem key={f.id} value={f.id}>
                           {f.name}
@@ -450,16 +562,17 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
               name="toFarmId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Hedef çiftlik</FormLabel>
+                  <FormLabel>Hedef</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Çiftlik seçin">
-                          {(v: string) => farms.find((f) => f.id === v)?.name}
+                        <SelectValue placeholder="Seçin">
+                          {(v: string) => (v === SHARED ? SHARED_LABEL : farms.find((f) => f.id === v)?.name)}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
+                      <SelectItem value={SHARED}>{SHARED_LABEL}</SelectItem>
                       {farms.map((f) => (
                         <SelectItem key={f.id} value={f.id}>
                           {f.name}
@@ -508,7 +621,7 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
 }
 
 /** The item's movements, each one correctable or removable. Removal asks twice; the server refuses any that
- *  would leave a farm with negative stock. */
+ *  would leave a farm or the shared depot with negative stock. */
 function SupplyMovementsList({ item }: { item: SupplyItemStock }) {
   const { data: movements, isLoading, isError } = useSupplyMovements(item.id, true);
   if (isLoading || movements === undefined) return <Skeleton className="h-16 rounded-md" />;
@@ -523,13 +636,16 @@ function SupplyMovementsList({ item }: { item: SupplyItemStock }) {
   );
 }
 
+const MOVEMENT_LABEL: Record<SupplyMovementRow["kind"], (m: SupplyMovementRow) => string> = {
+  RECEIVED: (m) => `Gelen → ${m.toFarmName ?? "—"}`,
+  TRANSFER: (m) => `Transfer: ${m.fromFarmName ?? "—"} → ${m.toFarmName ?? "—"}`,
+  CONSUMED: (m) => `Kullanıldı ← ${m.fromFarmName ?? "—"}`,
+};
+
 function SupplyMovementRowItem({ movement, item }: { movement: SupplyMovementRow; item: SupplyItemStock }) {
   const [confirming, setConfirming] = React.useState(false);
   const remove = useDeleteSupplyMovement();
-  const label =
-    movement.kind === "RECEIVED"
-      ? `Gelen → ${movement.toFarmName ?? "—"}`
-      : `Transfer: ${movement.fromFarmName ?? "—"} → ${movement.toFarmName ?? "—"}`;
+  const label = MOVEMENT_LABEL[movement.kind](movement);
 
   async function onRemove() {
     if (!confirming) {
@@ -552,12 +668,15 @@ function SupplyMovementRowItem({ movement, item }: { movement: SupplyMovementRow
         <span className="block truncate text-foreground">{label}</span>
         <span className="block text-[11px] text-muted-foreground">
           {new Date(movement.occurredAt).toLocaleDateString("tr")}
+          {movement.unitPriceTry !== null
+            ? ` · ${movement.unitPriceTry.toLocaleString("tr", { maximumFractionDigits: 2 })} ₺/${item.unit}`
+            : ""}
           {movement.note ? ` · ${movement.note}` : ""}
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         <span className="font-mono">{fmt(movement.quantity)} {item.unit}</span>
-        <EditMovementDialog movement={movement} item={item} />
+        {movement.kind === "RECEIVED" ? <EditMovementDialog movement={movement} item={item} /> : null}
         <Button size="sm" variant={confirming ? "destructive" : "ghost"} onClick={onRemove} disabled={remove.isPending}>
           {confirming ? "Emin misin?" : "Sil"}
         </Button>
@@ -566,19 +685,40 @@ function SupplyMovementRowItem({ movement, item }: { movement: SupplyMovementRow
   );
 }
 
-const editMovementSchema = z.object({
-  quantity: z.coerce.number().positive("Miktar sıfırdan büyük olmalı"),
-  note: z.string().trim().max(500).optional(),
-});
+const editMovementSchema = z
+  .object({
+    quantity: z.coerce.number().positive("Miktar sıfırdan büyük olmalı"),
+    note: z.string().trim().max(500).optional(),
+    unitPriceCurrency: z.enum(["TRY", "USD", "EUR"]),
+    unitPriceAmount: z.coerce.number().positive().optional(),
+    exchangeRate: z.coerce.number().positive().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.unitPriceCurrency !== "TRY" && values.unitPriceAmount !== undefined && !values.exchangeRate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Kur gerekli (TCMB kuru alınamadıysa elle girin)",
+        path: ["exchangeRate"],
+      });
+    }
+  });
 type EditMovementValues = z.infer<typeof editMovementSchema>;
 
 function EditMovementDialog({ movement, item }: { movement: SupplyMovementRow; item: SupplyItemStock }) {
   const [open, setOpen] = React.useState(false);
-  const form = useForm<EditMovementValues>({
-    resolver: zodResolver(editMovementSchema),
-    defaultValues: { quantity: movement.quantity, note: movement.note ?? "" },
-  });
+  const defaults = React.useCallback(
+    (): EditMovementValues => ({
+      quantity: movement.quantity,
+      note: movement.note ?? "",
+      unitPriceCurrency: "TRY",
+      unitPriceAmount: movement.unitPriceTry ?? undefined,
+      exchangeRate: undefined,
+    }),
+    [movement],
+  );
+  const form = useForm<EditMovementValues>({ resolver: zodResolver(editMovementSchema), defaultValues: defaults() });
   const update = useUpdateSupplyMovement();
+  const unitPriceCurrency = useWatch({ control: form.control, name: "unitPriceCurrency" });
 
   async function onSubmit(values: EditMovementValues) {
     try {
@@ -587,6 +727,9 @@ function EditMovementDialog({ movement, item }: { movement: SupplyMovementRow; i
         itemId: item.id,
         quantity: values.quantity,
         note: values.note ?? "",
+        unitPriceAmount: values.unitPriceAmount,
+        unitPriceCurrency: values.unitPriceAmount !== undefined ? values.unitPriceCurrency : undefined,
+        exchangeRate: values.unitPriceCurrency !== "TRY" ? values.exchangeRate : undefined,
       });
       toast.success("Hareket düzeltildi.");
       setOpen(false);
@@ -600,14 +743,14 @@ function EditMovementDialog({ movement, item }: { movement: SupplyMovementRow; i
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (next) form.reset({ quantity: movement.quantity, note: movement.note ?? "" });
+        if (next) form.reset(defaults());
       }}
     >
       <DialogTrigger render={<Button size="sm" variant="ghost">Düzelt</Button>} />
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Hareketi düzelt — {item.name}</DialogTitle>
-          <DialogDescription>Miktarı veya notu değiştirin. Kaynak çiftlikte yeterli stok kalmalı.</DialogDescription>
+          <DialogDescription>Miktarı, fiyatı veya notu değiştirin. Yeterli stok kalmalı.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -624,6 +767,46 @@ function EditMovementDialog({ movement, item }: { movement: SupplyMovementRow; i
                 </FormItem>
               )}
             />
+
+            <div className="space-y-2.5 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between">
+                <FormLabel>Birim fiyat (opsiyonel)</FormLabel>
+                <CurrencyToggle value={unitPriceCurrency} onChange={(c) => form.setValue("unitPriceCurrency", c)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="unitPriceAmount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-[11px] text-muted-foreground">
+                        Tutar ({CURRENCY_SYMBOL[unitPriceCurrency]}/{item.unit})
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {unitPriceCurrency !== "TRY" ? (
+                  <FormField
+                    control={form.control}
+                    name="exchangeRate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-[11px] text-muted-foreground">Kur (1 birim = ? ₺)</FormLabel>
+                        <FormControl>
+                          <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+              </div>
+            </div>
+
             <FormField
               control={form.control}
               name="note"

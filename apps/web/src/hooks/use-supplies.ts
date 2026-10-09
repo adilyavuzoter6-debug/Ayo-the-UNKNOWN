@@ -31,31 +31,49 @@ export function useCreateSupplyItem() {
   });
 }
 
+export interface ReceiveSupplyInput {
+  itemId: string;
+  /** Omit for the company's shared depot (not tied to one farm). */
+  farmId?: string;
+  quantity: number;
+  note?: string;
+  unitPriceAmount?: number;
+  unitPriceCurrency?: "TRY" | "USD" | "EUR";
+  exchangeRate?: number;
+}
+
 export function useReceiveSupply() {
   const api = useApiClient();
   const invalidate = useInvalidateSupplies();
   return useMutation({
-    mutationFn: (input: { itemId: string; farmId: string; quantity: number; note?: string }) =>
+    mutationFn: (input: ReceiveSupplyInput) =>
       api.post(`/supply-items/${input.itemId}/receive`, {
         farmId: input.farmId,
         quantity: input.quantity,
         note: input.note,
+        unitPriceAmount: input.unitPriceAmount,
+        unitPriceCurrency: input.unitPriceCurrency,
+        exchangeRate: input.exchangeRate,
       }),
     onSuccess: invalidate,
   });
+}
+
+export interface TransferSupplyInput {
+  itemId: string;
+  /** Omit for the company's shared depot. */
+  fromFarmId?: string;
+  /** Omit for the company's shared depot. */
+  toFarmId?: string;
+  quantity: number;
+  note?: string;
 }
 
 export function useTransferSupply() {
   const api = useApiClient();
   const invalidate = useInvalidateSupplies();
   return useMutation({
-    mutationFn: (input: {
-      itemId: string;
-      fromFarmId: string;
-      toFarmId: string;
-      quantity: number;
-      note?: string;
-    }) =>
+    mutationFn: (input: TransferSupplyInput) =>
       api.post(`/supply-items/${input.itemId}/transfer`, {
         fromFarmId: input.fromFarmId,
         toFarmId: input.toFarmId,
@@ -68,10 +86,12 @@ export function useTransferSupply() {
 
 export interface SupplyMovementRow {
   id: string;
-  kind: "RECEIVED" | "TRANSFER";
+  kind: "RECEIVED" | "TRANSFER" | "CONSUMED";
   quantity: number;
   fromFarmName: string | null;
   toFarmName: string | null;
+  /** Unit price in TRY, set only on a priced RECEIVED movement. */
+  unitPriceTry: number | null;
   occurredAt: string;
   note: string | null;
 }
@@ -87,14 +107,30 @@ export function useSupplyMovements(itemId: string, enabled: boolean) {
   });
 }
 
+export interface UpdateSupplyMovementInput {
+  movementId: string;
+  itemId: string;
+  quantity?: number;
+  note?: string;
+  unitPriceAmount?: number;
+  unitPriceCurrency?: "TRY" | "USD" | "EUR";
+  exchangeRate?: number;
+}
+
 export function useUpdateSupplyMovement() {
   const api = useApiClient();
   const invalidate = useInvalidateSupplies();
   const queryClient = useQueryClient();
   const { companyId } = useActiveCompany();
   return useMutation({
-    mutationFn: (input: { movementId: string; itemId: string; quantity?: number; note?: string }) =>
-      api.patch(`/supply-items/movements/${input.movementId}`, { quantity: input.quantity, note: input.note }),
+    mutationFn: (input: UpdateSupplyMovementInput) =>
+      api.patch(`/supply-items/movements/${input.movementId}`, {
+        quantity: input.quantity,
+        note: input.note,
+        unitPriceAmount: input.unitPriceAmount,
+        unitPriceCurrency: input.unitPriceCurrency,
+        exchangeRate: input.exchangeRate,
+      }),
     onSuccess: (_data, input) => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["supply-movements", companyId, input.itemId] });

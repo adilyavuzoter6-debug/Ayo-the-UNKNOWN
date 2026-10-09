@@ -834,12 +834,13 @@ export interface BatchTankState {
 
 /** How much of a supply item one farm holds. */
 export interface SupplyBalance {
-  farmId: string;
+  /** Null means the shared depot — not tied to one farm. farmName is "Ortak depo" in that case. */
+  farmId: string | null;
   farmName: string | null;
   quantity: number;
 }
 
-/** A non-feed material (pipe, panel, filter, sack) with its balance on each farm. */
+/** A non-feed material (pipe, panel, filter, sack) with its balance on each farm (plus the shared depot). */
 export interface SupplyItemStock {
   id: string;
   name: string;

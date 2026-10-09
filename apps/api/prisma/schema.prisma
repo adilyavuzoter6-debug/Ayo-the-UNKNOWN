@@ -1035,8 +1035,15 @@ model SupplyMovement {
   itemId      String
   kind        SupplyMovementKind
   quantity    Decimal            @db.Decimal(12, 3)
+  /// Null (rather than a specific farm) means the company's shared depot — some companies keep
+  /// one central store that several farms draw from, instead of farm-by-farm stock.
   fromFarmId  String?
+  /// Same "null = shared depot" meaning as fromFarmId.
   toFarmId    String?
+  /// Purchase price per unit, in TRY, for a priced RECEIVED movement — resolved from the entered
+  /// amount/currency/rate at receive time. Null for an unpriced receipt, and always null for
+  /// TRANSFER/CONSUMED (nothing is purchased by either).
+  unitPriceTry Decimal?          @db.Decimal(12, 4)
   occurredAt  DateTime           @default(now())
   note        String?
   createdById String

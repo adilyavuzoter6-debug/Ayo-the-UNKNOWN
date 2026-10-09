@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsOptional, IsPositive, IsString, MaxLength, MinLength } from "class-validator";
+import { IsDateString, IsIn, IsNumber, IsOptional, IsPositive, IsString, MaxLength, MinLength } from "class-validator";
 
 export class CreateSupplyItemDto {
   @IsString()
@@ -18,8 +18,10 @@ export class CreateSupplyItemDto {
 }
 
 export class ReceiveSupplyDto {
+  /** Omit for the company's shared depot (not tied to one farm). */
+  @IsOptional()
   @IsString()
-  farmId!: string;
+  farmId?: string;
 
   @IsNumber()
   @IsPositive()
@@ -33,14 +35,35 @@ export class ReceiveSupplyDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** Unit price, in unitPriceCurrency. Omitted entirely means this receipt isn't priced. */
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  unitPriceAmount?: number;
+
+  /** Defaults to TRY. */
+  @IsOptional()
+  @IsIn(["TRY", "USD", "EUR"])
+  unitPriceCurrency?: "TRY" | "USD" | "EUR";
+
+  /** TRY per 1 unit of unitPriceCurrency. Omit to use the Central Bank rate for occurredAt. */
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  exchangeRate?: number;
 }
 
 export class TransferSupplyDto {
+  /** Omit for the company's shared depot. */
+  @IsOptional()
   @IsString()
-  fromFarmId!: string;
+  fromFarmId?: string;
 
+  /** Omit for the company's shared depot. */
+  @IsOptional()
   @IsString()
-  toFarmId!: string;
+  toFarmId?: string;
 
   @IsNumber()
   @IsPositive()
@@ -62,4 +85,19 @@ export class UpdateSupplyMovementDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** Only meaningful for a RECEIVED movement — corrects its purchase price. */
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  unitPriceAmount?: number;
+
+  @IsOptional()
+  @IsIn(["TRY", "USD", "EUR"])
+  unitPriceCurrency?: "TRY" | "USD" | "EUR";
+
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  exchangeRate?: number;
 }
