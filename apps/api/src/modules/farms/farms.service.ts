@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
 import type { CreateFarmDto } from "./dto/create-farm.dto";
@@ -67,6 +67,13 @@ export class FarmsService {
   async update(companyId: string, farmId: string, userId: string, dto: UpdateFarmDto) {
     const existing = await this.findById(companyId, farmId);
 
+    if (dto.sharesDepotWithFarmId) {
+      if (dto.sharesDepotWithFarmId === farmId) {
+        throw new BadRequestException("Bir çiftlik kendi deposuyla aynı depoyu paylaşamaz.");
+      }
+      await this.findById(companyId, dto.sharesDepotWithFarmId);
+    }
+
     const updated = await this.tenantPrisma.forTenant(companyId).farm.update({
       where: { id: farmId },
       data: {
@@ -76,6 +83,7 @@ export class FarmsService {
         latitude: dto.latitude,
         longitude: dto.longitude,
         status: dto.status,
+        sharesDepotWithFarmId: dto.sharesDepotWithFarmId,
       },
     });
 

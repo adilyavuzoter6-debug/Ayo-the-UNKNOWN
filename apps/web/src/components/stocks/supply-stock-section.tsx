@@ -44,12 +44,6 @@ import type { ExchangeCurrency, SupplyItemStock } from "@/lib/types";
 
 type FarmOption = { id: string; name: string };
 
-/** Sentinel for "the shared depot" in every farm-picking Select below — translated back to
- *  `undefined` (no farmId) right before the request goes out. Kept out of real farm ids since
- *  cuids never look like this. */
-const SHARED = "__shared__";
-const SHARED_LABEL = "Ortak depo (çiftliğe bağlı değil)";
-
 const fmt = (n: number) => n.toLocaleString("tr", { maximumFractionDigits: 3 });
 
 export function SupplyStockSection() {
@@ -63,9 +57,9 @@ export function SupplyStockSection() {
         <div>
           <h2 className="font-display text-base font-semibold tracking-tight text-foreground">Malzeme stoku</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Yem dışı malzemeler ve ilaçlar (boru, panel, filtre, çuval, ilaç). Geldiğinde kaydedilir; bir
-            çiftliğe veya ortak depoya ait olabilir, çiftlikler arasında transfer edilebilir, fiyatı
-            girilebilir.
+            Yem dışı malzemeler ve ilaçlar (boru, panel, filtre, çuval, ilaç). Geldiğinde bir çiftliğe
+            kaydedilir, çiftlikler arasında transfer edilebilir, fiyatı girilebilir. Aynı depoyu paylaşan
+            çiftlikler (Çiftlik → Ayarlar) tek satırda birlikte gösterilir.
           </p>
         </div>
         <NewSupplyItemDialog />
@@ -120,8 +114,8 @@ function SupplyItemCard({ item, farms }: { item: SupplyItemStock; farms: FarmOpt
         ) : (
           <ul className="space-y-1">
             {item.balances.map((b) => (
-              <li key={b.farmId ?? "shared"} className="flex items-baseline justify-between gap-2">
-                <span className="truncate">{b.farmName ?? "Silinmiş çiftlik"}</span>
+              <li key={b.farmIds.join(",")} className="flex items-baseline justify-between gap-2">
+                <span className="truncate">{b.farmName}</span>
                 <span className="shrink-0 font-mono">
                   {fmt(b.quantity)} {item.unit}
                 </span>
@@ -305,7 +299,7 @@ function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: Fa
     try {
       await receive.mutateAsync({
         itemId: item.id,
-        farmId: values.farmId === SHARED ? undefined : values.farmId,
+        farmId: values.farmId,
         quantity: values.quantity,
         note: values.note || undefined,
         unitPriceAmount: values.unitPriceAmount,
@@ -332,7 +326,7 @@ function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: Fa
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Gelen malzeme — {item.name}</DialogTitle>
-          <DialogDescription>Geldiği yeri (bir çiftlik veya ortak depo) ve miktarı girin.</DialogDescription>
+          <DialogDescription>Geldiği çiftliği ve miktarı girin.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -341,17 +335,16 @@ function ReceiveSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: Fa
               name="farmId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Çiftlik / depo</FormLabel>
+                  <FormLabel>Çiftlik</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Seçin">
-                          {(v: string) => (v === SHARED ? SHARED_LABEL : farms.find((f) => f.id === v)?.name)}
+                        <SelectValue placeholder="Çiftlik seçin">
+                          {(v: string) => farms.find((f) => f.id === v)?.name}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value={SHARED}>{SHARED_LABEL}</SelectItem>
                       {farms.map((f) => (
                         <SelectItem key={f.id} value={f.id}>
                           {f.name}
@@ -466,8 +459,7 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
           path: ["toFarmId"],
         })
         .superRefine((v, ctx) => {
-          const key = v.fromFarmId === SHARED ? null : v.fromFarmId;
-          const available = item.balances.find((b) => b.farmId === key)?.quantity ?? 0;
+          const available = item.balances.find((b) => b.farmIds.includes(v.fromFarmId))?.quantity ?? 0;
           if (v.quantity > available) {
             ctx.addIssue({
               code: "custom",
@@ -486,16 +478,14 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
   });
   const transfer = useTransferSupply();
   const fromFarmId = useWatch({ control: form.control, name: "fromFarmId" });
-  const availableAtSource = item.balances.find(
-    (b) => b.farmId === (fromFarmId === SHARED ? null : fromFarmId),
-  )?.quantity;
+  const availableAtSource = item.balances.find((b) => b.farmIds.includes(fromFarmId))?.quantity;
 
   async function onSubmit(values: TransferValues) {
     try {
       await transfer.mutateAsync({
         itemId: item.id,
-        fromFarmId: values.fromFarmId === SHARED ? undefined : values.fromFarmId,
-        toFarmId: values.toFarmId === SHARED ? undefined : values.toFarmId,
+        fromFarmId: values.fromFarmId,
+        toFarmId: values.toFarmId,
         quantity: values.quantity,
         note: values.note || undefined,
       });
@@ -519,9 +509,7 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Transfer — {item.name}</DialogTitle>
-          <DialogDescription>
-            Taşınan miktar kaynaktan düşer, hedefe eklenir. Kaynak veya hedef ortak depo olabilir.
-          </DialogDescription>
+          <DialogDescription>Bir çiftlikten diğerine taşınan miktar kaynaktan düşer, hedefe eklenir.</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -530,17 +518,16 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
               name="fromFarmId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Kaynak</FormLabel>
+                  <FormLabel>Kaynak çiftlik</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Seçin">
-                          {(v: string) => (v === SHARED ? SHARED_LABEL : farms.find((f) => f.id === v)?.name)}
+                        <SelectValue placeholder="Çiftlik seçin">
+                          {(v: string) => farms.find((f) => f.id === v)?.name}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value={SHARED}>{SHARED_LABEL}</SelectItem>
                       {farms.map((f) => (
                         <SelectItem key={f.id} value={f.id}>
                           {f.name}
@@ -562,17 +549,16 @@ function TransferSupplyDialog({ item, farms }: { item: SupplyItemStock; farms: F
               name="toFarmId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Hedef</FormLabel>
+                  <FormLabel>Hedef çiftlik</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Seçin">
-                          {(v: string) => (v === SHARED ? SHARED_LABEL : farms.find((f) => f.id === v)?.name)}
+                        <SelectValue placeholder="Çiftlik seçin">
+                          {(v: string) => farms.find((f) => f.id === v)?.name}
                         </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value={SHARED}>{SHARED_LABEL}</SelectItem>
                       {farms.map((f) => (
                         <SelectItem key={f.id} value={f.id}>
                           {f.name}

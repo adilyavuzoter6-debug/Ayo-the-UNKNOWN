@@ -26,9 +26,19 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { useUpdateFarm } from "@/hooks/use-farms";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useFarms, useUpdateFarm } from "@/hooks/use-farms";
 import { ApiError } from "@/lib/api-error";
 import type { Farm } from "@/lib/types";
+
+/** Sentinel for "no depot partner" in the Select below — translated to null right before submit. */
+const NONE = "__none__";
 
 export function EditFarmDialog({
   farm,
@@ -39,6 +49,8 @@ export function EditFarmDialog({
 }) {
   const [open, setOpen] = React.useState(false);
   const updateFarm = useUpdateFarm();
+  const { data: farms } = useFarms();
+  const otherFarms = (farms ?? []).filter((f) => f.id !== farm.id);
 
   const form = useForm<UpdateFarmInput>({
     resolver: zodResolver(updateFarmSchema),
@@ -46,6 +58,7 @@ export function EditFarmDialog({
       name: farm.name,
       code: farm.code,
       timezone: farm.timezone ?? "",
+      sharesDepotWithFarmId: farm.sharesDepotWithFarmId ?? NONE,
     },
   });
 
@@ -55,6 +68,10 @@ export function EditFarmDialog({
         farmId: farm.id,
         ...values,
         timezone: values.timezone || undefined,
+        sharesDepotWithFarmId:
+          !values.sharesDepotWithFarmId || values.sharesDepotWithFarmId === NONE
+            ? null
+            : values.sharesDepotWithFarmId,
       });
       toast.success(`Çiftlik "${values.name}" güncellendi.`);
       setOpen(false);
@@ -133,6 +150,39 @@ export function EditFarmDialog({
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="sharesDepotWithFarmId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Depo ortağı (opsiyonel)</FormLabel>
+                  <Select value={field.value ?? NONE} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Yok">
+                          {(v: string) => (v === NONE ? "Yok" : otherFarms.find((f) => f.id === v)?.name)}
+                        </SelectValue>
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={NONE}>Yok</SelectItem>
+                      {otherFarms.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Bu çiftlik başka bir çiftlikle aynı fiziksel depoyu kullanıyorsa seçin — Stoklar
+                    sayfasında ikisinin stoğu tek satırda, birlikte gösterilir ve ilaç/malzeme
+                    tüketimi ikisi arasında paylaşılır.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <DialogFooter>
               <Button type="submit" disabled={updateFarm.isPending}>

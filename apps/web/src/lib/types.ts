@@ -24,6 +24,8 @@ export interface Farm {
   longitude: string | null;
   status: "ACTIVE" | "INACTIVE";
   createdAt: string;
+  /** Another farm this one physically shares a stock depot with, if any — see SupplyBalance. */
+  sharesDepotWithFarmId: string | null;
 }
 
 export interface FarmSection {
@@ -833,14 +835,15 @@ export interface BatchTankState {
 }
 
 /** How much of a supply item one farm holds. */
+/** One depot's balance — one farm, or several farms that share one physical depot
+ *  (Farm.sharesDepotWithFarmId) pooled and shown together, e.g. farmName "Ören 1 + Ören 2". */
 export interface SupplyBalance {
-  /** Null means the shared depot — not tied to one farm. farmName is "Ortak depo" in that case. */
-  farmId: string | null;
-  farmName: string | null;
+  farmIds: string[];
+  farmName: string;
   quantity: number;
 }
 
-/** A non-feed material (pipe, panel, filter, sack) with its balance on each farm (plus the shared depot). */
+/** A non-feed material (pipe, panel, filter, sack) with its balance at each depot. */
 export interface SupplyItemStock {
   id: string;
   name: string;

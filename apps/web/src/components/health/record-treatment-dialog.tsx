@@ -148,7 +148,7 @@ export function RecordTreatmentDialog({
   const [selectedPresetName, setSelectedPresetName] = React.useState("");
   const selectedPreset = presets.find((p) => p.productName === selectedPresetName);
   const selectedItem = (supplyItems ?? []).find((i) => i.id === medicineItemId);
-  const selectedItemFarmBalance = selectedItem?.balances.find((b) => b.farmId === farmId)?.quantity ?? 0;
+  const selectedItemFarmBalance = selectedItem?.balances.find((b) => b.farmIds.includes(farmId))?.quantity ?? 0;
 
   function applyPreset(productName: string) {
     setSelectedPresetName(productName);

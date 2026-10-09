@@ -154,6 +154,10 @@ model Farm {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
+  /// Another farm this one physically shares a stock depot with (e.g. two sites with one real
+  /// warehouse) — Supplies balances/consumption pool across every farm linked this way, directly
+  /// or as the target of another farm's link. Unrelated to any other farm by default.
+  sharesDepotWithFarmId String?
 
   company    Company               @relation(fields: [companyId], references: [id])
   sections   FarmSection[]
@@ -166,6 +170,8 @@ model Farm {
   supplyFromMovements SupplyMovement[] @relation("SupplyFrom")
   supplyToMovements   SupplyMovement[] @relation("SupplyTo")
   coldStorageEntries  ColdStorageEntry[]
+  sharesDepotWith     Farm?   @relation("DepotSharing", fields: [sharesDepotWithFarmId], references: [id])
+  depotSharedBy       Farm[]  @relation("DepotSharing")
 
   @@unique([companyId, code])
   @@index([companyId])

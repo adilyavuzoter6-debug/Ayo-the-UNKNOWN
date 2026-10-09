@@ -33,8 +33,7 @@ export function useCreateSupplyItem() {
 
 export interface ReceiveSupplyInput {
   itemId: string;
-  /** Omit for the company's shared depot (not tied to one farm). */
-  farmId?: string;
+  farmId: string;
   quantity: number;
   note?: string;
   unitPriceAmount?: number;
@@ -61,10 +60,8 @@ export function useReceiveSupply() {
 
 export interface TransferSupplyInput {
   itemId: string;
-  /** Omit for the company's shared depot. */
-  fromFarmId?: string;
-  /** Omit for the company's shared depot. */
-  toFarmId?: string;
+  fromFarmId: string;
+  toFarmId: string;
   quantity: number;
   note?: string;
 }

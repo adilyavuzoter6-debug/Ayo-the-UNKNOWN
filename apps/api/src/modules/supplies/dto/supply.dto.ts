@@ -18,10 +18,8 @@ export class CreateSupplyItemDto {
 }
 
 export class ReceiveSupplyDto {
-  /** Omit for the company's shared depot (not tied to one farm). */
-  @IsOptional()
   @IsString()
-  farmId?: string;
+  farmId!: string;
 
   @IsNumber()
   @IsPositive()
@@ -55,15 +53,11 @@ export class ReceiveSupplyDto {
 }
 
 export class TransferSupplyDto {
-  /** Omit for the company's shared depot. */
-  @IsOptional()
   @IsString()
-  fromFarmId?: string;
+  fromFarmId!: string;
 
-  /** Omit for the company's shared depot. */
-  @IsOptional()
   @IsString()
-  toFarmId?: string;
+  toFarmId!: string;
 
   @IsNumber()
   @IsPositive()

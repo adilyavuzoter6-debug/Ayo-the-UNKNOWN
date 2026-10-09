@@ -46,4 +46,14 @@ export class UpdateFarmDto {
   @IsOptional()
   @IsEnum(FarmStatus)
   status?: FarmStatus;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      "Another farm this one physically shares a stock depot with. Supplies balances/consumption " +
+      "pool across every farm linked this way. Send null to unlink.",
+  })
+  @IsOptional()
+  @IsString()
+  sharesDepotWithFarmId?: string | null;
 }
