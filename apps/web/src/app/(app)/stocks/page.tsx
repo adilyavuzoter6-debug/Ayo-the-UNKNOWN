@@ -18,11 +18,9 @@ import { ReceiveStockDialog } from "@/components/feeding/receive-stock-dialog";
 import { ColdStorageSection } from "@/components/stocks/cold-storage-section";
 import { SupplyStockSection } from "@/components/stocks/supply-stock-section";
 import { useBatchTankStates, useFishBatches } from "@/hooks/use-fish-batches";
-import { useFarmSections } from "@/hooks/use-farm-sections";
 import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import { tankLoad } from "@/lib/farm-production-summary";
 import { TANK_STATUS_LABEL } from "@/lib/tanks";
-import { cn } from "@/lib/utils";
 import type { BatchStatus, FishBatch, TankStatus } from "@/lib/types";
 
 const TANK_STATUS_VARIANT: Record<TankStatus, "default" | "secondary" | "outline"> = {
@@ -140,36 +138,31 @@ export default function StocksPage() {
 }
 
 /**
- * The whole block (farm section) the clicked batch's pond belongs to, as cards — not just that
- * one pond, so the other ponds around it are one click away too. The batch's own pond(s) are
- * highlighted within the block.
+ * The other stocked ponds in the same block as the clicked batch's pond — not just that one pond,
+ * so the ones around it are one click away too. Plain cards, same style for every pond (including
+ * the clicked batch's own), and empty ponds are left out rather than padding the list.
  */
 function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose: () => void }) {
   const { data: tankStates, isLoading: statesLoading, isError: statesError } = useBatchTankStates(batch?.id);
   const primary = tankStates?.[0];
   const farmId = primary?.tank.farmSection.farm.id;
   const sectionId = primary?.tank.farmSectionId;
-  const ownTankIds = new Set((tankStates ?? []).map((s) => s.tankId));
 
   const { rows, isLoading: overviewLoading } = useFarmProductionOverview(farmId ?? "");
-  const { data: sections } = useFarmSections(farmId ?? "");
-  const sectionName = sections?.find((s) => s.id === sectionId)?.name;
-
-  const blockRows = [...rows]
-    .filter((r) => r.tank.farmSectionId === sectionId)
-    .sort((a, b) => a.tank.code.localeCompare(b.tank.code, "tr", { numeric: true }));
   const isLoading = statesLoading || (!!farmId && overviewLoading);
+
+  const blockRows = rows
+    .filter((r) => r.tank.farmSectionId === sectionId)
+    .map((r) => ({ tank: r.tank, load: tankLoad(r.tank, r.allocations) }))
+    .filter((r) => r.load.count > 0)
+    .sort((a, b) => a.tank.code.localeCompare(b.tank.code, "tr", { numeric: true }));
 
   return (
     <Dialog open={batch !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-mono">{batch?.lotCode}</DialogTitle>
-          <DialogDescription>
-            {sectionName
-              ? `${sectionName} bloğundaki havuzlar${primary ? ` · ${primary.tank.farmSection.farm.name}` : ""}`
-              : "Partinin bulunduğu bloktaki havuzlar."}
-          </DialogDescription>
+          <DialogDescription>Partinin bulunduğu bloktaki havuzlar.</DialogDescription>
         </DialogHeader>
 
         {isLoading ? (
@@ -184,41 +177,34 @@ function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose
           <p className="text-sm text-muted-foreground">Bu partinin canlı balığı olan bir havuzu yok.</p>
         ) : (
           <div className="grid max-h-[60vh] gap-2 overflow-y-auto sm:grid-cols-2">
-            {blockRows.map(({ tank, allocations }) => {
-              const load = tankLoad(tank, allocations);
-              const isOwn = ownTankIds.has(tank.id);
-              return (
-                <Link
-                  key={tank.id}
-                  href={`/farms/${farmId}/tanks/${tank.id}`}
-                  className={cn(
-                    "rounded-lg border p-3 text-xs transition-colors hover:ring-teal-500/60",
-                    isOwn ? "border-teal-500/60 bg-teal-500/5" : "border-border bg-card",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-sm font-bold text-navy-900">{tank.code}</span>
-                    <Badge variant={TANK_STATUS_VARIANT[tank.status]} className="shrink-0 text-[10px]">
-                      {TANK_STATUS_LABEL[tank.status]}
-                    </Badge>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div>
-                      <div className="text-muted-foreground">Canlı adet</div>
-                      <div className="font-mono font-medium text-foreground">
-                        {load.count.toLocaleString("tr")}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">Biyokütle</div>
-                      <div className="font-mono font-medium text-teal-500">
-                        {load.count > 0 ? `${(load.biomassKg / 1000).toFixed(2)} t` : "—"}
-                      </div>
+            {blockRows.map(({ tank, load }) => (
+              <Link
+                key={tank.id}
+                href={`/farms/${farmId}/tanks/${tank.id}`}
+                className="rounded-lg border border-border bg-card p-3 text-xs transition-colors hover:ring-teal-500/60"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-sm font-bold text-navy-900">{tank.code}</span>
+                  <Badge variant={TANK_STATUS_VARIANT[tank.status]} className="shrink-0 text-[10px]">
+                    {TANK_STATUS_LABEL[tank.status]}
+                  </Badge>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-muted-foreground">Canlı adet</div>
+                    <div className="font-mono font-medium text-foreground">
+                      {load.count.toLocaleString("tr")}
                     </div>
                   </div>
-                </Link>
-              );
-            })}
+                  <div>
+                    <div className="text-muted-foreground">Biyokütle</div>
+                    <div className="font-mono font-medium text-teal-500">
+                      {(load.biomassKg / 1000).toFixed(2)} t
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
           </div>
         )}
 
