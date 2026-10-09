@@ -27,8 +27,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCreateTreatment, useUpdateTreatment } from "@/hooks/use-treatments";
+import { useSupplyItems } from "@/hooks/use-supplies";
 import { ApiError } from "@/lib/api-error";
 import type { BatchTankAllocation, Treatment } from "@/lib/types";
+
+const NONE_ITEM = "__none__";
 
 /**
  * Pre-fills the product name only — withdrawal period is left for the user to enter from the
@@ -65,16 +68,24 @@ const VACCINATION_PRESETS: TreatmentPreset[] = [
   { productName: "Vibriosis aşısı", withdrawalHint: "Genelde arınma süresi gerekmez." },
 ];
 
-const schema = z.object({
-  batchId: z.string(),
-  type: z.enum(["MEDICATION", "VACCINATION"]),
-  productName: z.string().trim().min(1, "Ürün adı gerekli").max(200),
-  dosage: z.string().optional(),
-  withdrawalPeriodDays: z.coerce.number().int().positive().optional(),
-  startedAt: z.string().min(1),
-  endedAt: z.string().optional(),
-  notes: z.string().max(500).optional(),
-});
+const schema = z
+  .object({
+    batchId: z.string(),
+    type: z.enum(["MEDICATION", "VACCINATION"]),
+    productName: z.string().trim().min(1, "Ürün adı gerekli").max(200),
+    dosage: z.string().optional(),
+    withdrawalPeriodDays: z.coerce.number().int().positive().optional(),
+    startedAt: z.string().min(1),
+    endedAt: z.string().optional(),
+    notes: z.string().max(500).optional(),
+    medicineItemId: z.string().optional(),
+    doseLiters: z.coerce.number().positive().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.medicineItemId && !values.doseLiters) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["doseLiters"], message: "Litre miktarı girin" });
+    }
+  });
 type FormValues = z.infer<typeof schema>;
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -92,6 +103,8 @@ function valuesFor(treatment: Treatment | undefined): FormValues {
     startedAt: treatment.startedAt.slice(0, 10),
     endedAt: treatment.endedAt ? treatment.endedAt.slice(0, 10) : "",
     notes: treatment.notes ?? "",
+    medicineItemId: treatment.medicineItemId ?? undefined,
+    doseLiters: treatment.doseLiters ? Number(treatment.doseLiters) : undefined,
   };
 }
 
@@ -100,12 +113,14 @@ function valuesFor(treatment: Treatment | undefined): FormValues {
  * change the batch: the treatment stays with the batch it was given to.
  */
 export function RecordTreatmentDialog({
+  farmId,
   tankId,
   allocations,
   treatment,
   open: controlledOpen,
   onOpenChange,
 }: {
+  farmId: string;
   tankId: string;
   allocations: BatchTankAllocation[];
   treatment?: Treatment;
@@ -120,6 +135,7 @@ export function RecordTreatmentDialog({
   };
   const createTreatment = useCreateTreatment(tankId);
   const updateTreatment = useUpdateTreatment(tankId);
+  const { data: supplyItems } = useSupplyItems();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -127,9 +143,12 @@ export function RecordTreatmentDialog({
   });
 
   const type = useWatch({ control: form.control, name: "type" });
+  const medicineItemId = useWatch({ control: form.control, name: "medicineItemId" });
   const presets = type === "VACCINATION" ? VACCINATION_PRESETS : MEDICATION_PRESETS;
   const [selectedPresetName, setSelectedPresetName] = React.useState("");
   const selectedPreset = presets.find((p) => p.productName === selectedPresetName);
+  const selectedItem = (supplyItems ?? []).find((i) => i.id === medicineItemId);
+  const selectedItemFarmBalance = selectedItem?.balances.find((b) => b.farmId === farmId)?.quantity ?? 0;
 
   function applyPreset(productName: string) {
     setSelectedPresetName(productName);
@@ -140,6 +159,8 @@ export function RecordTreatmentDialog({
   }
 
   async function onSubmit(values: FormValues) {
+    const linkedMedicineItemId = values.type === "MEDICATION" ? values.medicineItemId : undefined;
+    const linkedDoseLiters = linkedMedicineItemId ? values.doseLiters : undefined;
     try {
       if (treatment) {
         await updateTreatment.mutateAsync({
@@ -151,10 +172,16 @@ export function RecordTreatmentDialog({
           startedAt: values.startedAt,
           endedAt: values.endedAt ? values.endedAt : null,
           notes: values.notes ? values.notes : null,
+          medicineItemId: linkedMedicineItemId ?? null,
+          doseLiters: linkedDoseLiters ?? null,
         });
         toast.success("Kayıt güncellendi.");
       } else {
-        await createTreatment.mutateAsync(values);
+        await createTreatment.mutateAsync({
+          ...values,
+          medicineItemId: linkedMedicineItemId,
+          doseLiters: linkedDoseLiters,
+        });
         toast.success(
           values.type === "VACCINATION" ? "Aşı kaydı eklendi." : "Tedavi kaydı eklendi.",
         );
@@ -174,7 +201,7 @@ export function RecordTreatmentDialog({
         if (!next) form.reset(valuesFor(treatment));
       }}
     >
-      {treatment ? null : (
+      {controlledOpen !== undefined ? null : (
         <DialogTrigger
           render={
             <Button variant="outline" size="sm">
@@ -320,6 +347,70 @@ export function RecordTreatmentDialog({
                 </FormItem>
               )}
             />
+
+            {type === "MEDICATION" ? (
+              <>
+                <FormField
+                  control={form.control}
+                  name="medicineItemId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Stoktan düş (opsiyonel)</FormLabel>
+                      <Select
+                        value={field.value ?? NONE_ITEM}
+                        onValueChange={(v) => field.onChange(v === NONE_ITEM ? undefined : v)}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Stok takibi yapma">
+                              {(v: string) =>
+                                v === NONE_ITEM
+                                  ? "Stok takibi yapma"
+                                  : (supplyItems ?? []).find((i) => i.id === v)?.name
+                              }
+                            </SelectValue>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={NONE_ITEM}>Stok takibi yapma</SelectItem>
+                          {(supplyItems ?? []).map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.name} ({item.unit})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {(supplyItems ?? []).length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Henüz bir stok ürünü yok — Stoklar sayfasından bir ilaç ürünü ekleyebilirsiniz.
+                        </p>
+                      ) : null}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {medicineItemId ? (
+                  <FormField
+                    control={form.control}
+                    name="doseLiters"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Kullanılan miktar ({selectedItem?.unit ?? "litre"})</FormLabel>
+                        <FormControl>
+                          <Input type="number" min={0} step="0.01" {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <p className="text-[11px] text-muted-foreground">
+                          Bu çiftlikte stokta: {selectedItemFarmBalance.toLocaleString("tr")}{" "}
+                          {selectedItem?.unit}. Kaydedince stoktan düşülür.
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
+              </>
+            ) : null}
 
             <div className="grid grid-cols-2 gap-3">
               <FormField

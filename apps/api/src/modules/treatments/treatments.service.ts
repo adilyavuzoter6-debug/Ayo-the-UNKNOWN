@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { SuppliesService } from "../supplies/supplies.service";
 import type { CreateTreatmentDto } from "./dto/create-treatment.dto";
 import type { UpdateTreatmentDto } from "./dto/update-treatment.dto";
 
@@ -15,12 +16,17 @@ export class TreatmentsService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly suppliesService: SuppliesService,
   ) {}
 
+  /** Also used to resolve which farm's medicine stock a dose is drawn from. */
   private async assertTankInTenant(companyId: string, tankId: string) {
     const tank = await this.tenantPrisma
       .forTenant(companyId)
-      .tank.findFirst({ where: { id: tankId, deletedAt: null } });
+      .tank.findFirst({
+        where: { id: tankId, deletedAt: null },
+        include: { farmSection: true },
+      });
     if (!tank) {
       throw new NotFoundException("Tank not found.");
     }
@@ -38,8 +44,21 @@ export class TreatmentsService {
   }
 
   async create(companyId: string, tankId: string, userId: string, dto: CreateTreatmentDto) {
-    await this.assertTankInTenant(companyId, tankId);
+    const tank = await this.assertTankInTenant(companyId, tankId);
     await this.assertBatchInTenant(companyId, dto.batchId);
+    if ((dto.medicineItemId == null) !== (dto.doseLiters == null)) {
+      throw new BadRequestException("İlaç stoğundan düşmek için hem ürün hem de litre miktarı girilmeli.");
+    }
+
+    const startedAt = new Date(dto.startedAt);
+    const stockMovement = dto.medicineItemId
+      ? await this.suppliesService.consume(companyId, userId, dto.medicineItemId, {
+          farmId: tank.farmSection.farmId,
+          quantity: dto.doseLiters!,
+          occurredAt: startedAt,
+          note: `Tedavi: ${dto.productName}`,
+        })
+      : null;
 
     const treatment = await this.tenantPrisma.forTenant(companyId).treatment.create({
       data: {
@@ -50,11 +69,14 @@ export class TreatmentsService {
         productName: dto.productName,
         dosage: dto.dosage,
         withdrawalPeriodDays: dto.withdrawalPeriodDays,
-        startedAt: new Date(dto.startedAt),
+        startedAt,
         endedAt: dto.endedAt ? new Date(dto.endedAt) : undefined,
         veterinarianId: dto.veterinarianId,
         createdById: userId,
         notes: dto.notes,
+        medicineItemId: dto.medicineItemId,
+        doseLiters: dto.doseLiters,
+        stockMovementId: stockMovement?.id,
       },
     });
 
@@ -75,7 +97,7 @@ export class TreatmentsService {
    * withdrawal period takes effect immediately — the same record is the source of truth either way.
    */
   async update(companyId: string, tankId: string, userId: string, treatmentId: string, dto: UpdateTreatmentDto) {
-    await this.assertTankInTenant(companyId, tankId);
+    const tank = await this.assertTankInTenant(companyId, tankId);
     const client = this.tenantPrisma.forTenant(companyId);
     const existing = await client.treatment.findFirst({
       where: { id: treatmentId, tankId, deletedAt: null },
@@ -91,6 +113,33 @@ export class TreatmentsService {
       throw new BadRequestException("Bitiş tarihi başlangıç tarihinden önce olamaz.");
     }
 
+    // The stock link is only touched when the caller actually sends one of these two fields —
+    // otherwise the existing dose (and the movement it already drew) is left exactly as it was.
+    let stockFields: { medicineItemId: string | null; doseLiters: number | null; stockMovementId: string | null } | null = null;
+    if (dto.medicineItemId !== undefined || dto.doseLiters !== undefined) {
+      const nextItemId = dto.medicineItemId !== undefined ? dto.medicineItemId : existing.medicineItemId;
+      const nextLiters =
+        dto.doseLiters !== undefined ? dto.doseLiters : existing.doseLiters ? Number(existing.doseLiters) : null;
+      if ((nextItemId == null) !== (nextLiters == null)) {
+        throw new BadRequestException("İlaç stoğundan düşmek için hem ürün hem de litre miktarı girilmeli.");
+      }
+      const changed = nextItemId !== existing.medicineItemId || nextLiters !== (existing.doseLiters ? Number(existing.doseLiters) : null);
+      if (changed) {
+        if (existing.stockMovementId) {
+          await this.suppliesService.removeMovement(companyId, userId, existing.stockMovementId);
+        }
+        const movement = nextItemId
+          ? await this.suppliesService.consume(companyId, userId, nextItemId, {
+              farmId: tank.farmSection.farmId,
+              quantity: nextLiters!,
+              occurredAt: startedAt,
+              note: `Tedavi: ${dto.productName ?? existing.productName}`,
+            })
+          : null;
+        stockFields = { medicineItemId: nextItemId, doseLiters: nextLiters, stockMovementId: movement?.id ?? null };
+      }
+    }
+
     await client.treatment.updateMany({
       where: { id: treatmentId, tankId, deletedAt: null },
       data: {
@@ -102,6 +151,7 @@ export class TreatmentsService {
         startedAt,
         endedAt,
         notes: dto.notes === undefined ? existing.notes : dto.notes,
+        ...(stockFields ?? {}),
       },
     });
 
@@ -124,6 +174,17 @@ export class TreatmentsService {
   async remove(companyId: string, tankId: string, userId: string, treatmentId: string) {
     await this.assertTankInTenant(companyId, tankId);
     const client = this.tenantPrisma.forTenant(companyId);
+    const existing = await client.treatment.findFirst({
+      where: { id: treatmentId, tankId, deletedAt: null },
+    });
+    if (!existing) {
+      throw new NotFoundException("Treatment not found.");
+    }
+
+    if (existing.stockMovementId) {
+      await this.suppliesService.removeMovement(companyId, userId, existing.stockMovementId);
+    }
+
     const result = await client.treatment.updateMany({
       where: { id: treatmentId, tankId, deletedAt: null },
       data: { deletedAt: new Date() },

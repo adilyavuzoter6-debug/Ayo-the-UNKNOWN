@@ -218,7 +218,7 @@ export default function HealthPage() {
             </SelectContent>
           </Select>
           {tankId && allocations && allocations.length > 0 ? (
-            <RecordTreatmentDialog tankId={tankId} allocations={allocations} />
+            <RecordTreatmentDialog farmId={farmId} tankId={tankId} allocations={allocations} />
           ) : null}
         </div>
 
@@ -285,6 +285,7 @@ export default function HealthPage() {
 
       {editingTreatment && tankId ? (
         <RecordTreatmentDialog
+          farmId={farmId}
           tankId={tankId}
           allocations={allocations ?? []}
           treatment={editingTreatment}

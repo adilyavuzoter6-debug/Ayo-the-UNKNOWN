@@ -22,6 +22,8 @@ import { CreateTankDialog } from "@/components/tanks/create-tank-dialog";
 import { TankDetailsSheet } from "@/components/tanks/tank-details-sheet";
 import { EditSectionDialog } from "@/components/farms/edit-section-dialog";
 import { OverviewStat } from "@/components/farms/overview-stat";
+import { BlockDailyEntryDialog } from "@/components/farms/block-daily-entry-dialog";
+import { BlockTreatmentDialog } from "@/components/farms/block-treatment-dialog";
 import { useDeleteFarmSection } from "@/hooks/use-farm-sections";
 import type { TankProductionRow } from "@/hooks/use-production-overview";
 import { ApiError } from "@/lib/api-error";
@@ -144,7 +146,15 @@ export function SectionCard({
               ))}
             </div>
           ) : (
-            <BlockDetailStats tanks={tanks} rows={rows} />
+            <>
+              <BlockDetailStats tanks={tanks} rows={rows} />
+              {rows.some((r) => r.allocations.length > 0) ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <BlockDailyEntryDialog farmId={farmId} rows={rows} />
+                  <BlockTreatmentDialog farmId={farmId} rows={rows} />
+                </div>
+              ) : null}
+            </>
           )}
           {rowsLoading ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

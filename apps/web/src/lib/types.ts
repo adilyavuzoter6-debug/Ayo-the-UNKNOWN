@@ -300,6 +300,11 @@ export interface Treatment {
   createdById: string;
   notes: string | null;
   createdAt: string;
+  /** Stock item this dose was drawn from, if any — see SupplyItemStock. */
+  medicineItemId: string | null;
+  /** Decimal from the API, so a string. */
+  doseLiters: string | null;
+  stockMovementId: string | null;
 }
 
 export type CostCategory =

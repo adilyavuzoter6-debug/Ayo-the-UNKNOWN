@@ -7,5 +7,6 @@ import { SuppliesService } from "./supplies.service";
   imports: [AuditModule],
   providers: [SuppliesService],
   controllers: [SuppliesController],
+  exports: [SuppliesService],
 })
 export class SuppliesModule {}

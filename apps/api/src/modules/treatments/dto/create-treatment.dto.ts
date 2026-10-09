@@ -4,6 +4,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -57,4 +58,17 @@ export class CreateTreatmentDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: "Stock item (from /supply-items) this dose is drawn from. Requires doseLiters.",
+  })
+  @IsOptional()
+  @IsString()
+  medicineItemId?: string;
+
+  @ApiPropertyOptional({ example: 2.5, description: "Amount drawn from medicineItemId's stock, in liters" })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  doseLiters?: number;
 }

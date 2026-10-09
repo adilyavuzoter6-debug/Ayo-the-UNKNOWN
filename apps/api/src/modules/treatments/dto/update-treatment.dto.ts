@@ -1,6 +1,15 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
 import { TreatmentType } from "@prisma/client";
-import { IsDateString, IsEnum, IsInt, IsOptional, IsPositive, IsString, MaxLength } from "class-validator";
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  MaxLength,
+} from "class-validator";
 
 /**
  * Every field optional — a correction names only what changed. A nullable field (dosage, withdrawal
@@ -46,4 +55,18 @@ export class UpdateTreatmentDto {
   @IsString()
   @MaxLength(500)
   notes?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: "Stock item this dose is drawn from. Send both this and doseLiters, or both null to unlink.",
+  })
+  @IsOptional()
+  @IsString()
+  medicineItemId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: 2.5 })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  doseLiters?: number | null;
 }

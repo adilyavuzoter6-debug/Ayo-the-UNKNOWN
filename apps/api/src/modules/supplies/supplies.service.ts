@@ -14,7 +14,7 @@ const round3 = (n: number) => Math.round(n * 1000) / 1000;
 interface MovementLike {
   id?: string;
   itemId: string;
-  kind: "RECEIVED" | "TRANSFER";
+  kind: "RECEIVED" | "TRANSFER" | "CONSUMED";
   quantity: unknown;
   fromFarmId: string | null;
   toFarmId: string | null;
@@ -220,6 +220,50 @@ export class SuppliesService {
         fromFarmId: dto.fromFarmId,
         toFarmId: dto.toFarmId,
       },
+    });
+    return movement;
+  }
+
+  /**
+   * Draws a quantity out of stock by use rather than moving it to another farm — e.g. a liquid
+   * medicine dose recorded against a treatment. Refused when the farm does not hold that much.
+   */
+  async consume(
+    companyId: string,
+    userId: string,
+    itemId: string,
+    input: { farmId: string; quantity: number; occurredAt?: Date; note?: string },
+  ) {
+    const item = await this.assertItem(companyId, itemId);
+    await this.assertFarm(companyId, input.farmId);
+
+    const movements = await this.itemMovements(companyId, itemId);
+    const available = balancesByFarm(movements).get(input.farmId) ?? 0;
+    if (input.quantity > available) {
+      throw new BadRequestException(
+        `Bu çiftlikte "${item.name}" stoğundan yalnızca ${available} ${item.unit} var.`,
+      );
+    }
+
+    const movement = await this.tenantPrisma.forTenant(companyId).supplyMovement.create({
+      data: {
+        companyId,
+        itemId,
+        kind: "CONSUMED",
+        quantity: round3(input.quantity),
+        fromFarmId: input.farmId,
+        occurredAt: input.occurredAt ?? new Date(),
+        note: input.note?.trim() || null,
+        createdById: userId,
+      },
+    });
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "CREATE",
+      entityType: "SupplyMovement",
+      entityId: movement.id,
+      newValue: { itemId, kind: "CONSUMED", quantity: movement.quantity.toString(), fromFarmId: input.farmId },
     });
     return movement;
   }

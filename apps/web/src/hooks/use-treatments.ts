@@ -25,6 +25,9 @@ export interface CreateTreatmentInput {
   endedAt?: string;
   veterinarianId?: string;
   notes?: string;
+  /** Requires doseLiters — draws that amount from this stock item on save. */
+  medicineItemId?: string;
+  doseLiters?: number;
 }
 
 export function useCreateTreatment(tankId: string) {
@@ -36,6 +39,7 @@ export function useCreateTreatment(tankId: string) {
       api.post<Treatment>(`/tanks/${tankId}/treatments`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["treatments", companyId, tankId] });
+      queryClient.invalidateQueries({ queryKey: ["supply-items", companyId] });
     },
   });
 }
@@ -50,6 +54,8 @@ export interface UpdateTreatmentInput {
   startedAt?: string;
   endedAt?: string | null;
   notes?: string | null;
+  medicineItemId?: string | null;
+  doseLiters?: number | null;
 }
 
 export function useUpdateTreatment(tankId: string) {
@@ -62,6 +68,7 @@ export function useUpdateTreatment(tankId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["treatments", companyId, tankId] });
       queryClient.invalidateQueries({ queryKey: ["fish-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["supply-items", companyId] });
     },
   });
 }
@@ -76,6 +83,7 @@ export function useDeleteTreatment(tankId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["treatments", companyId, tankId] });
       queryClient.invalidateQueries({ queryKey: ["fish-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["supply-items", companyId] });
     },
   });
 }

@@ -628,9 +628,18 @@ model Treatment {
   notes                String?
   createdAt            DateTime      @default(now())
   deletedAt            DateTime?
+  /// Liquid medicine drawn from stock for this dose. Both this and doseLiters are set together,
+  /// or neither — a treatment doesn't have to be tied to a tracked stock item at all.
+  medicineItemId       String?
+  doseLiters           Decimal?      @db.Decimal(10, 3)
+  /// The SupplyMovement (kind CONSUMED) this dose deducted from medicineItem's stock. Reversed
+  /// (soft-deleted) if the treatment is corrected or removed, so the stock balance stays accurate.
+  stockMovementId      String?       @unique
 
-  batch FishBatch @relation(fields: [batchId], references: [id])
-  tank  Tank      @relation(fields: [tankId], references: [id])
+  batch         FishBatch       @relation(fields: [batchId], references: [id])
+  tank          Tank            @relation(fields: [tankId], references: [id])
+  medicineItem  SupplyItem?     @relation(fields: [medicineItemId], references: [id])
+  stockMovement SupplyMovement? @relation(fields: [stockMovementId], references: [id])
 
   @@index([companyId, batchId])
   @@index([companyId, tankId])
@@ -1005,7 +1014,8 @@ model SupplyItem {
   createdById String
   createdAt   DateTime @default(now())
 
-  movements SupplyMovement[]
+  movements  SupplyMovement[]
+  treatments Treatment[]
 
   @@index([companyId])
   @@map("supply_items")
@@ -1014,6 +1024,9 @@ model SupplyItem {
 enum SupplyMovementKind {
   RECEIVED
   TRANSFER
+  /// Drawn out of stock by use (e.g. a liquid medicine dose) rather than moved to another farm —
+  /// only fromFarmId is set.
+  CONSUMED
 }
 
 model SupplyMovement {
@@ -1030,9 +1043,10 @@ model SupplyMovement {
   createdAt   DateTime           @default(now())
   deletedAt   DateTime?
 
-  item     SupplyItem @relation(fields: [itemId], references: [id])
-  fromFarm Farm?      @relation("SupplyFrom", fields: [fromFarmId], references: [id])
-  toFarm   Farm?      @relation("SupplyTo", fields: [toFarmId], references: [id])
+  item      SupplyItem @relation(fields: [itemId], references: [id])
+  fromFarm  Farm?      @relation("SupplyFrom", fields: [fromFarmId], references: [id])
+  toFarm    Farm?      @relation("SupplyTo", fields: [toFarmId], references: [id])
+  treatment Treatment?
 
   @@index([companyId, itemId])
   @@map("supply_movements")
