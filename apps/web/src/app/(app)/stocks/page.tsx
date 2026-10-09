@@ -138,9 +138,8 @@ export default function StocksPage() {
 }
 
 /**
- * The other stocked ponds in the same block as the clicked batch's pond — not just that one pond,
- * so the ones around it are one click away too. Plain cards, same style for every pond (including
- * the clicked batch's own), and empty ponds are left out rather than padding the list.
+ * Every pond in the same block as the clicked batch's pond — stocked or empty — not just that one
+ * pond, so the whole block is one click away. Plain cards, same style for every pond.
  */
 function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose: () => void }) {
   const { data: tankStates, isLoading: statesLoading, isError: statesError } = useBatchTankStates(batch?.id);
@@ -154,7 +153,6 @@ function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose
   const blockRows = rows
     .filter((r) => r.tank.farmSectionId === sectionId)
     .map((r) => ({ tank: r.tank, load: tankLoad(r.tank, r.allocations) }))
-    .filter((r) => r.load.count > 0)
     .sort((a, b) => a.tank.code.localeCompare(b.tank.code, "tr", { numeric: true }));
 
   return (
@@ -199,7 +197,7 @@ function BatchPondsDialog({ batch, onClose }: { batch: FishBatch | null; onClose
                   <div>
                     <div className="text-muted-foreground">Biyokütle</div>
                     <div className="font-mono font-medium text-teal-500">
-                      {(load.biomassKg / 1000).toFixed(2)} t
+                      {load.count > 0 ? `${(load.biomassKg / 1000).toFixed(2)} t` : "—"}
                     </div>
                   </div>
                 </div>
