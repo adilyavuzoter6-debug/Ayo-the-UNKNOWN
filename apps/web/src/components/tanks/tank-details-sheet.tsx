@@ -29,6 +29,8 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -44,6 +46,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useCreateFishBatchAdjustment, useTankFishBatches } from "@/hooks/use-fish-batches";
+import { useRecordWeightSample } from "@/hooks/use-weight-samples";
 import { useDeleteTank, useUpdateTank } from "@/hooks/use-tanks";
 import { ApiError } from "@/lib/api-error";
 import { TANK_STATUS_LABEL, TANK_TYPE_LABEL } from "@/lib/tanks";
@@ -139,6 +143,8 @@ export function TankDetailsSheet({
                 Mobil uygulamada bu havuzu açmak için okutun (saha iş akışları eklendiğinde).
               </p>
             </div>
+
+            <StockQuickEditSection farmId={farmId} tank={tank} />
 
             <Form {...form}>
               <form
@@ -289,5 +295,109 @@ export function TankDetailsSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Lets the pond's live count and average weight be corrected directly from this sheet, instead of
+ * needing the Sağlık & Ölüm page (mortality) or a separate weighing dialog for a plain recount. A
+ * count change books a signed ADJUSTMENT (not a death); a weight change books an AGGREGATE weight
+ * sample at the new value — the same two mechanisms those other flows use, just inline here.
+ */
+function StockQuickEditSection({ farmId, tank }: { farmId: string; tank: Tank }) {
+  const { data: allocations, isLoading } = useTankFishBatches(tank.id);
+  const allocation = allocations?.[0];
+  const adjustCount = useCreateFishBatchAdjustment(farmId, allocation?.batchId ?? "");
+  const recordWeight = useRecordWeightSample(farmId, tank.id);
+
+  const currentCount = allocation?.estimatedCount ?? 0;
+  const currentWeightG = allocation
+    ? Number(allocation.batch.currentState?.estimatedAvgWeightG ?? allocation.batch.initialAvgWeightG)
+    : 0;
+
+  // Mirrors the server value into the inputs whenever it changes — a different tank opened, or a
+  // save just landed — so a stale edit never lingers once it's been applied. Adjusted during
+  // render (React's documented pattern for this) rather than an effect, which would cascade an
+  // extra render for what's otherwise plain derived state.
+  const resetKey = `${tank.id}:${allocation?.batchId ?? ""}:${currentCount}:${currentWeightG}`;
+  const [lastResetKey, setLastResetKey] = React.useState(resetKey);
+  const [countText, setCountText] = React.useState(allocation ? String(currentCount) : "");
+  const [weightText, setWeightText] = React.useState(allocation ? String(currentWeightG) : "");
+  if (resetKey !== lastResetKey) {
+    setLastResetKey(resetKey);
+    setCountText(allocation ? String(currentCount) : "");
+    setWeightText(allocation ? String(currentWeightG) : "");
+  }
+
+  if (isLoading) {
+    return (
+      <div className="px-4">
+        <Skeleton className="h-24 rounded-md" />
+      </div>
+    );
+  }
+  if (!allocation) {
+    return null;
+  }
+
+  const countNum = countText === "" ? currentCount : Math.round(Number(countText));
+  const weightNum = weightText === "" ? currentWeightG : Number(weightText);
+  const countChanged = countText !== "" && countNum !== currentCount;
+  const weightChanged = weightText !== "" && weightNum !== currentWeightG;
+  const pending = adjustCount.isPending || recordWeight.isPending;
+
+  async function onSave() {
+    try {
+      if (countChanged) {
+        await adjustCount.mutateAsync({ tankId: tank.id, fishCount: countNum - currentCount });
+      }
+      if (weightChanged && weightNum > 0) {
+        await recordWeight.mutateAsync({
+          batchId: allocation!.batchId,
+          sampleMethod: "AGGREGATE",
+          avgWeightG: weightNum,
+          sampleSize: countNum > 0 ? countNum : currentCount,
+        });
+      }
+      toast.success("Balık bilgileri güncellendi.");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Güncellenirken bir sorun oluştu.");
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border px-4 py-4">
+      <div>
+        <p className="text-sm font-medium text-foreground">Balık bilgisi</p>
+        <p className="text-xs text-muted-foreground">
+          {allocation.batch.lotCode} · {allocation.batch.species.name}
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label>Canlı adet</Label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={countText}
+            onChange={(e) => setCountText(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Ortalama ağırlık (g)</Label>
+          <Input
+            type="number"
+            min={0}
+            step="0.1"
+            value={weightText}
+            onChange={(e) => setWeightText(e.target.value)}
+          />
+        </div>
+      </div>
+      <Button size="sm" disabled={pending || (!countChanged && !weightChanged)} onClick={onSave}>
+        {pending ? "Kaydediliyor…" : "Balık bilgilerini kaydet"}
+      </Button>
+    </div>
   );
 }

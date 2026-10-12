@@ -162,6 +162,31 @@ export function useMergeBatches(farmId: string) {
   });
 }
 
+export interface CreateAdjustmentInput {
+  /** Signed — positive gives fish back, negative takes them away. */
+  tankId: string;
+  fishCount: number;
+  occurredAt?: string;
+  notes?: string;
+}
+
+/** A direct correction to a batch's count in one tank — not a death, not a transfer. For fixing a
+ *  count that was wrong for some other reason (a stocking typo, a recount) without it reading as
+ *  mortality. */
+export function useCreateFishBatchAdjustment(farmId: string, batchId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAdjustmentInput) =>
+      api.post<FishBatch>(`/fish-batches/${batchId}/adjustments`, input),
+    onSuccess: () => {
+      invalidateAfterMovement(queryClient, companyId, farmId);
+      queryClient.invalidateQueries({ queryKey: ["fish-batches", companyId, batchId] });
+    },
+  });
+}
+
 /** The ponds a batch is in right now. Read-only; loads when a batch is opened. */
 export function useBatchTankStates(batchId: string | undefined) {
   const api = useApiClient();
