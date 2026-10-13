@@ -26,6 +26,8 @@ import {
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useApiClient } from "@/lib/api-client";
 import { useInventoryBatches } from "@/hooks/use-feed-inventory";
+import { useFarms } from "@/hooks/use-farms";
+import { depotGroupFarmIds } from "@/lib/depot-group";
 import { tankLoad } from "@/lib/farm-production-summary";
 import { MORTALITY_REASON_LABEL } from "@/lib/tanks";
 import { cn } from "@/lib/utils";
@@ -86,6 +88,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
   const { companyId } = useActiveCompany();
   const queryClient = useQueryClient();
   const { data: inventoryBatches } = useInventoryBatches();
+  const { data: farms } = useFarms();
 
   const [occurredAt, setOccurredAt] = React.useState(() => new Date().toISOString().slice(0, 10));
   const [reason, setReason] = React.useState<MortalityReason>("UNKNOWN");
@@ -110,8 +113,11 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
       };
     });
 
+  // Includes lots received at a farm this one shares a physical depot with (Çiftlik → Ayarlar),
+  // not just this exact farm's own warehouses.
+  const depotFarmIds = depotGroupFarmIds(farms, farmId);
   const availableLots = (inventoryBatches ?? []).filter(
-    (b) => b.warehouse.farmId === farmId && Number(b.balance?.quantityOnHandKg ?? 0) > 0,
+    (b) => depotFarmIds.includes(b.warehouse.farmId) && Number(b.balance?.quantityOnHandKg ?? 0) > 0,
   );
 
   function setRowValue(tankId: string, field: "mortality" | "feedKg", value: string) {

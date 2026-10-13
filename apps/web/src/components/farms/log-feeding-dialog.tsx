@@ -34,8 +34,10 @@ import {
 } from "@/components/ui/select";
 import { useLogFeeding } from "@/hooks/use-feeding-events";
 import { useInventoryBatches } from "@/hooks/use-feed-inventory";
+import { useFarms } from "@/hooks/use-farms";
 import { useTankWaterQualityReadings } from "@/hooks/use-water-quality";
 import { ApiError } from "@/lib/api-error";
+import { depotGroupFarmIds } from "@/lib/depot-group";
 import { estimateFeedingRate } from "@/lib/feeding-calculator";
 import type { BatchTankAllocation } from "@/lib/types";
 
@@ -58,11 +60,15 @@ export function LogFeedingDialog({
 }) {
   const [open, setOpen] = React.useState(false);
   const { data: inventoryBatches } = useInventoryBatches();
+  const { data: farms } = useFarms();
   const { data: readings } = useTankWaterQualityReadings(tankId);
   const logFeeding = useLogFeeding(farmId, tankId);
 
+  // Includes lots received at a farm this one shares a physical depot with (Çiftlik → Ayarlar),
+  // not just this exact farm's own warehouses.
+  const depotFarmIds = depotGroupFarmIds(farms, farmId);
   const availableLots = (inventoryBatches ?? []).filter(
-    (b) => b.warehouse.farmId === farmId && Number(b.balance?.quantityOnHandKg ?? 0) > 0,
+    (b) => depotFarmIds.includes(b.warehouse.farmId) && Number(b.balance?.quantityOnHandKg ?? 0) > 0,
   );
 
   const form = useForm<FormValues>({
