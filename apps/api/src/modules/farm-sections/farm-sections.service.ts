@@ -85,11 +85,22 @@ export class FarmSectionsService {
     return updated;
   }
 
+  /**
+   * Also soft-deletes the section's own (still-live) tanks — otherwise they keep surfacing in
+   * every farm-wide tank listing (Stoklar, Üretim, ...) with nothing marking them as belonging to
+   * a now-deleted block, and a pond code they happen to share with an active block's pond reads
+   * as the same pond listed twice.
+   */
   async remove(companyId: string, sectionId: string, userId: string) {
     const existing = await this.findById(companyId, sectionId);
+    const client = this.tenantPrisma.forTenant(companyId);
 
-    const removed = await this.tenantPrisma.forTenant(companyId).farmSection.update({
+    const removed = await client.farmSection.update({
       where: { id: sectionId },
+      data: { deletedAt: new Date() },
+    });
+    const { count: tanksRemoved } = await client.tank.updateMany({
+      where: { farmSectionId: sectionId, deletedAt: null },
       data: { deletedAt: new Date() },
     });
 
@@ -100,6 +111,7 @@ export class FarmSectionsService {
       entityType: "FarmSection",
       entityId: sectionId,
       previousValue: { name: existing.name },
+      newValue: { tanksRemoved },
     });
 
     return removed;

@@ -65,8 +65,12 @@ export class TanksService {
   }
 
   async listForFarm(companyId: string, farmId: string) {
+    // farmSection.deletedAt: null matters here specifically — a tank's own deletedAt is untouched
+    // when its section is deleted (see FarmSectionsService.remove's cascade), so without this a
+    // deleted section's tanks keep surfacing in every farm-wide listing, including re-using pond
+    // codes an active section already has (looks like the same pond listed twice).
     const tanks = await this.tenantPrisma.forTenant(companyId).tank.findMany({
-      where: { deletedAt: null, farmSection: { farmId } },
+      where: { deletedAt: null, farmSection: { farmId, deletedAt: null } },
     });
     return naturalSortByCode(tanks);
   }
