@@ -11,6 +11,14 @@ export interface TankLoad {
 /** Share of capacity at or above which a pond is treated as crowded. */
 export const CROWDED_CAPACITY_RATIO = 0.8;
 
+/** An average weight as a label, e.g. "189 g" or "0.14 g" — whole grams once the fish are past
+ *  fry stage, but kept to two decimals below 10 g (rounding a fresh hatchling's 0.14 g to the
+ *  nearest whole gram reads as "0 g", which hides the only number that stage is tracked by). */
+export function formatAvgWeightG(avgWeightG: number): string {
+  const decimals = avgWeightG < 10 ? 2 : 0;
+  return `${avgWeightG.toLocaleString("tr", { minimumFractionDigits: 0, maximumFractionDigits: decimals })} g`;
+}
+
 /** One pond's count and biomass. Biomass = count × current (or, if none, initial) average weight. */
 export function tankLoad(tank: Tank, allocations: BatchTankAllocation[]): TankLoad {
   const count = allocations.reduce((sum, a) => sum + a.estimatedCount, 0);

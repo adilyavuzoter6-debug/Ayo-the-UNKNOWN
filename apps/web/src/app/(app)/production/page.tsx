@@ -21,6 +21,7 @@ import { useFarmProductionOverview } from "@/hooks/use-production-overview";
 import {
   CROWDED_CAPACITY_RATIO,
   estimateDaysToTarget,
+  formatAvgWeightG,
   summarizeFarmProduction,
   tankLoad,
   type FarmProductionSummary,
@@ -213,7 +214,7 @@ function FarmSummaryCards({
     },
     {
       label: "Ortalama ağırlık",
-      value: summary.avgWeightG === null ? "—" : `${Math.round(summary.avgWeightG).toLocaleString("tr")} g`,
+      value: summary.avgWeightG === null ? "—" : formatAvgWeightG(summary.avgWeightG),
       note: "Canlı balığa göre ağırlıklı",
     },
     {

@@ -27,7 +27,7 @@ import { BlockTreatmentDialog } from "@/components/farms/block-treatment-dialog"
 import { useDeleteFarmSection } from "@/hooks/use-farm-sections";
 import type { TankProductionRow } from "@/hooks/use-production-overview";
 import { ApiError } from "@/lib/api-error";
-import { summarizeFarmProduction, tankLoad } from "@/lib/farm-production-summary";
+import { formatAvgWeightG, summarizeFarmProduction, tankLoad } from "@/lib/farm-production-summary";
 import { TANK_STATUS_LABEL, TANK_TYPE_LABEL } from "@/lib/tanks";
 import type { FarmSection, Tank, TankStatus } from "@/lib/types";
 
@@ -292,7 +292,7 @@ function BlockDetailStats({ tanks, rows }: { tanks: Tank[]; rows: TankProduction
       <OverviewStat icon={Weight} label="Biyokütle" value={`${(summary.biomassKg / 1000).toFixed(2)} t`} accent />
       <OverviewStat
         label="Ort. Ağırlık"
-        value={summary.avgWeightG !== null ? `${Math.round(summary.avgWeightG).toLocaleString("tr")} g` : "—"}
+        value={summary.avgWeightG !== null ? formatAvgWeightG(summary.avgWeightG) : "—"}
       />
       <OverviewStat
         label="Kapasite"
