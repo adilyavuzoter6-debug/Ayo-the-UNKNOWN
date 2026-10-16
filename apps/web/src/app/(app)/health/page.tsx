@@ -29,68 +29,128 @@ import {
 import { RecordTreatmentDialog } from "@/components/health/record-treatment-dialog";
 import { ReportMortalityDialog } from "@/components/farms/report-mortality-dialog";
 import { useFarms } from "@/hooks/use-farms";
+import { useFarmSections } from "@/hooks/use-farm-sections";
 import { useFarmTanks } from "@/hooks/use-tanks";
 import { useTankFishBatches } from "@/hooks/use-fish-batches";
 import { useDeleteTreatment, useTankTreatments } from "@/hooks/use-treatments";
 import { useFarmMortalityLog, type MortalityLogEntry } from "@/hooks/use-farm-mortality-log";
 import { MORTALITY_REASON_LABEL as REASON_LABEL } from "@/lib/tanks";
+import { cn } from "@/lib/utils";
 import type { BatchTankAllocation, MortalityReason, Treatment } from "@/lib/types";
 
-const TREND_WEEKS = 12;
+type TrendPeriod = "DAILY" | "WEEKLY" | "MONTHLY";
+type TrendGrouping = "REASON" | "BLOCK";
 const TREND_SERIES_COLORS = [
   "var(--color-destructive)",
   "var(--color-warning)",
   "#8b5cf6",
   "var(--color-muted-foreground)",
 ];
+const OTHER_KEY = "__OTHER__";
+
+const dayStart = (d: Date) => {
+  const c = new Date(d);
+  c.setHours(0, 0, 0, 0);
+  return c;
+};
+const weekStart = (d: Date) => {
+  const c = dayStart(d);
+  const diff = (c.getDay() + 6) % 7; // Monday-start week
+  c.setDate(c.getDate() - diff);
+  return c;
+};
+const monthStart = (d: Date) => {
+  const c = dayStart(d);
+  c.setDate(1);
+  return c;
+};
+
+const TREND_PERIOD_CONFIG: Record<
+  TrendPeriod,
+  { label: string; buckets: number; bucketStart: (d: Date) => Date; step: (d: Date, n: number) => Date; format: (d: Date) => string }
+> = {
+  DAILY: {
+    label: "son 30 gün",
+    buckets: 30,
+    bucketStart: dayStart,
+    step: (d, n) => {
+      const c = new Date(d);
+      c.setDate(c.getDate() + n);
+      return c;
+    },
+    format: (d) => d.toLocaleDateString("tr", { day: "2-digit", month: "2-digit" }),
+  },
+  WEEKLY: {
+    label: "son 12 hafta",
+    buckets: 12,
+    bucketStart: weekStart,
+    step: (d, n) => {
+      const c = new Date(d);
+      c.setDate(c.getDate() + n * 7);
+      return c;
+    },
+    format: (d) => d.toLocaleDateString("tr", { day: "2-digit", month: "2-digit" }),
+  },
+  MONTHLY: {
+    label: "son 12 ay",
+    buckets: 12,
+    bucketStart: monthStart,
+    step: (d, n) => {
+      const c = new Date(d);
+      c.setMonth(c.getMonth() + n);
+      return c;
+    },
+    format: (d) => d.toLocaleDateString("tr", { month: "short", year: "2-digit" }),
+  },
+};
 
 function batchOptionLabel(allocation: BatchTankAllocation) {
   return `${allocation.batch.lotCode} · ${allocation.batch.species.name} · ${allocation.estimatedCount.toLocaleString("tr")} adet`;
 }
 
-/** Buckets entries into ISO-week-aligned columns, keeping only the top 3 reasons as their own
- * series (everything else folds into "Diğer") so the chart stays readable with a short legend. */
-function buildMortalityTrend(entries: MortalityLogEntry[]) {
-  const weekStart = (d: Date) => {
-    const copy = new Date(d);
-    const day = copy.getDay();
-    const diff = (day + 6) % 7; // Monday-start week
-    copy.setDate(copy.getDate() - diff);
-    copy.setHours(0, 0, 0, 0);
-    return copy;
-  };
+/** Buckets entries into period-aligned columns (day/week/month), grouped either by mortality
+ * reason or by block — keeping only the top 3 series (everything else folds into "Diğer") so the
+ * chart stays readable with a short legend regardless of how many reasons or blocks exist. */
+function buildMortalityTrend(
+  entries: MortalityLogEntry[],
+  period: TrendPeriod,
+  grouping: TrendGrouping,
+  blockNameByTankId: Map<string, string>,
+) {
+  const cfg = TREND_PERIOD_CONFIG[period];
+  const keyFor = (e: MortalityLogEntry) =>
+    grouping === "REASON" ? e.reason : (blockNameByTankId.get(e.tank.id) ?? "Diğer");
 
-  const cutoff = weekStart(new Date());
-  cutoff.setDate(cutoff.getDate() - (TREND_WEEKS - 1) * 7);
+  const cutoff = cfg.step(cfg.bucketStart(new Date()), -(cfg.buckets - 1));
   const relevant = entries.filter((e) => new Date(e.occurredAt) >= cutoff);
 
-  const totalsByReason = relevant.reduce<Record<string, number>>((acc, e) => {
-    acc[e.reason] = (acc[e.reason] ?? 0) + e.fishCount;
+  const totalsByKey = relevant.reduce<Record<string, number>>((acc, e) => {
+    const key = keyFor(e);
+    acc[key] = (acc[key] ?? 0) + e.fishCount;
     return acc;
   }, {});
-  const topReasons = Object.entries(totalsByReason)
+  const topKeys = Object.entries(totalsByKey)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
-    .map(([reason]) => reason as MortalityReason);
-  const seriesKeys = [...topReasons, "OTHER"] as const;
+    .map(([key]) => key);
+  const seriesKeys = [...topKeys, OTHER_KEY];
 
-  const weeks: { start: Date; label: string }[] = [];
-  for (let i = 0; i < TREND_WEEKS; i++) {
-    const start = new Date(cutoff);
-    start.setDate(start.getDate() + i * 7);
-    weeks.push({ start, label: start.toLocaleDateString("tr", { day: "2-digit", month: "2-digit" }) });
+  const buckets: { start: Date; label: string }[] = [];
+  for (let i = 0; i < cfg.buckets; i++) {
+    const start = cfg.step(cutoff, i);
+    buckets.push({ start, label: cfg.format(start) });
   }
 
-  const data = weeks.map(({ start, label }) => {
-    const weekEnd = new Date(start);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    const row: Record<string, number | string> = { week: label };
+  const data = buckets.map(({ start, label }, idx) => {
+    const end = idx + 1 < buckets.length ? buckets[idx + 1]!.start : cfg.step(start, 1);
+    const row: Record<string, number | string> = { bucket: label };
     for (const key of seriesKeys) row[key] = 0;
 
     for (const e of relevant) {
       const occurredAt = new Date(e.occurredAt);
-      if (occurredAt >= start && occurredAt < weekEnd) {
-        const key = topReasons.includes(e.reason) ? e.reason : "OTHER";
+      if (occurredAt >= start && occurredAt < end) {
+        const rawKey = keyFor(e);
+        const key = topKeys.includes(rawKey) ? rawKey : OTHER_KEY;
         row[key] = (row[key] as number) + e.fishCount;
       }
     }
@@ -98,6 +158,11 @@ function buildMortalityTrend(entries: MortalityLogEntry[]) {
   });
 
   return { data, seriesKeys };
+}
+
+function seriesLabel(key: string, grouping: TrendGrouping) {
+  if (key === OTHER_KEY) return "Diğer";
+  return grouping === "REASON" ? REASON_LABEL[key as MortalityReason] : key;
 }
 
 function withdrawalEndsAt(startedAt: string, endedAt: string | null, withdrawalPeriodDays: number | null) {
@@ -155,6 +220,7 @@ export default function HealthPage() {
   }
 
   const { entries, isLoading } = useFarmMortalityLog(farmId);
+  const { data: sections } = useFarmSections(farmId);
 
   const thirtyDaysAgo = React.useMemo(() => {
     const d = new Date();
@@ -170,7 +236,30 @@ export default function HealthPage() {
   }, {});
   const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
 
-  const mortalityTrend = buildMortalityTrend(entries);
+  const sectionNameById = new Map((sections ?? []).map((s) => [s.id, s.name]));
+  const blockNameByTankId = new Map(
+    entries.map((e) => [e.tank.id, sectionNameById.get(e.tank.farmSectionId) ?? "Diğer"]),
+  );
+
+  const [trendPeriod, setTrendPeriod] = React.useState<TrendPeriod>("WEEKLY");
+  const [trendGrouping, setTrendGrouping] = React.useState<TrendGrouping>("REASON");
+  const mortalityTrend = buildMortalityTrend(entries, trendPeriod, trendGrouping, blockNameByTankId);
+
+  const latestBucketLabel: Record<TrendPeriod, string> = {
+    DAILY: "Bugün",
+    WEEKLY: "Bu hafta",
+    MONTHLY: "Bu ay",
+  };
+  const latestBucketStart = TREND_PERIOD_CONFIG[trendPeriod].bucketStart(new Date());
+  const blockTotals = entries
+    .filter((e) => new Date(e.occurredAt) >= latestBucketStart)
+    .reduce<Record<string, number>>((acc, e) => {
+      const name = blockNameByTankId.get(e.tank.id) ?? "Diğer";
+      acc[name] = (acc[name] ?? 0) + e.fishCount;
+      return acc;
+    }, {});
+  const blockTotalsSorted = Object.entries(blockTotals).sort((a, b) => b[1] - a[1]);
+  const maxBlockTotal = blockTotalsSorted[0]?.[1] ?? 0;
 
   return (
     <div className="space-y-6">
@@ -297,13 +386,45 @@ export default function HealthPage() {
       ) : null}
 
       {farmId && !isLoading && entries.length > 0 ? (
-        <PanelCard title={`Ölüm Trendi (son ${TREND_WEEKS} hafta)`}>
+        <PanelCard title={`Ölüm Trendi (${TREND_PERIOD_CONFIG[trendPeriod].label})`}>
+          <div className="flex flex-wrap items-center gap-3 border-b border-border px-4.5 py-2.5">
+            <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+              {(["DAILY", "WEEKLY", "MONTHLY"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setTrendPeriod(p)}
+                  className={cn(
+                    "px-3 py-1.5 font-medium transition-colors",
+                    trendPeriod === p ? "bg-teal-500 text-white" : "bg-transparent text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {p === "DAILY" ? "Günlük" : p === "WEEKLY" ? "Haftalık" : "Aylık"}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex overflow-hidden rounded-md border border-border text-xs">
+              {(["REASON", "BLOCK"] as const).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setTrendGrouping(g)}
+                  className={cn(
+                    "px-3 py-1.5 font-medium transition-colors",
+                    trendGrouping === g ? "bg-teal-500 text-white" : "bg-transparent text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {g === "REASON" ? "Nedene göre" : "Bloğa göre"}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="p-3">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={mortalityTrend.data} margin={{ left: 12, right: 12, top: 4, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                 <XAxis
-                  dataKey="week"
+                  dataKey="bucket"
                   tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
                   axisLine={{ stroke: "var(--color-border)" }}
                   tickLine={false}
@@ -323,11 +444,11 @@ export default function HealthPage() {
                   }}
                   formatter={(value, key) => [
                     Number(value).toLocaleString("tr"),
-                    key === "OTHER" ? "Diğer" : REASON_LABEL[key as MortalityReason],
+                    seriesLabel(key as string, trendGrouping),
                   ]}
                 />
                 <Legend
-                  formatter={(key: string) => (key === "OTHER" ? "Diğer" : REASON_LABEL[key as MortalityReason])}
+                  formatter={(key: string) => seriesLabel(key, trendGrouping)}
                   wrapperStyle={{ fontSize: 11 }}
                 />
                 {mortalityTrend.seriesKeys.map((key, i) => (
@@ -341,6 +462,27 @@ export default function HealthPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </PanelCard>
+      ) : null}
+
+      {farmId && !isLoading && blockTotalsSorted.length > 0 ? (
+        <PanelCard title={`Bloklara göre ölüm (${latestBucketLabel[trendPeriod]})`}>
+          <ul className="divide-y divide-border">
+            {blockTotalsSorted.map(([name, count]) => (
+              <li key={name} className="flex items-center gap-3 px-4.5 py-2 text-xs">
+                <span className="w-40 shrink-0 truncate font-medium text-foreground">{name}</span>
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-destructive"
+                    style={{ width: `${maxBlockTotal > 0 ? (count / maxBlockTotal) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="w-16 shrink-0 text-right font-mono text-muted-foreground">
+                  {count.toLocaleString("tr")} adet
+                </span>
+              </li>
+            ))}
+          </ul>
         </PanelCard>
       ) : null}
 
