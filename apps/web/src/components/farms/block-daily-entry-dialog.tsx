@@ -96,6 +96,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
   const [values, setValues] = React.useState<Record<string, { mortality: string; feedKg: string }>>({});
   const [totalMortality, setTotalMortality] = React.useState("");
   const [totalFeedKg, setTotalFeedKg] = React.useState("");
+  const [fastingTankIds, setFastingTankIds] = React.useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = React.useState(false);
 
   const stockedRows: StockedRow[] = rows
@@ -132,13 +133,25 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
     setFeedInventoryBatchId("");
     setTotalMortality("");
     setTotalFeedKg("");
+    setFastingTankIds(new Set());
     setMode("perPond");
     setOpen(false);
   }
 
+  function toggleFasting(tankId: string) {
+    setFastingTankIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tankId)) next.delete(tankId);
+      else next.add(tankId);
+      return next;
+    });
+  }
+
   // "Blok toplamı" mode's computed split — mortality by each pond's live-count share, feeding by
-  // its biomass share. Shown as a read-only preview so a skewed block (one pond much bigger than
-  // the rest) is visible before it's saved, not discovered after.
+  // its biomass share, except ponds marked "aç" (fasting that day) which are left out of the feed
+  // split entirely so the total redistributes across the rest; mortality is unaffected since
+  // fasting only concerns feeding. Shown as a read-only preview so a skewed block (one pond much
+  // bigger than the rest) is visible before it's saved, not discovered after.
   const totalMortalityNum = totalMortality ? Number(totalMortality) : 0;
   const totalFeedKgNum = totalFeedKg ? Number(totalFeedKg) : 0;
   const mortalitySplit = distributeInt(
@@ -147,7 +160,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
   );
   const feedSplit = distributeFloat(
     totalFeedKgNum,
-    stockedRows.map((r) => r.biomassKg),
+    stockedRows.map((r) => (fastingTankIds.has(r.tankId) ? 0 : r.biomassKg)),
   );
 
   async function onSubmit() {
@@ -358,6 +371,9 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
                 <th className="px-3 py-2 text-left font-medium">Havuz</th>
                 <th className="px-3 py-2 text-right font-medium">Ölü (adet)</th>
                 <th className="px-3 py-2 text-right font-medium">Yem (kg)</th>
+                {mode === "total" ? (
+                  <th className="px-3 py-2 text-center font-medium">Aç bırak</th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -399,7 +415,19 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
                         {(mortalitySplit[i] ?? 0) > 0 ? mortalitySplit[i] : "—"}
                       </td>
                       <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
-                        {(feedSplit[i] ?? 0) > 0 ? feedSplit[i]!.toLocaleString("tr") : "—"}
+                        {fastingTankIds.has(row.tankId)
+                          ? "Aç"
+                          : (feedSplit[i] ?? 0) > 0
+                            ? feedSplit[i]!.toLocaleString("tr")
+                            : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-center">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-teal-600"
+                          checked={fastingTankIds.has(row.tankId)}
+                          onChange={() => toggleFasting(row.tankId)}
+                        />
                       </td>
                     </>
                   )}
@@ -413,8 +441,9 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
         </div>
         {mode === "total" ? (
           <p className="text-[11px] text-muted-foreground">
-            Ölüm, havuzların canlı adedine; yem, havuzların biyokütlesine oranlı dağıtılır. Yukarıdaki sütunlar
-            kaydedilecek değerlerin önizlemesidir.
+            Ölüm, havuzların canlı adedine; yem, havuzların biyokütlesine oranlı dağıtılır. "Aç bırak" işaretlenen
+            havuzlar yem dağıtımına dahil edilmez (ölüm payını etkilemez). Yukarıdaki sütunlar kaydedilecek
+            değerlerin önizlemesidir.
           </p>
         ) : null}
 
