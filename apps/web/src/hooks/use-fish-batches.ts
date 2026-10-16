@@ -71,6 +71,7 @@ export interface CreateFishBatchInput {
   stockingUnitPrice?: number;
   stockingCurrency?: "TRY" | "USD" | "EUR";
   stockingExchangeRate?: number;
+  targetFcr?: number;
 }
 
 function invalidateAfterMovement(
@@ -183,6 +184,22 @@ export function useCreateFishBatchAdjustment(farmId: string, batchId: string) {
     onSuccess: () => {
       invalidateAfterMovement(queryClient, companyId, farmId);
       queryClient.invalidateQueries({ queryKey: ["fish-batches", companyId, batchId] });
+    },
+  });
+}
+
+/** Sets or clears a batch's assumed FCR (null turns off between-sample biomass projection). */
+export function useUpdateTargetFcr(farmId: string, batchId: string) {
+  const api = useApiClient();
+  const { companyId } = useActiveCompany();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (targetFcr: number | null) =>
+      api.patch<FishBatch>(`/fish-batches/${batchId}/target-fcr`, { targetFcr }),
+    onSuccess: () => {
+      invalidateAfterMovement(queryClient, companyId, farmId);
+      queryClient.invalidateQueries({ queryKey: ["fish-batches", companyId, batchId] });
+      queryClient.invalidateQueries({ queryKey: ["fish-batches", "tank", companyId] });
     },
   });
 }

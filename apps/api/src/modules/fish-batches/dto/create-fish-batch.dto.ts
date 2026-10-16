@@ -97,4 +97,15 @@ export class CreateFishBatchDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Assumed FCR for projecting biomass forward from feed between weight samples. Omit to " +
+      "leave biomass tracking only new samples, as before.",
+    example: 1.2,
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  targetFcr?: number;
 }

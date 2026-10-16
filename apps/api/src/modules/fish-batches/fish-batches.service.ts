@@ -10,6 +10,7 @@ import type { CreateBatchAdjustmentDto } from "./dto/create-adjustment.dto";
 import type { SplitBatchDto } from "./dto/split-batch.dto";
 import type { MergeBatchesDto } from "./dto/merge-batches.dto";
 import type { UpdateStockingDto } from "./dto/update-stocking.dto";
+import type { UpdateTargetFcrDto } from "./dto/update-target-fcr.dto";
 
 @Injectable()
 export class FishBatchesService {
@@ -170,6 +171,7 @@ export class FishBatchesService {
         stockingUnitPrice: dto.stockingUnitPrice,
         stockingCurrency: prepared ? prepared.currency : undefined,
         stockingExchangeRate: prepared ? prepared.exchangeRate : undefined,
+        targetFcr: dto.targetFcr,
         createdById: userId,
       },
     });
@@ -359,6 +361,29 @@ export class FishBatchesService {
       entityId: batchId,
       newValue: { stockingSource: dto.stockingSource ?? null, priced: prepared !== null },
     });
+    return this.findById(companyId, batchId);
+  }
+
+  /** Sets or clears the batch's assumed FCR (null turns off between-sample biomass projection). */
+  async updateTargetFcr(companyId: string, batchId: string, userId: string, dto: UpdateTargetFcrDto) {
+    await this.findById(companyId, batchId);
+
+    await this.tenantPrisma.forTenant(companyId).fishBatch.updateMany({
+      where: { id: batchId },
+      data: { targetFcr: dto.targetFcr ?? null },
+    });
+
+    await this.projection.recompute(companyId, batchId);
+
+    await this.auditService.record({
+      companyId,
+      userId,
+      action: "UPDATE",
+      entityType: "FishBatch",
+      entityId: batchId,
+      newValue: { targetFcr: dto.targetFcr ?? null },
+    });
+
     return this.findById(companyId, batchId);
   }
 

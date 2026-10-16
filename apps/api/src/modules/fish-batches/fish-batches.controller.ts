@@ -1,4 +1,5 @@
 import { UpdateStockingDto } from "./dto/update-stocking.dto";
+import { UpdateTargetFcrDto } from "./dto/update-target-fcr.dto";
 import { Body, Controller, Get, Param, Post, Patch } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
@@ -107,6 +108,17 @@ export class FishBatchesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.fishBatchesService.updateStocking(tenant.companyId, id, user.id, dto);
+  }
+
+  @Patch(":id/target-fcr")
+  @RequirePermission(Permission.FISH_BATCH_CREATE)
+  updateTargetFcr(
+    @Param("id") id: string,
+    @Body() dto: UpdateTargetFcrDto,
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fishBatchesService.updateTargetFcr(tenant.companyId, id, user.id, dto);
   }
 
   @Post(":id/split")

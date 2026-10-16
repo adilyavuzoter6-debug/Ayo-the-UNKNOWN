@@ -46,7 +46,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useCreateFishBatchAdjustment, useTankFishBatches } from "@/hooks/use-fish-batches";
+import {
+  useCreateFishBatchAdjustment,
+  useTankFishBatches,
+  useUpdateTargetFcr,
+} from "@/hooks/use-fish-batches";
 import { useRecordWeightSample } from "@/hooks/use-weight-samples";
 import { useDeleteTank, useUpdateTank } from "@/hooks/use-tanks";
 import { ApiError } from "@/lib/api-error";
@@ -309,24 +313,28 @@ function StockQuickEditSection({ farmId, tank }: { farmId: string; tank: Tank })
   const allocation = allocations?.[0];
   const adjustCount = useCreateFishBatchAdjustment(farmId, allocation?.batchId ?? "");
   const recordWeight = useRecordWeightSample(farmId, tank.id);
+  const updateFcr = useUpdateTargetFcr(farmId, allocation?.batchId ?? "");
 
   const currentCount = allocation?.estimatedCount ?? 0;
   const currentWeightG = allocation
     ? Number(allocation.batch.currentState?.estimatedAvgWeightG ?? allocation.batch.initialAvgWeightG)
     : 0;
+  const currentFcr = allocation?.batch.targetFcr ? Number(allocation.batch.targetFcr) : null;
 
   // Mirrors the server value into the inputs whenever it changes — a different tank opened, or a
   // save just landed — so a stale edit never lingers once it's been applied. Adjusted during
   // render (React's documented pattern for this) rather than an effect, which would cascade an
   // extra render for what's otherwise plain derived state.
-  const resetKey = `${tank.id}:${allocation?.batchId ?? ""}:${currentCount}:${currentWeightG}`;
+  const resetKey = `${tank.id}:${allocation?.batchId ?? ""}:${currentCount}:${currentWeightG}:${currentFcr}`;
   const [lastResetKey, setLastResetKey] = React.useState(resetKey);
   const [countText, setCountText] = React.useState(allocation ? String(currentCount) : "");
   const [weightText, setWeightText] = React.useState(allocation ? String(currentWeightG) : "");
+  const [fcrText, setFcrText] = React.useState(currentFcr !== null ? String(currentFcr) : "");
   if (resetKey !== lastResetKey) {
     setLastResetKey(resetKey);
     setCountText(allocation ? String(currentCount) : "");
     setWeightText(allocation ? String(currentWeightG) : "");
+    setFcrText(currentFcr !== null ? String(currentFcr) : "");
   }
 
   if (isLoading) {
@@ -342,9 +350,11 @@ function StockQuickEditSection({ farmId, tank }: { farmId: string; tank: Tank })
 
   const countNum = countText === "" ? currentCount : Math.round(Number(countText));
   const weightNum = weightText === "" ? currentWeightG : Number(weightText);
+  const fcrNum = fcrText.trim() === "" ? null : Number(fcrText);
   const countChanged = countText !== "" && countNum !== currentCount;
   const weightChanged = weightText !== "" && weightNum !== currentWeightG;
-  const pending = adjustCount.isPending || recordWeight.isPending;
+  const fcrChanged = fcrNum !== currentFcr && !(fcrNum === null && currentFcr === null);
+  const pending = adjustCount.isPending || recordWeight.isPending || updateFcr.isPending;
 
   async function onSave() {
     try {
@@ -358,6 +368,9 @@ function StockQuickEditSection({ farmId, tank }: { farmId: string; tank: Tank })
           avgWeightG: weightNum,
           sampleSize: countNum > 0 ? countNum : currentCount,
         });
+      }
+      if (fcrChanged && (fcrNum === null || fcrNum > 0)) {
+        await updateFcr.mutateAsync(fcrNum);
       }
       toast.success("Balık bilgileri güncellendi.");
     } catch (error) {
@@ -393,9 +406,34 @@ function StockQuickEditSection({ farmId, tank }: { farmId: string; tank: Tank })
             value={weightText}
             onChange={(e) => setWeightText(e.target.value)}
           />
+          {currentFcr !== null ? (
+            <p className="text-[11px] text-muted-foreground">
+              FCR {currentFcr}'a göre tahmini büyüyor
+            </p>
+          ) : null}
         </div>
       </div>
-      <Button size="sm" disabled={pending || (!countChanged && !weightChanged)} onClick={onSave}>
+      <div className="space-y-1.5">
+        <Label>Hedef FCR (opsiyonel)</Label>
+        <Input
+          type="number"
+          min={0}
+          step="0.01"
+          placeholder="örn. 1.2"
+          value={fcrText}
+          onChange={(e) => setFcrText(e.target.value)}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Girilirse, son tartımdan bu yana yapılan yemlemeye göre ortalama ağırlık her yemleme
+          sonrası bu FCR ile tahmini artırılır. Boş bırakılırsa ağırlık yalnızca yeni bir tartım
+          girilince değişir.
+        </p>
+      </div>
+      <Button
+        size="sm"
+        disabled={pending || (!countChanged && !weightChanged && !fcrChanged)}
+        onClick={onSave}
+      >
         {pending ? "Kaydediliyor…" : "Balık bilgilerini kaydet"}
       </Button>
     </div>

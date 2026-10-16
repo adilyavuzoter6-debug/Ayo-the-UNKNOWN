@@ -96,6 +96,8 @@ export interface FishBatch {
   farmEntryDate: string;
   initialCount: number;
   initialAvgWeightG: string;
+  /** Assumed FCR used to project biomass forward from feed between weight samples. Null = off. */
+  targetFcr: string | null;
   stockingSource: StockingSource | null;
   eggCount: number | null;
   stockingUnitPrice: string | null;

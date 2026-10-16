@@ -297,6 +297,10 @@ model FishBatch {
   stockingExchangeRate Decimal?    @db.Decimal(12, 4)
   initialCount      Int
   initialAvgWeightG Decimal     @db.Decimal(10, 3)
+  /// Assumed FCR for projecting biomass forward from feed between weight samples (null = off,
+  /// biomass only moves when a new WeightSample is recorded — today's behavior).
+  /// See BatchProjectionService.recompute.
+  targetFcr         Decimal?    @db.Decimal(6, 3)
   status            BatchStatus @default(ACTIVE)
   /// Denormalized convenience pointer to source batch(es) when created via SPLIT/MERGE —
   /// the real source of truth for lineage is still BatchMovement.fromBatchId/toBatchId.

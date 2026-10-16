@@ -4,6 +4,7 @@ import { AuditService } from "../audit/audit.service";
 import { AlertsService } from "../alerts/alerts.service";
 import { FeedInventoryService } from "../feed-inventory/feed-inventory.service";
 import { FeedInventoryProjectionService } from "../feed-inventory/feed-inventory-projection.service";
+import { BatchProjectionService } from "../fish-batches/batch-projection.service";
 import type { CreateFeedingEventDto } from "./dto/create-feeding-event.dto";
 
 @Injectable()
@@ -14,6 +15,7 @@ export class FeedingService {
     private readonly alertsService: AlertsService,
     private readonly feedInventoryService: FeedInventoryService,
     private readonly projection: FeedInventoryProjectionService,
+    private readonly batchProjection: BatchProjectionService,
   ) {}
 
   private async assertTankInTenant(companyId: string, tankId: string) {
@@ -81,6 +83,9 @@ export class FeedingService {
     });
 
     await this.projection.recompute(companyId, inventoryBatch.id);
+    // No-op unless this batch has an assumed FCR (see BatchProjectionService.recompute) — when
+    // it does, the feed just logged shifts the projected biomass forward immediately.
+    await this.batchProjection.recompute(companyId, dto.batchId);
     await this.alertsService.evaluateLowFeedStockRule(companyId, inventoryBatch.id);
 
     await this.auditService.record({

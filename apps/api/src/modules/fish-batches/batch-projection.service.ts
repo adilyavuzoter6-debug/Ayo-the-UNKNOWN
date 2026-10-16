@@ -78,10 +78,27 @@ export class BatchProjectionService {
     const now = new Date();
     const estimatedCount = [...tankDeltas.values()].reduce((sum, n) => sum + Math.max(n, 0), 0);
     // The most recent WeightSample supersedes the batch's initial stocking weight once one
-    // exists — this is what keeps biomass accurate as fish grow (§10.3).
-    const avgWeightG = latestWeightSample
+    // exists — this is what keeps biomass accurate as fish grow (§10.3). A real measurement
+    // always wins: the instant a new sample lands, it becomes the baseline and anything
+    // projected from feed before it is discarded.
+    const baselineAvgWeightG = latestWeightSample
       ? Number(latestWeightSample.avgWeightG)
       : Number(batch.initialAvgWeightG);
+    const baselineAt = latestWeightSample ? latestWeightSample.occurredAt : batch.farmEntryDate;
+
+    // Opt-in: when the batch has an assumed FCR, feed logged since the baseline projects the
+    // weight forward (growthKg = feedKg / fcr) so biomass isn't flat between weighings. Without
+    // one, behavior is unchanged — weight only moves when a new sample is recorded.
+    let avgWeightG = baselineAvgWeightG;
+    if (batch.targetFcr && estimatedCount > 0) {
+      const feedSinceBaseline = await client.feedingEvent.aggregate({
+        where: { batchId, occurredAt: { gt: baselineAt } },
+        _sum: { quantityKg: true },
+      });
+      const feedKg = Number(feedSinceBaseline._sum.quantityKg ?? 0);
+      const growthKg = feedKg / Number(batch.targetFcr);
+      avgWeightG = baselineAvgWeightG + (growthKg * 1000) / estimatedCount;
+    }
     const estimatedBiomassKg = (estimatedCount * avgWeightG) / 1000;
     const tanksWithFish = [...tankDeltas.entries()].filter(([, count]) => count > 0);
     const currentTankId = tanksWithFish.length === 1 ? (tanksWithFish[0]?.[0] ?? null) : null;

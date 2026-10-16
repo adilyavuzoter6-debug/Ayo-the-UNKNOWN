@@ -64,6 +64,7 @@ const schema = z
     stockingUnitPrice: z.string(),
     stockingCurrency: z.enum(["TRY", "USD", "EUR"]),
     stockingExchangeRate: z.string(),
+    targetFcr: z.string(),
   })
   .superRefine((v, ctx) => {
     const price = toNumber(v.stockingUnitPrice);
@@ -86,6 +87,11 @@ const schema = z
     }
     if (v.stockingSource === "FINGERLINGS_PURCHASED" && v.eggCount.trim() !== "") {
       add("eggCount", "Yavru alımında yumurta adedi girilmez");
+    }
+
+    const fcr = toNumber(v.targetFcr);
+    if (v.targetFcr.trim() !== "" && (fcr === undefined || fcr <= 0)) {
+      add("targetFcr", "FCR sıfırdan büyük olmalı");
     }
   });
 type FormValues = z.infer<typeof schema>;
@@ -110,6 +116,7 @@ export function CreateFishBatchDialog({ farmId, tankId }: { farmId: string; tank
     stockingUnitPrice: "",
     stockingCurrency: "TRY",
     stockingExchangeRate: "",
+    targetFcr: "",
   });
 
   const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: defaults() });
@@ -171,6 +178,7 @@ export function CreateFishBatchDialog({ farmId, tankId }: { farmId: string; tank
         fishCount: values.fishCount,
         avgWeightG: values.avgWeightG,
         farmEntryDate: values.farmEntryDate,
+        targetFcr: toNumber(values.targetFcr),
         stockingSource,
         eggCount:
           stockingSource === "EGGS_PURCHASED" || stockingSource === "EGGS_IN_HOUSE"
@@ -321,6 +329,25 @@ export function CreateFishBatchDialog({ farmId, tankId }: { farmId: string; tank
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="targetFcr"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>FCR (büyüme tahmini, opsiyonel)</FormLabel>
+                  <FormControl>
+                    <Input type="number" min={0} step="0.01" placeholder="örn. 1.2" {...field} />
+                  </FormControl>
+                  <p className="text-[11px] text-muted-foreground">
+                    Girilirse, son tartımdan bu yana yapılan yemlemeye göre biyokütle her yemleme
+                    sonrası bu FCR ile tahmini artırılır. Boş bırakılırsa biyokütle yalnızca yeni
+                    bir tartım girilince güncellenir.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
