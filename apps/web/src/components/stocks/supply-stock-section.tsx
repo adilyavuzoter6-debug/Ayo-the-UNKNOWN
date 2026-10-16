@@ -49,7 +49,7 @@ const fmt = (n: number) => n.toLocaleString("tr", { maximumFractionDigits: 3 });
 const MEDICINE_CATEGORY_KEYWORDS = ["ilaç", "ilac", "aşı", "asi", "medic", "vaccin"];
 /** A supply item is treated as a medicine (its own "İlaçlar" section, not "Malzeme stoku") when its
  *  category reads as medical — same heuristic the API uses to book MEDICINE/VACCINATION costs. */
-function isMedicineCategory(category: string): boolean {
+export function isMedicineCategory(category: string): boolean {
   const normalized = category.trim().toLocaleLowerCase("tr");
   return MEDICINE_CATEGORY_KEYWORDS.some((k) => normalized.includes(k));
 }

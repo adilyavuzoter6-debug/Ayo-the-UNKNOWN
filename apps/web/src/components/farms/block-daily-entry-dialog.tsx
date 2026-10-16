@@ -28,6 +28,7 @@ import { useApiClient } from "@/lib/api-client";
 import { useInventoryBatches } from "@/hooks/use-feed-inventory";
 import { useFarms } from "@/hooks/use-farms";
 import { depotGroupFarmIds } from "@/lib/depot-group";
+import { distributeFloat, distributeInt } from "@/lib/distribute";
 import { tankLoad } from "@/lib/farm-production-summary";
 import { MORTALITY_REASON_LABEL } from "@/lib/tanks";
 import { cn } from "@/lib/utils";
@@ -46,32 +47,6 @@ interface StockedRow {
   /** Distribution weights for "blok toplamı" mode — current live count and biomass. */
   liveCount: number;
   biomassKg: number;
-}
-
-/** Splits `total` across `weights`' shares as whole numbers that sum back to exactly `total`
- *  (largest-remainder method) — plain proportional rounding can land one fish short or over. */
-function distributeInt(total: number, weights: number[]): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  if (sum <= 0 || total <= 0) return weights.map(() => 0);
-  const raw = weights.map((w) => (w / sum) * total);
-  const floors = raw.map(Math.floor);
-  const remainder = total - floors.reduce((a, b) => a + b, 0);
-  const order = raw
-    .map((r, i) => ({ i, frac: r - floors[i]! }))
-    .sort((a, b) => b.frac - a.frac);
-  const result = [...floors];
-  for (let k = 0; k < remainder && k < order.length; k++) {
-    result[order[k]!.i]! += 1;
-  }
-  return result;
-}
-
-/** Splits `total` across `weights`' shares proportionally, rounded to 2 decimals — fine for a
- *  kg amount, unlike a fish count there's no need for the sum to land exactly on `total`. */
-function distributeFloat(total: number, weights: number[]): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  if (sum <= 0 || total <= 0) return weights.map(() => 0);
-  return weights.map((w) => Math.round(((w / sum) * total) * 100) / 100);
 }
 
 /**
@@ -441,9 +416,9 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
         </div>
         {mode === "total" ? (
           <p className="text-[11px] text-muted-foreground">
-            Ölüm, havuzların canlı adedine; yem, havuzların biyokütlesine oranlı dağıtılır. "Aç bırak" işaretlenen
-            havuzlar yem dağıtımına dahil edilmez (ölüm payını etkilemez). Yukarıdaki sütunlar kaydedilecek
-            değerlerin önizlemesidir.
+            Ölüm, havuzların canlı adedine; yem, havuzların biyokütlesine oranlı dağıtılır. &ldquo;Aç
+            bırak&rdquo; işaretlenen havuzlar yem dağıtımına dahil edilmez (ölüm payını etkilemez).
+            Yukarıdaki sütunlar kaydedilecek değerlerin önizlemesidir.
           </p>
         ) : null}
 
