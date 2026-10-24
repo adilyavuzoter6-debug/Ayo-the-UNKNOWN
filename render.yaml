@@ -1,3 +1,14 @@
+databases:
+  # Replaces the external Neon database — see the DATABASE_URL env var below. Same region as
+  # aquai-api (frankfurt) to keep the API-to-DB hop local instead of crossing to Neon's prior
+  # eu-central-1/us-east-2 split. Render Postgres bills a flat monthly instance price, not
+  # metered compute-seconds, which is what exhausted Neon's free-tier quota and took prod down.
+  - name: aquai-db
+    databaseName: aquai
+    user: aquai
+    plan: starter
+    region: frankfurt
+
 services:
   - type: web
     name: aquai-api
