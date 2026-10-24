@@ -32,6 +32,16 @@ function fmt(n: number, digits = 1): string {
   return n.toLocaleString("tr", { maximumFractionDigits: digits });
 }
 
+/** "monthsAhead" counts months from today, not calendar months (1 ≠ January) — the label spells
+ *  that out with "sonra" (from now) plus the approximate target date, so it can't be misread as
+ *  a specific calendar month. Matches the backend's monthsAhead*30-days-ahead projection. */
+function monthAheadLabel(monthsAhead: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + monthsAhead * 30);
+  const dateLabel = date.toLocaleDateString("tr", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return `${monthsAhead} ay sonra (~${dateLabel})`;
+}
+
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="min-w-0 rounded-lg border border-border bg-card px-4 py-3.5">
@@ -150,15 +160,15 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
       <PanelCard title="Gramaj Dağılımı Tahmini (ay ay)">
         <div className="flex flex-wrap items-center gap-3 border-b border-border px-4.5 py-2.5">
           <div className="flex items-center gap-2">
-            <Label className="text-[11px] text-muted-foreground">Ay</Label>
+            <Label className="text-[11px] text-muted-foreground">Kaç ay sonra</Label>
             <Select value={selectedMonth} onValueChange={(v) => setSelectedMonth(v ?? "1")}>
-              <SelectTrigger className="w-28">
-                <SelectValue>{(v: string) => `${v}. ay`}</SelectValue>
+              <SelectTrigger className="w-56">
+                <SelectValue>{(v: string) => monthAheadLabel(Number(v))}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                   <SelectItem key={m} value={String(m)}>
-                    {m}. ay
+                    {monthAheadLabel(m)}
                   </SelectItem>
                 ))}
               </SelectContent>
