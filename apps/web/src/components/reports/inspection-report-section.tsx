@@ -53,6 +53,34 @@ function fmt(n: number, digits = 1): string {
   return n.toLocaleString("tr", { maximumFractionDigits: digits });
 }
 
+interface WeightBucket {
+  startG: number;
+  endG: number;
+  batchCount: number;
+  fishCount: number;
+  biomassKg: number;
+}
+
+/** Groups active batches into fixed-width gram ranges (e.g. 150–200 g), summing live count and
+ *  biomass per range — a batch's whole count lands in the bucket its average weight falls into,
+ *  same granularity the rest of this report already works at (no individual-fish weights here). */
+function buildWeightDistribution(
+  batches: { estimatedCount: number; avgWeightG: number }[],
+  bucketWidthG: number,
+): WeightBucket[] {
+  if (!Number.isFinite(bucketWidthG) || bucketWidthG <= 0) return [];
+  const buckets = new Map<number, WeightBucket>();
+  for (const b of batches) {
+    const startG = Math.floor(b.avgWeightG / bucketWidthG) * bucketWidthG;
+    const bucket = buckets.get(startG) ?? { startG, endG: startG + bucketWidthG, batchCount: 0, fishCount: 0, biomassKg: 0 };
+    bucket.batchCount += 1;
+    bucket.fishCount += b.estimatedCount;
+    bucket.biomassKg += (b.estimatedCount * b.avgWeightG) / 1000;
+    buckets.set(startG, bucket);
+  }
+  return [...buckets.values()].sort((a, b) => a.startG - b.startG);
+}
+
 export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: string } = {}) {
   const { data: farms } = useFarms();
   const [selectedFarmId, setSelectedFarmId] = React.useState("");
@@ -64,8 +92,11 @@ export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: str
 
   const [periodStart, setPeriodStart] = React.useState(isoDaysAgo(180));
   const [periodEnd, setPeriodEnd] = React.useState(isoDaysAgo(0));
+  const [bucketWidthText, setBucketWidthText] = React.useState("50");
+  const bucketWidthG = Number(bucketWidthText) || 0;
 
   const { data: report, isLoading } = useInspectionReport(farmId, periodStart, periodEnd);
+  const weightDistribution = report ? buildWeightDistribution(report.activeBatches, bucketWidthG) : [];
 
   return (
     <div className="space-y-4">
@@ -163,6 +194,50 @@ export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: str
                         <TableCell>{b.speciesName}</TableCell>
                         <TableCell className="font-mono">{b.estimatedCount.toLocaleString("tr")}</TableCell>
                         <TableCell className="font-mono">{fmt(b.avgWeightG)} g</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="px-4.5 py-6 text-center text-sm text-muted-foreground">
+                Bu dönemde aktif parti yok.
+              </p>
+            )}
+          </PanelCard>
+
+          <PanelCard title="Gramaj Dağılımı">
+            <div className="flex items-center gap-2 border-b border-border px-4.5 py-2.5 print:hidden">
+              <Label className="text-[11px] text-muted-foreground">Aralık genişliği (g)</Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                className="h-8 w-24"
+                value={bucketWidthText}
+                onChange={(e) => setBucketWidthText(e.target.value)}
+              />
+            </div>
+            {weightDistribution.length > 0 ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Gramaj aralığı</TableHead>
+                      <TableHead>Parti sayısı</TableHead>
+                      <TableHead>Toplam adet</TableHead>
+                      <TableHead>Toplam biyokütle</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {weightDistribution.map((bucket) => (
+                      <TableRow key={bucket.startG}>
+                        <TableCell className="font-mono">
+                          {fmt(bucket.startG, 0)}–{fmt(bucket.endG, 0)} g
+                        </TableCell>
+                        <TableCell className="font-mono">{bucket.batchCount}</TableCell>
+                        <TableCell className="font-mono">{bucket.fishCount.toLocaleString("tr")}</TableCell>
+                        <TableCell className="font-mono">{fmt(bucket.biomassKg)} kg</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
