@@ -57,11 +57,13 @@ export class FarmWeightForecastController {
     @Param("farmId") farmId: string,
     @Query("bucketWidthG") bucketWidthG: string | undefined,
     @Query("avgFcr") avgFcr: string | undefined,
+    @Query("additionalFarmIds") additionalFarmIds: string | undefined,
     @CurrentTenant() tenant: TenantContext,
   ) {
+    const extra = additionalFarmIds ? additionalFarmIds.split(",").filter(Boolean) : [];
     return this.farmStatsService.getWeightForecast(
       tenant.companyId,
-      farmId,
+      [farmId, ...extra],
       Number(bucketWidthG) || 0,
       avgFcr ? Number(avgFcr) || null : null,
     );

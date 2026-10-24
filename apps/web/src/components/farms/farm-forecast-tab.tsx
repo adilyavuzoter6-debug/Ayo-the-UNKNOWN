@@ -23,10 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useFarms } from "@/hooks/use-farms";
 import { useFarmStockSummary } from "@/hooks/use-farm-stock-summary";
 import { useFarmMortalityLog } from "@/hooks/use-farm-mortality-log";
 import { useWeightForecast } from "@/hooks/use-weight-forecast";
 import { projectPopulation } from "@/lib/population-projection";
+
+const NONE_FARM = "__none__";
 
 function fmt(n: number, digits = 1): string {
   return n.toLocaleString("tr", { maximumFractionDigits: digits });
@@ -56,8 +59,15 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 }
 
 export function FarmForecastTab({ farmId }: { farmId: string }) {
+  const { data: farms } = useFarms();
+  const [secondaryFarmId, setSecondaryFarmId] = React.useState("");
+  const otherFarms = (farms ?? []).filter((f) => f.id !== farmId);
+
   const { data: summary, isLoading: summaryLoading } = useFarmStockSummary(farmId);
   const { entries, isLoading: mortalityLoading } = useFarmMortalityLog(farmId);
+  const { data: secondarySummary, isLoading: secondarySummaryLoading } = useFarmStockSummary(secondaryFarmId);
+  const { entries: secondaryEntries, isLoading: secondaryMortalityLoading } = useFarmMortalityLog(secondaryFarmId);
+
   const [bucketWidthText, setBucketWidthText] = React.useState("50");
   const bucketWidthG = Number(bucketWidthText) || 0;
   const [selectedMonth, setSelectedMonth] = React.useState("1");
@@ -67,9 +77,14 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
     farmId,
     bucketWidthG,
     avgFcr,
+    secondaryFarmId ? [secondaryFarmId] : [],
   );
 
-  if (summaryLoading || mortalityLoading || !summary) {
+  const combining = !!secondaryFarmId;
+  const pending =
+    summaryLoading || mortalityLoading || (combining && (secondarySummaryLoading || secondaryMortalityLoading));
+
+  if (pending || !summary) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24 rounded-lg" />
@@ -78,7 +93,13 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
     );
   }
 
-  if (summary.fishCount === 0) {
+  // Transfers between the combined farms (e.g. juveniles moving to a grow-out farm as they size
+  // up) don't change the combined total — they just relocate it — so summing is exactly right,
+  // not an approximation.
+  const combinedFishCount = summary.fishCount + (combining ? (secondarySummary?.fishCount ?? 0) : 0);
+  const combinedEntries = combining ? [...entries, ...secondaryEntries] : entries;
+
+  if (combinedFishCount === 0) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -88,17 +109,50 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
     );
   }
 
-  const projection = projectPopulation(summary.fishCount, entries);
+  const projection = projectPopulation(combinedFishCount, combinedEntries);
   const in12Weeks = projection.points.at(-1)!;
   const chartData = projection.points.map((p) => ({
     label: p.weeksAhead === 0 ? "Bugün" : `${p.weeksAhead}. hafta`,
     count: p.projectedCount,
   }));
+  const secondaryFarmName = farms?.find((f) => f.id === secondaryFarmId)?.name;
+  const primaryFarmName = farms?.find((f) => f.id === farmId)?.name;
+  const titleSuffix = combining && primaryFarmName && secondaryFarmName
+    ? ` — ${primaryFarmName} + ${secondaryFarmName}`
+    : "";
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Label className="text-[11px] text-muted-foreground">Başka çiftlikle birleştir</Label>
+        <Select
+          value={secondaryFarmId || NONE_FARM}
+          onValueChange={(v) => setSecondaryFarmId(v === NONE_FARM ? "" : (v ?? ""))}
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Birleştirme yok">
+              {(v: string) => (v === NONE_FARM ? "Birleştirme yok" : farms?.find((f) => f.id === v)?.name)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_FARM}>Birleştirme yok</SelectItem>
+            {otherFarms.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {f.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {combining ? (
+          <p className="text-[11px] text-muted-foreground">
+            Bu çiftliğin tahmini, {secondaryFarmName} ile birleştirilmiş toplam üzerinden
+            hesaplanıyor — aradaki transferler toplamı değiştirmediği için sorun oluşturmaz.
+          </p>
+        ) : null}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Stat label="Şu anki canlı balık" value={summary.fishCount.toLocaleString("tr")} />
+        <Stat label="Şu anki canlı balık" value={combinedFishCount.toLocaleString("tr")} />
         <Stat
           label="Trend mortalite oranı"
           value={`%${projection.dailyMortalityRatePct.toFixed(3)}/gün`}
@@ -110,7 +164,7 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
         />
       </div>
 
-      <PanelCard title="Balık Sayısı Tahmini (12 hafta)">
+      <PanelCard title={`Balık Sayısı Tahmini (12 hafta)${titleSuffix}`}>
         <div className="p-3">
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={chartData} margin={{ left: 12, right: 20, top: 4, bottom: 0 }}>
@@ -157,7 +211,7 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
         </div>
       </PanelCard>
 
-      <PanelCard title="Gramaj Dağılımı Tahmini (ay ay)">
+      <PanelCard title={`Gramaj Dağılımı Tahmini (ay ay)${titleSuffix}`}>
         <div className="flex flex-wrap items-center gap-3 border-b border-border px-4.5 py-2.5">
           <div className="flex items-center gap-2">
             <Label className="text-[11px] text-muted-foreground">Kaç ay sonra</Label>

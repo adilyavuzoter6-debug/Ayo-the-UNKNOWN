@@ -232,10 +232,16 @@ export class FarmStatsService {
    * optional `avgFcr` fills that gap: its own logged feed rate still drives growth, just divided by
    * the assumed ratio instead of a measured one. Only a batch with literally no feed logged stays
    * flat — there's no rate to apply an FCR to.
+   *
+   * `farmIds` takes more than one farm so a grow-out pipeline (juveniles stocked at one farm,
+   * transferred to another as they size up) can be forecast as a single pool — the primary farm
+   * (farmIds[0]) is the one checked for existence/tenancy; a transfer between the given farms
+   * doesn't change the combined count or biomass, so combining them is exactly what makes transfer
+   * timing a non-issue for the projection instead of something it would otherwise need to model.
    */
-  async getWeightForecast(companyId: string, farmId: string, bucketWidthG: number, avgFcr: number | null) {
+  async getWeightForecast(companyId: string, farmIds: string[], bucketWidthG: number, avgFcr: number | null) {
     const client = this.tenantPrisma.forTenant(companyId);
-    const farm = await client.farm.findFirst({ where: { id: farmId, deletedAt: null } });
+    const farm = await client.farm.findFirst({ where: { id: farmIds[0], deletedAt: null } });
     if (!farm) {
       throw new NotFoundException("Farm not found.");
     }
@@ -246,7 +252,7 @@ export class FarmStatsService {
     lookbackCutoff.setDate(lookbackCutoff.getDate() - FORECAST_LOOKBACK_DAYS);
 
     const tankStates = await client.batchTankState.findMany({
-      where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId } } },
+      where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId: { in: farmIds } } } },
       include: { batch: { include: { currentState: true } } },
     });
 
@@ -279,7 +285,7 @@ export class FarmStatsService {
         _sum: { quantityKg: true },
       }),
       client.mortalityEvent.aggregate({
-        where: { tank: { farmSection: { farmId } }, occurredAt: { gte: lookbackCutoff } },
+        where: { tank: { farmSection: { farmId: { in: farmIds } } }, occurredAt: { gte: lookbackCutoff } },
         _sum: { fishCount: true },
       }),
     ]);
