@@ -52,10 +52,18 @@ function WorkspaceLoading() {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { companyId, setCompanyId, isReady } = useActiveCompany();
-  const { data: companies, isLoading: companiesLoading } = useMyCompanies();
+  const {
+    data: companies,
+    isLoading: companiesLoading,
+    isError: companiesErrored,
+    refetch: refetchCompanies,
+  } = useMyCompanies();
 
   React.useEffect(() => {
-    if (!isReady || companiesLoading) return;
+    // A failed request (e.g. the database is unreachable) must never be read as "this account has
+    // no company" — that misdiagnosis sent people to /onboarding to create a brand new company on
+    // top of their real one the moment the API had a bad day. Only an actually-empty list redirects.
+    if (!isReady || companiesLoading || companiesErrored) return;
 
     if (!companies || companies.length === 0) {
       router.replace("/onboarding");
@@ -68,7 +76,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       // the first company rather than blocking the user with an empty screen.
       setCompanyId(companies[0]!.id);
     }
-  }, [isReady, companiesLoading, companies, companyId, setCompanyId, router]);
+  }, [isReady, companiesLoading, companiesErrored, companies, companyId, setCompanyId, router]);
+
+  if (companiesErrored) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/20 p-4">
+        <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+          <h1 className="font-display text-lg font-semibold text-foreground">
+            Sunucuya şu an ulaşılamıyor
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Verileriniz kaybolmadı — geçici bir bağlantı sorunu var. Birkaç saniye sonra tekrar
+            deneyin.
+          </p>
+          <div className="mt-6 flex flex-col items-center gap-2">
+            <button
+              className={cn(buttonVariants({ variant: "default" }), "w-full")}
+              onClick={() => refetchCompanies()}
+            >
+              Tekrar dene
+            </button>
+            <SignOutButton>
+              <button className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+                Çıkış Yap
+              </button>
+            </SignOutButton>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Only truly block when there's nothing to render against. A returning user already has their
   // company id in localStorage, so the shell and navigation can paint immediately while

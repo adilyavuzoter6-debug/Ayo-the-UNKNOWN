@@ -25,7 +25,7 @@ import { Logo } from "@/components/shared/logo";
 export default function OnboardingPage() {
   const router = useRouter();
   const { setCompanyId } = useActiveCompany();
-  const { data: companies, isLoading } = useMyCompanies();
+  const { data: companies, isLoading, isError, refetch } = useMyCompanies();
   const createCompany = useCreateCompany();
 
   const form = useForm<CreateCompanyInput>({
@@ -55,115 +55,134 @@ export default function OnboardingPage() {
           <Logo size={36} />
         </div>
 
-        {!isLoading && companies && companies.length > 0 ? (
+        {isError ? (
           <Card>
             <CardHeader>
-              <CardTitle>Continue to your workspace</CardTitle>
+              <CardTitle>Can&apos;t reach the server right now</CardTitle>
               <CardDescription>
-                You already belong to {companies.length === 1 ? "a company" : "companies"}.
+                This doesn&apos;t mean your company is gone — we just couldn&apos;t check. Try
+                again in a moment rather than creating a new one.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {companies.map((c) => (
-                <Button
-                  key={c.id}
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => {
-                    setCompanyId(c.id);
-                    router.replace("/farms");
-                  }}
-                >
-                  {c.name}
-                </Button>
-              ))}
-              <p className="pt-2 text-center text-sm text-muted-foreground">
-                Or create a new company below.
-              </p>
+            <CardContent>
+              <Button variant="outline" className="w-full" onClick={() => refetch()}>
+                Try again
+              </Button>
             </CardContent>
           </Card>
-        ) : null}
+        ) : (
+          <>
+            {!isLoading && companies && companies.length > 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Continue to your workspace</CardTitle>
+                  <CardDescription>
+                    You already belong to {companies.length === 1 ? "a company" : "companies"}.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {companies.map((c) => (
+                    <Button
+                      key={c.id}
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => {
+                        setCompanyId(c.id);
+                        router.replace("/farms");
+                      }}
+                    >
+                      {c.name}
+                    </Button>
+                  ))}
+                  <p className="pt-2 text-center text-sm text-muted-foreground">
+                    Or create a new company below.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Create your company</CardTitle>
-            <CardDescription>
-              This becomes the top of your farm hierarchy — you&apos;ll be its owner.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Company name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Fjord Trout Co." {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <Card>
+              <CardHeader>
+                <CardTitle>Create your company</CardTitle>
+                <CardDescription>
+                  This becomes the top of your farm hierarchy — you&apos;ll be its owner.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Company name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Fjord Trout Co." {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                <FormField
-                  control={form.control}
-                  name="legalName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Legal name (optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Fjord Trout Co. AS" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    <FormField
+                      control={form.control}
+                      name="legalName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Legal name (optional)</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Fjord Trout Co. AS" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="countryCode"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Country code</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="TR"
-                            maxLength={2}
-                            {...field}
-                            onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="countryCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Country code</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="TR"
+                                maxLength={2}
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                  <FormField
-                    control={form.control}
-                    name="timezone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Timezone</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Europe/Istanbul" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                      <FormField
+                        control={form.control}
+                        name="timezone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Timezone</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Europe/Istanbul" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
 
-                <Button type="submit" className="w-full" disabled={createCompany.isPending}>
-                  {createCompany.isPending ? "Creating…" : "Create company"}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+                    <Button type="submit" className="w-full" disabled={createCompany.isPending}>
+                      {createCompany.isPending ? "Creating…" : "Create company"}
+                    </Button>
+                  </form>
+                </Form>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </div>
   );
