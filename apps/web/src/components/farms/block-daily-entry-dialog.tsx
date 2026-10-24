@@ -139,7 +139,12 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
   );
 
   async function onSubmit() {
-    const jobs: Promise<unknown>[] = [];
+    // Thunks, not started promises — each fetch only fires once its turn comes in the
+    // sequential loop below. Feeding (and, in the treatment dialog, medicine dosing) draws
+    // down a shared stock balance that the API checks by reading-then-writing, not inside a
+    // locked transaction; firing a whole block's worth of requests concurrently can let several
+    // of them each see the same pre-deduction balance and collectively overdraw it.
+    const jobs: (() => Promise<unknown>)[] = [];
 
     if (mode === "perPond") {
       for (const row of stockedRows) {
@@ -147,7 +152,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
         const mortality = rowValues?.mortality ? Number(rowValues.mortality) : 0;
         const feedKg = rowValues?.feedKg ? Number(rowValues.feedKg) : 0;
         if (mortality > 0) {
-          jobs.push(
+          jobs.push(() =>
             api.post(`/tanks/${row.tankId}/mortality-events`, {
               batchId: row.batchId,
               fishCount: mortality,
@@ -157,7 +162,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
           );
         }
         if (feedKg > 0 && feedInventoryBatchId) {
-          jobs.push(
+          jobs.push(() =>
             api.post(`/tanks/${row.tankId}/feeding-events`, {
               batchId: row.batchId,
               feedInventoryBatchId,
@@ -172,7 +177,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
         const mortality = mortalitySplit[i] ?? 0;
         const feedKg = feedSplit[i] ?? 0;
         if (mortality > 0) {
-          jobs.push(
+          jobs.push(() =>
             api.post(`/tanks/${row.tankId}/mortality-events`, {
               batchId: row.batchId,
               fishCount: mortality,
@@ -183,7 +188,7 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
           );
         }
         if (feedKg > 0 && feedInventoryBatchId) {
-          jobs.push(
+          jobs.push(() =>
             api.post(`/tanks/${row.tankId}/feeding-events`, {
               batchId: row.batchId,
               feedInventoryBatchId,
@@ -206,7 +211,14 @@ export function BlockDailyEntryDialog({ farmId, rows }: { farmId: string; rows: 
     }
 
     setSubmitting(true);
-    const results = await Promise.allSettled(jobs);
+    const results: PromiseSettledResult<unknown>[] = [];
+    for (const job of jobs) {
+      try {
+        results.push({ status: "fulfilled", value: await job() });
+      } catch (error) {
+        results.push({ status: "rejected", reason: error });
+      }
+    }
     setSubmitting(false);
 
     for (const row of stockedRows) {

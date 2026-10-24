@@ -127,11 +127,17 @@ export function BlockTreatmentDialog({ farmId, rows }: { farmId: string; rows: T
     }
 
     setSubmitting(true);
-    const results = await Promise.allSettled(
-      stockedRows.map((row, i) => {
-        const liters = doseSplit[i] ?? 0;
-        const useStock = medicineItemId && liters > 0;
-        return api.post(`/tanks/${row.tankId}/treatments`, {
+    // Sequential, not Promise.all — every row here can draw from the same medicine stock, and
+    // the API checks that balance by reading then writing, not inside a locked transaction.
+    // Firing the whole block concurrently would let several requests see the same
+    // pre-deduction balance and collectively overdraw it.
+    const results: PromiseSettledResult<unknown>[] = [];
+    for (let i = 0; i < stockedRows.length; i++) {
+      const row = stockedRows[i]!;
+      const liters = doseSplit[i] ?? 0;
+      const useStock = medicineItemId && liters > 0;
+      try {
+        const value = await api.post(`/tanks/${row.tankId}/treatments`, {
           batchId: row.batchId,
           type,
           productName: productName.trim(),
@@ -143,8 +149,11 @@ export function BlockTreatmentDialog({ farmId, rows }: { farmId: string; rows: T
           medicineItemId: useStock ? medicineItemId : undefined,
           doseLiters: useStock ? liters : undefined,
         });
-      }),
-    );
+        results.push({ status: "fulfilled", value });
+      } catch (error) {
+        results.push({ status: "rejected", reason: error });
+      }
+    }
     setSubmitting(false);
 
     for (const row of stockedRows) {
