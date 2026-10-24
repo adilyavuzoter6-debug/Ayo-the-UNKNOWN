@@ -623,6 +623,29 @@ export interface MinMaxAvg {
   count: number;
 }
 
+export interface WeightForecastBucket {
+  startG: number;
+  endG: number;
+  fishCount: number;
+  biomassKg: number;
+  batchCount: number;
+}
+
+export interface WeightForecastMonth {
+  monthsAhead: number;
+  totalCount: number;
+  totalBiomassKg: number;
+  buckets: WeightForecastBucket[];
+}
+
+export interface WeightForecastResult {
+  bucketWidthG: number;
+  dailyMortalityRatePct: number;
+  totalActiveBatches: number;
+  batchesWithGrowthData: number;
+  months: WeightForecastMonth[];
+}
+
 export interface InspectionReport {
   farm: { id: string; name: string; code: string };
   periodStart: string;

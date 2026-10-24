@@ -15,6 +15,33 @@ function startOfTomorrow(): Date {
   return date;
 }
 
+const FORECAST_MONTHS_AHEAD = 12;
+const FORECAST_LOOKBACK_DAYS = 30;
+const DEFAULT_BUCKET_WIDTH_G = 50;
+
+interface WeightForecastBucket {
+  startG: number;
+  endG: number;
+  fishCount: number;
+  biomassKg: number;
+  batchCount: number;
+}
+
+export interface WeightForecastMonth {
+  monthsAhead: number;
+  totalCount: number;
+  totalBiomassKg: number;
+  buckets: WeightForecastBucket[];
+}
+
+export interface WeightForecastResult {
+  bucketWidthG: number;
+  dailyMortalityRatePct: number;
+  totalActiveBatches: number;
+  batchesWithGrowthData: number;
+  months: WeightForecastMonth[];
+}
+
 @Injectable()
 export class FarmStatsService {
   constructor(
@@ -183,5 +210,135 @@ export class FarmStatsService {
       todayFeedKg: Number(todayFeed._sum.quantityKg ?? 0),
       openAlertsCount,
     };
+  }
+
+  /**
+   * Projects the farm's live stock forward month by month, bucketed into gram ranges — the same
+   * idea as the Tahmin tab's count-only projection (extrapolate the last 30 days forward), extended
+   * with a per-batch weight trajectory. A batch's growth isn't driven by a manually-set target FCR
+   * (as of this writing essentially no batch has one — see Treatment/FCR feature) nor by
+   * FcrCalculationService's BiomassSnapshot-based methodology (equally sparse here — only 2 of 200+
+   * active batches have ever had one recorded). Instead each batch's OWN realized FCR is derived
+   * straight from data every stocked batch already has: all feed it's ever been fed, divided by how
+   * much biomass it has gained since stocking (current biomass − initial biomass). That realized FCR
+   * then converts the batch's own historical average daily feed rate into a daily per-fish weight
+   * gain, held constant going forward — "if this batch keeps growing the way it has so far". A batch
+   * with no feed logged, or no net biomass gain yet, contributes zero growth (flat weight) rather
+   * than a guessed rate; it's still counted (and still loses fish to the mortality curve), just
+   * doesn't move gram ranges on its own.
+   */
+  async getWeightForecast(companyId: string, farmId: string, bucketWidthG: number) {
+    const client = this.tenantPrisma.forTenant(companyId);
+    const farm = await client.farm.findFirst({ where: { id: farmId, deletedAt: null } });
+    if (!farm) {
+      throw new NotFoundException("Farm not found.");
+    }
+    const width = bucketWidthG > 0 ? bucketWidthG : DEFAULT_BUCKET_WIDTH_G;
+
+    const now = new Date();
+    const lookbackCutoff = new Date(now);
+    lookbackCutoff.setDate(lookbackCutoff.getDate() - FORECAST_LOOKBACK_DAYS);
+
+    const tankStates = await client.batchTankState.findMany({
+      where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId } } },
+      include: { batch: { include: { currentState: true } } },
+    });
+
+    // One batch can be split across tanks; roll each batch up to its farm-wide totals before
+    // projecting — the projection operates per batch, not per tank allocation.
+    const perBatch = new Map<
+      string,
+      { count: number; avgWeightG: number; initialCount: number; initialAvgWeightG: number; farmEntryDate: Date }
+    >();
+    for (const state of tankStates) {
+      const existing = perBatch.get(state.batchId);
+      if (existing) {
+        existing.count += state.estimatedCount;
+        continue;
+      }
+      perBatch.set(state.batchId, {
+        count: state.estimatedCount,
+        avgWeightG: Number(state.batch.currentState?.estimatedAvgWeightG ?? state.batch.initialAvgWeightG),
+        initialCount: state.batch.initialCount,
+        initialAvgWeightG: Number(state.batch.initialAvgWeightG),
+        farmEntryDate: state.batch.farmEntryDate,
+      });
+    }
+
+    const batchIds = [...perBatch.keys()];
+    const [feedAgg, mortalityAgg] = await Promise.all([
+      client.feedingEvent.groupBy({
+        by: ["batchId"],
+        where: { batchId: { in: batchIds } },
+        _sum: { quantityKg: true },
+      }),
+      client.mortalityEvent.aggregate({
+        where: { tank: { farmSection: { farmId } }, occurredAt: { gte: lookbackCutoff } },
+        _sum: { fishCount: true },
+      }),
+    ]);
+    const feedByBatch = new Map(feedAgg.map((f) => [f.batchId, Number(f._sum.quantityKg ?? 0)]));
+
+    const totalCount = [...perBatch.values()].reduce((sum, b) => sum + b.count, 0);
+    const recentMortality = Number(mortalityAgg._sum.fishCount ?? 0);
+    const dailyMortalityRate = totalCount > 0 ? recentMortality / (totalCount * FORECAST_LOOKBACK_DAYS) : 0;
+
+    let batchesWithGrowthData = 0;
+    const projected = batchIds.map((batchId) => {
+      const b = perBatch.get(batchId)!;
+      const totalFeedKg = feedByBatch.get(batchId) ?? 0;
+      const currentBiomassKg = (b.count * b.avgWeightG) / 1000;
+      const initialBiomassKg = (b.initialCount * b.initialAvgWeightG) / 1000;
+      const biomassGainKg = currentBiomassKg - initialBiomassKg;
+      const daysSinceStocking = Math.max(1, (now.getTime() - b.farmEntryDate.getTime()) / 86_400_000);
+
+      let dailyGrowthGPerFish = 0;
+      if (totalFeedKg > 0 && biomassGainKg > 0 && b.count > 0) {
+        dailyGrowthGPerFish = ((biomassGainKg * 1000) / daysSinceStocking) / b.count;
+        batchesWithGrowthData += 1;
+      }
+
+      return { avgWeightG: b.avgWeightG, count: b.count, dailyGrowthGPerFish };
+    });
+
+    const months: WeightForecastMonth[] = [];
+    for (let monthsAhead = 1; monthsAhead <= FORECAST_MONTHS_AHEAD; monthsAhead++) {
+      const daysAhead = monthsAhead * 30;
+      const buckets = new Map<number, WeightForecastBucket>();
+      let monthTotalCount = 0;
+      let monthTotalBiomassKg = 0;
+
+      for (const p of projected) {
+        const projectedCount = Math.max(0, Math.round(p.count * (1 - dailyMortalityRate) ** daysAhead));
+        if (projectedCount === 0) continue;
+        const projectedAvgWeightG = p.avgWeightG + p.dailyGrowthGPerFish * daysAhead;
+        const biomassKg = (projectedCount * projectedAvgWeightG) / 1000;
+
+        monthTotalCount += projectedCount;
+        monthTotalBiomassKg += biomassKg;
+
+        const startG = Math.floor(projectedAvgWeightG / width) * width;
+        const bucket = buckets.get(startG) ?? { startG, endG: startG + width, fishCount: 0, biomassKg: 0, batchCount: 0 };
+        bucket.fishCount += projectedCount;
+        bucket.biomassKg += biomassKg;
+        bucket.batchCount += 1;
+        buckets.set(startG, bucket);
+      }
+
+      months.push({
+        monthsAhead,
+        totalCount: monthTotalCount,
+        totalBiomassKg: monthTotalBiomassKg,
+        buckets: [...buckets.values()].sort((a, b) => a.startG - b.startG),
+      });
+    }
+
+    return {
+      bucketWidthG: width,
+      dailyMortalityRatePct: dailyMortalityRate * 100,
+      totalActiveBatches: batchIds.length,
+      batchesWithGrowthData,
+      months,
+    } satisfies WeightForecastResult;
   }
 }

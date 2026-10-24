@@ -1,13 +1,36 @@
 "use client";
 
+import * as React from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TrendingDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useFarmStockSummary } from "@/hooks/use-farm-stock-summary";
 import { useFarmMortalityLog } from "@/hooks/use-farm-mortality-log";
+import { useWeightForecast } from "@/hooks/use-weight-forecast";
 import { projectPopulation } from "@/lib/population-projection";
+
+function fmt(n: number, digits = 1): string {
+  return n.toLocaleString("tr", { maximumFractionDigits: digits });
+}
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -25,6 +48,10 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 export function FarmForecastTab({ farmId }: { farmId: string }) {
   const { data: summary, isLoading: summaryLoading } = useFarmStockSummary(farmId);
   const { entries, isLoading: mortalityLoading } = useFarmMortalityLog(farmId);
+  const [bucketWidthText, setBucketWidthText] = React.useState("50");
+  const bucketWidthG = Number(bucketWidthText) || 0;
+  const [selectedMonth, setSelectedMonth] = React.useState("1");
+  const { data: weightForecast, isLoading: weightForecastLoading } = useWeightForecast(farmId, bucketWidthG);
 
   if (summaryLoading || mortalityLoading || !summary) {
     return (
@@ -110,6 +137,112 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
             Son 30 günün mortalite oranına dayalı kaba bir tahmindir — planlı hasat, transfer veya
             yeni stoklama gibi olayları hesaba katmaz, sadece &quot;mevcut ölüm hızı sürerse&quot;
             sorusuna cevap verir.
+          </p>
+        </div>
+      </PanelCard>
+
+      <PanelCard title="Gramaj Dağılımı Tahmini (ay ay)">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4.5 py-2.5">
+          <div className="flex items-center gap-2">
+            <Label className="text-[11px] text-muted-foreground">Ay</Label>
+            <Select value={selectedMonth} onValueChange={(v) => setSelectedMonth(v ?? "1")}>
+              <SelectTrigger className="w-28">
+                <SelectValue>{(v: string) => `${v}. ay`}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <SelectItem key={m} value={String(m)}>
+                    {m}. ay
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-[11px] text-muted-foreground">Aralık genişliği (g)</Label>
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              className="h-8 w-24"
+              value={bucketWidthText}
+              onChange={(e) => setBucketWidthText(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {weightForecastLoading || !weightForecast ? (
+          <div className="p-4">
+            <Skeleton className="h-48 rounded" />
+          </div>
+        ) : (
+          (() => {
+            const month = weightForecast.months.find((m) => m.monthsAhead === Number(selectedMonth));
+            if (!month || month.buckets.length === 0) {
+              return (
+                <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">
+                  Bu ay için tahmin edilecek canlı stok yok.
+                </p>
+              );
+            }
+            return (
+              <>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-4.5 py-4 text-xs sm:grid-cols-3">
+                  <div>
+                    <div className="mb-0.5 text-muted-foreground">Tahmini toplam adet</div>
+                    <div className="font-mono font-medium text-foreground">
+                      {month.totalCount.toLocaleString("tr")}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 text-muted-foreground">Tahmini toplam biyokütle</div>
+                    <div className="font-mono font-medium text-foreground">{fmt(month.totalBiomassKg)} kg</div>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 text-muted-foreground">Büyüme verisi olan parti</div>
+                    <div className="font-mono font-medium text-foreground">
+                      {weightForecast.batchesWithGrowthData}/{weightForecast.totalActiveBatches}
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Gramaj aralığı</TableHead>
+                        <TableHead>Parti sayısı</TableHead>
+                        <TableHead>Tahmini adet</TableHead>
+                        <TableHead>Tahmini biyokütle</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {month.buckets.map((bucket) => (
+                        <TableRow key={bucket.startG}>
+                          <TableCell className="font-mono">
+                            {fmt(bucket.startG, 0)}–{fmt(bucket.endG, 0)} g
+                          </TableCell>
+                          <TableCell className="font-mono">{bucket.batchCount}</TableCell>
+                          <TableCell className="font-mono">{bucket.fishCount.toLocaleString("tr")}</TableCell>
+                          <TableCell className="font-mono">{fmt(bucket.biomassKg)} kg</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            );
+          })()
+        )}
+
+        <div className="flex items-start gap-2 border-t border-border px-4.5 py-3 text-[11px] text-muted-foreground">
+          <TrendingDown className="mt-0.5 size-3.5 shrink-0" />
+          <p>
+            Her partinin büyümesi, o partinin stoklamadan bu yana yediği toplam yem ile kazandığı
+            biyokütleden hesaplanan kendi gerçekleşen FCR&apos;ına göre ileri uzatılır (
+            {weightForecast?.batchesWithGrowthData ?? 0}/{weightForecast?.totalActiveBatches ?? 0}{" "}
+            partide yeterli veri var; diğerlerinin ağırlığı sabit kalır). Ölüm oranı, yukarıdaki
+            trend mortalite oranıyla aynı şekilde uygulanır. Planlı hasat, transfer veya yeni
+            stoklamayı hesaba katmaz.
           </p>
         </div>
       </PanelCard>

@@ -5,11 +5,17 @@ import {
   FarmStatsController,
   FarmDashboardKpisController,
   FarmOverviewController,
+  FarmWeightForecastController,
 } from "./farm-stats.controller";
 
 @Module({
   imports: [BatchPerformanceModule],
   providers: [FarmStatsService],
-  controllers: [FarmStatsController, FarmDashboardKpisController, FarmOverviewController],
+  controllers: [
+    FarmStatsController,
+    FarmDashboardKpisController,
+    FarmOverviewController,
+    FarmWeightForecastController,
+  ],
 })
 export class FarmStatsModule {}

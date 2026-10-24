@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Controller, Get, Param, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
@@ -42,5 +42,22 @@ export class FarmDashboardKpisController {
   @RequirePermission(Permission.FISH_BATCH_READ)
   get(@Param("farmId") farmId: string, @CurrentTenant() tenant: TenantContext) {
     return this.farmStatsService.getDashboardKpis(tenant.companyId, farmId);
+  }
+}
+
+@ApiTags("farm-stats")
+@ApiBearerAuth()
+@Controller({ path: "farms/:farmId/weight-forecast", version: "1" })
+export class FarmWeightForecastController {
+  constructor(private readonly farmStatsService: FarmStatsService) {}
+
+  @Get()
+  @RequirePermission(Permission.FISH_BATCH_READ)
+  get(
+    @Param("farmId") farmId: string,
+    @Query("bucketWidthG") bucketWidthG: string | undefined,
+    @CurrentTenant() tenant: TenantContext,
+  ) {
+    return this.farmStatsService.getWeightForecast(tenant.companyId, farmId, Number(bucketWidthG) || 0);
   }
 }
