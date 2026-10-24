@@ -640,9 +640,12 @@ export interface WeightForecastMonth {
 
 export interface WeightForecastResult {
   bucketWidthG: number;
+  avgFcr: number | null;
   dailyMortalityRatePct: number;
   totalActiveBatches: number;
-  batchesWithGrowthData: number;
+  batchesWithOwnFcr: number;
+  batchesWithAssumedFcr: number;
+  batchesFlat: number;
   months: WeightForecastMonth[];
 }
 

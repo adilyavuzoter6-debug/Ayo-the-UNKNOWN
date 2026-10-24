@@ -36,9 +36,12 @@ export interface WeightForecastMonth {
 
 export interface WeightForecastResult {
   bucketWidthG: number;
+  avgFcr: number | null;
   dailyMortalityRatePct: number;
   totalActiveBatches: number;
-  batchesWithGrowthData: number;
+  batchesWithOwnFcr: number;
+  batchesWithAssumedFcr: number;
+  batchesFlat: number;
   months: WeightForecastMonth[];
 }
 
@@ -222,12 +225,15 @@ export class FarmStatsService {
    * straight from data every stocked batch already has: all feed it's ever been fed, divided by how
    * much biomass it has gained since stocking (current biomass − initial biomass). That realized FCR
    * then converts the batch's own historical average daily feed rate into a daily per-fish weight
-   * gain, held constant going forward — "if this batch keeps growing the way it has so far". A batch
-   * with no feed logged, or no net biomass gain yet, contributes zero growth (flat weight) rather
-   * than a guessed rate; it's still counted (and still loses fish to the mortality curve), just
-   * doesn't move gram ranges on its own.
+   * gain, held constant going forward — "if this batch keeps growing the way it has so far".
+   *
+   * A batch that has been fed but has no net biomass gain yet (the common case — a real feeding
+   * history but no second weighing to measure growth against) can't derive its own FCR, but an
+   * optional `avgFcr` fills that gap: its own logged feed rate still drives growth, just divided by
+   * the assumed ratio instead of a measured one. Only a batch with literally no feed logged stays
+   * flat — there's no rate to apply an FCR to.
    */
-  async getWeightForecast(companyId: string, farmId: string, bucketWidthG: number) {
+  async getWeightForecast(companyId: string, farmId: string, bucketWidthG: number, avgFcr: number | null) {
     const client = this.tenantPrisma.forTenant(companyId);
     const farm = await client.farm.findFirst({ where: { id: farmId, deletedAt: null } });
     if (!farm) {
@@ -283,7 +289,9 @@ export class FarmStatsService {
     const recentMortality = Number(mortalityAgg._sum.fishCount ?? 0);
     const dailyMortalityRate = totalCount > 0 ? recentMortality / (totalCount * FORECAST_LOOKBACK_DAYS) : 0;
 
-    let batchesWithGrowthData = 0;
+    let batchesWithOwnFcr = 0;
+    let batchesWithAssumedFcr = 0;
+    let batchesFlat = 0;
     const projected = batchIds.map((batchId) => {
       const b = perBatch.get(batchId)!;
       const totalFeedKg = feedByBatch.get(batchId) ?? 0;
@@ -291,11 +299,17 @@ export class FarmStatsService {
       const initialBiomassKg = (b.initialCount * b.initialAvgWeightG) / 1000;
       const biomassGainKg = currentBiomassKg - initialBiomassKg;
       const daysSinceStocking = Math.max(1, (now.getTime() - b.farmEntryDate.getTime()) / 86_400_000);
+      const dailyFeedRateKg = totalFeedKg / daysSinceStocking;
 
       let dailyGrowthGPerFish = 0;
-      if (totalFeedKg > 0 && biomassGainKg > 0 && b.count > 0) {
+      if (b.count > 0 && totalFeedKg > 0 && biomassGainKg > 0) {
         dailyGrowthGPerFish = ((biomassGainKg * 1000) / daysSinceStocking) / b.count;
-        batchesWithGrowthData += 1;
+        batchesWithOwnFcr += 1;
+      } else if (b.count > 0 && totalFeedKg > 0 && avgFcr && avgFcr > 0) {
+        dailyGrowthGPerFish = ((dailyFeedRateKg * 1000) / avgFcr) / b.count;
+        batchesWithAssumedFcr += 1;
+      } else {
+        batchesFlat += 1;
       }
 
       return { avgWeightG: b.avgWeightG, count: b.count, dailyGrowthGPerFish };
@@ -335,9 +349,12 @@ export class FarmStatsService {
 
     return {
       bucketWidthG: width,
+      avgFcr: avgFcr && avgFcr > 0 ? avgFcr : null,
       dailyMortalityRatePct: dailyMortalityRate * 100,
       totalActiveBatches: batchIds.length,
-      batchesWithGrowthData,
+      batchesWithOwnFcr,
+      batchesWithAssumedFcr,
+      batchesFlat,
       months,
     } satisfies WeightForecastResult;
   }

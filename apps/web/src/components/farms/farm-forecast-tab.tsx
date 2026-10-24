@@ -51,7 +51,13 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
   const [bucketWidthText, setBucketWidthText] = React.useState("50");
   const bucketWidthG = Number(bucketWidthText) || 0;
   const [selectedMonth, setSelectedMonth] = React.useState("1");
-  const { data: weightForecast, isLoading: weightForecastLoading } = useWeightForecast(farmId, bucketWidthG);
+  const [avgFcrText, setAvgFcrText] = React.useState("");
+  const avgFcr = avgFcrText.trim() === "" ? null : Number(avgFcrText) || null;
+  const { data: weightForecast, isLoading: weightForecastLoading } = useWeightForecast(
+    farmId,
+    bucketWidthG,
+    avgFcr,
+  );
 
   if (summaryLoading || mortalityLoading || !summary) {
     return (
@@ -169,6 +175,18 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
               onChange={(e) => setBucketWidthText(e.target.value)}
             />
           </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-[11px] text-muted-foreground">Ortalama FCR (opsiyonel)</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.1"
+              placeholder="örn. 1.3"
+              className="h-8 w-24"
+              value={avgFcrText}
+              onChange={(e) => setAvgFcrText(e.target.value)}
+            />
+          </div>
         </div>
 
         {weightForecastLoading || !weightForecast ? (
@@ -199,9 +217,23 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
                     <div className="font-mono font-medium text-foreground">{fmt(month.totalBiomassKg)} kg</div>
                   </div>
                   <div>
-                    <div className="mb-0.5 text-muted-foreground">Büyüme verisi olan parti</div>
+                    <div className="mb-0.5 text-muted-foreground">Kendi FCR&apos;ı ölçülen parti</div>
                     <div className="font-mono font-medium text-foreground">
-                      {weightForecast.batchesWithGrowthData}/{weightForecast.totalActiveBatches}
+                      {weightForecast.batchesWithOwnFcr}/{weightForecast.totalActiveBatches}
+                    </div>
+                  </div>
+                  {avgFcr ? (
+                    <div>
+                      <div className="mb-0.5 text-muted-foreground">Ortalama FCR ile tahmin edilen</div>
+                      <div className="font-mono font-medium text-foreground">
+                        {weightForecast.batchesWithAssumedFcr}/{weightForecast.totalActiveBatches}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div>
+                    <div className="mb-0.5 text-muted-foreground">Sabit kalan (veri yok)</div>
+                    <div className="font-mono font-medium text-foreground">
+                      {weightForecast.batchesFlat}/{weightForecast.totalActiveBatches}
                     </div>
                   </div>
                 </div>
@@ -237,12 +269,13 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
         <div className="flex items-start gap-2 border-t border-border px-4.5 py-3 text-[11px] text-muted-foreground">
           <TrendingDown className="mt-0.5 size-3.5 shrink-0" />
           <p>
-            Her partinin büyümesi, o partinin stoklamadan bu yana yediği toplam yem ile kazandığı
-            biyokütleden hesaplanan kendi gerçekleşen FCR&apos;ına göre ileri uzatılır (
-            {weightForecast?.batchesWithGrowthData ?? 0}/{weightForecast?.totalActiveBatches ?? 0}{" "}
-            partide yeterli veri var; diğerlerinin ağırlığı sabit kalır). Ölüm oranı, yukarıdaki
-            trend mortalite oranıyla aynı şekilde uygulanır. Planlı hasat, transfer veya yeni
-            stoklamayı hesaba katmaz.
+            Önce her partinin, stoklamadan bu yana yediği toplam yem ile kazandığı biyokütleden
+            hesaplanan kendi gerçekleşen FCR&apos;ı kullanılır. Bunu ölçecek kadar veri (yem +
+            ikinci bir tartım) olmayan ama yemleme geçmişi olan partilerde, girilmişse{" "}
+            <strong>ortalama FCR</strong> o partinin kendi yem hızıyla birlikte kullanılır. Hiç
+            yemleme kaydı olmayan partiler sabit ağırlıkta kalır. Ölüm oranı, yukarıdaki trend
+            mortalite oranıyla aynı şekilde uygulanır. Planlı hasat, transfer veya yeni stoklamayı
+            hesaba katmaz.
           </p>
         </div>
       </PanelCard>

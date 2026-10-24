@@ -56,8 +56,14 @@ export class FarmWeightForecastController {
   get(
     @Param("farmId") farmId: string,
     @Query("bucketWidthG") bucketWidthG: string | undefined,
+    @Query("avgFcr") avgFcr: string | undefined,
     @CurrentTenant() tenant: TenantContext,
   ) {
-    return this.farmStatsService.getWeightForecast(tenant.companyId, farmId, Number(bucketWidthG) || 0);
+    return this.farmStatsService.getWeightForecast(
+      tenant.companyId,
+      farmId,
+      Number(bucketWidthG) || 0,
+      avgFcr ? Number(avgFcr) || null : null,
+    );
   }
 }
