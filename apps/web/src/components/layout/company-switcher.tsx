@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
+import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -17,7 +16,6 @@ import { useActiveCompany } from "@/components/providers/active-company-provider
 import { useMyCompanies } from "@/hooks/use-companies";
 
 export function CompanySwitcher({ compact = false }: { compact?: boolean }) {
-  const router = useRouter();
   const { companyId, setCompanyId } = useActiveCompany();
   const { data: companies, isLoading } = useMyCompanies();
 
@@ -76,11 +74,6 @@ export function CompanySwitcher({ compact = false }: { compact?: boolean }) {
         ) : (
           <div className="px-2 py-1.5 text-sm text-muted-foreground">Henüz şirket yok</div>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push("/onboarding")}>
-          <Plus className="size-4" />
-          Yeni şirket
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

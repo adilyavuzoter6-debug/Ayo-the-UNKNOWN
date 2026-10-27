@@ -33,6 +33,15 @@ export default function OnboardingPage() {
     defaultValues: { name: "", legalName: "", countryCode: "", timezone: "" },
   });
 
+  // One company per account: anyone who already belongs to a company goes straight into the
+  // app instead of being offered to create another one.
+  const hasCompany = !!companies && companies.length > 0;
+  React.useEffect(() => {
+    if (!hasCompany) return;
+    setCompanyId(companies[0]!.id);
+    router.replace("/dashboard");
+  }, [hasCompany, companies, setCompanyId, router]);
+
   async function onSubmit(values: CreateCompanyInput) {
     try {
       const company = await createCompany.mutateAsync(values);
@@ -70,37 +79,10 @@ export default function OnboardingPage() {
               </Button>
             </CardContent>
           </Card>
+        ) : isLoading || hasCompany ? (
+          <p className="text-center text-sm text-muted-foreground">Yükleniyor…</p>
         ) : (
           <>
-            {!isLoading && companies && companies.length > 0 ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Continue to your workspace</CardTitle>
-                  <CardDescription>
-                    You already belong to {companies.length === 1 ? "a company" : "companies"}.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {companies.map((c) => (
-                    <Button
-                      key={c.id}
-                      variant="outline"
-                      className="w-full justify-start"
-                      onClick={() => {
-                        setCompanyId(c.id);
-                        router.replace("/farms");
-                      }}
-                    >
-                      {c.name}
-                    </Button>
-                  ))}
-                  <p className="pt-2 text-center text-sm text-muted-foreground">
-                    Or create a new company below.
-                  </p>
-                </CardContent>
-              </Card>
-            ) : null}
-
             <Card>
               <CardHeader>
                 <CardTitle>Create your company</CardTitle>

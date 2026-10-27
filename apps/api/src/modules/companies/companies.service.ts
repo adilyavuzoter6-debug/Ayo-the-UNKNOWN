@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Company } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
@@ -28,6 +28,22 @@ export class CompaniesService {
     trialEndsAt.setDate(trialEndsAt.getDate() + 30);
 
     const company = await this.prisma.$transaction(async (tx) => {
+      // One company per account: a user may own at most one live company. The advisory lock
+      // serializes concurrent create requests from the same user (double-click, two tabs) so
+      // both can't pass the check before either commits.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerUserId}))`;
+      const alreadyOwns = await tx.companyMembership.findFirst({
+        where: {
+          userId: ownerUserId,
+          role: "COMPANY_OWNER",
+          status: "ACTIVE",
+          company: { deletedAt: null },
+        },
+      });
+      if (alreadyOwns) {
+        throw new ConflictException("Bu hesapla zaten bir firma açılmış. Her hesap yalnızca bir firma açabilir.");
+      }
+
       const created = await tx.company.create({
         data: {
           name: input.name,
