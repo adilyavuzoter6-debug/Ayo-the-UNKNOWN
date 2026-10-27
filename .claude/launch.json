@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "C:\\Users\\Yavuz\\.npm-global\\pnpm.cmd",
+      "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
         "@aquai/web",
@@ -14,7 +14,7 @@
     },
     {
       "name": "api",
-      "runtimeExecutable": "C:\\Users\\Yavuz\\.npm-global\\pnpm.cmd",
+      "runtimeExecutable": "pnpm",
       "runtimeArgs": [
         "--filter",
         "@aquai/api",
