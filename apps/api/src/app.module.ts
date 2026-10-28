@@ -6,6 +6,7 @@ import { AppController } from "./app.controller";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { ResponseEnvelopeInterceptor } from "./common/interceptors/response-envelope.interceptor";
+import { IdempotencyInterceptor } from "./common/interceptors/idempotency.interceptor";
 import { TenantContextGuard } from "./common/guards/tenant-context.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -101,6 +102,8 @@ import { AuditModule } from "./modules/audit/audit.module";
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
+    // After the envelope interceptor, so it stores and replays the bare handler result.
+    { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
   ],
 })
 export class AppModule {}

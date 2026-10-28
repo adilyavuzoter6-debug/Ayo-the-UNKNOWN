@@ -39,6 +39,7 @@ model Company {
   farms       Farm[]
   auditLogs   AuditLog[]
   invitations Invitation[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@map("companies")
 }
@@ -1102,4 +1103,28 @@ model ColdStorageEntry {
 
   @@index([companyId, farmId])
   @@map("cold_storage_entries")
+}
+
+/// Remembers the outcome of a create request sent with an `Idempotency-Key` header
+/// (docs/architecture/11-api-architecture.md §11.7), so a client retrying the same request —
+/// typically the offline queue replaying after a dropped connection — gets the original response
+/// back instead of creating a duplicate record. A row with null completedAt is a request still in
+/// flight; it is deleted if the request fails, so a retry can run it again.
+model IdempotencyRecord {
+  id           String    @id @default(cuid())
+  companyId    String
+  userId       String
+  key          String
+  method       String
+  path         String
+  statusCode   Int?
+  responseBody Json?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@index([createdAt])
+  @@map("idempotency_records")
 }
