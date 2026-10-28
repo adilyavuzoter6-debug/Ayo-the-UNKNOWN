@@ -4,6 +4,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { isQueued, QUEUED_MESSAGE } from "@/components/providers/offline-queue-provider";
 import { Plus } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -60,8 +61,8 @@ export function RecordWaterQualityDialog({ tankId, tankCode }: { tankId: string;
 
   async function onSubmit(values: z.output<typeof schema>) {
     try {
-      await recordReading.mutateAsync(values);
-      toast.success("Su kalitesi ölçümü kaydedildi.");
+      const result = await recordReading.mutateAsync(values);
+      toast.success(isQueued(result) ? QUEUED_MESSAGE : "Su kalitesi ölçümü kaydedildi.");
       form.reset({ occurredAt: new Date().toISOString().slice(0, 10), notes: "" });
       setOpen(false);
     } catch (error) {

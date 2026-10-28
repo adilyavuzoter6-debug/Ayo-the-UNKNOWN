@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { AppSidebarContent } from "@/components/layout/app-sidebar";
 import { CompanySwitcher } from "@/components/layout/company-switcher";
+import { OfflineStatus } from "@/components/layout/offline-status";
 import { resolveNavTitle } from "@/lib/nav-items";
 import { useCompanyAlerts } from "@/hooks/use-alerts";
 
@@ -58,6 +59,8 @@ export function AppTopbar() {
           className="h-8 w-48 rounded-md border border-border bg-muted/40 pr-3 pl-8 text-xs text-foreground outline-none transition-colors focus:border-teal-500"
         />
       </div>
+
+      <OfflineStatus />
 
       <button
         type="button"

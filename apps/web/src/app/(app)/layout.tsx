@@ -78,7 +78,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [isReady, companiesLoading, companiesErrored, companies, companyId, setCompanyId, router]);
 
-  if (companiesErrored) {
+  // With a cached company list (e.g. offline, or a failed background refetch) keep the app usable
+  // on that data; the error screen is only for having nothing to show at all.
+  if (companiesErrored && !companies) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-muted/20 p-4">
         <div className="w-full max-w-md rounded-xl border border-border bg-card p-8 text-center shadow-sm">

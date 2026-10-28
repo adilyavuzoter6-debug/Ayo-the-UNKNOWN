@@ -4,6 +4,7 @@ import * as React from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { isQueued, QUEUED_MESSAGE } from "@/components/providers/offline-queue-provider";
 import { Wheat } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -104,8 +105,8 @@ export function LogFeedingDialog({
 
   async function onSubmit(values: FormValues) {
     try {
-      await logFeeding.mutateAsync(values);
-      toast.success("Yemleme kaydedildi.");
+      const result = await logFeeding.mutateAsync(values);
+      toast.success(isQueued(result) ? QUEUED_MESSAGE : "Yemleme kaydedildi.");
       form.reset();
       setOpen(false);
     } catch (error) {

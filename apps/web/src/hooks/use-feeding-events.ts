@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
+import { useOfflineQueue } from "@/components/providers/offline-queue-provider";
 import { useApiClient } from "@/lib/api-client";
 import type { FeedingEvent, FeedingMethod } from "@/lib/types";
 
@@ -24,17 +25,23 @@ export interface LogFeedingInput {
   notes?: string;
 }
 
+/** Queued instead of failing when offline — see OfflineQueueProvider. */
 export function useLogFeeding(farmId: string, tankId: string) {
-  const api = useApiClient();
   const { companyId } = useActiveCompany();
-  const queryClient = useQueryClient();
+  const { submit } = useOfflineQueue();
   return useMutation({
     mutationFn: (input: LogFeedingInput) =>
-      api.post<FeedingEvent>(`/tanks/${tankId}/feeding-events`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["feeding-events", companyId, tankId] });
-      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
-      queryClient.invalidateQueries({ queryKey: ["inventory-batches", companyId] });
-    },
+      submit<FeedingEvent>({
+        companyId: companyId!,
+        path: `/tanks/${tankId}/feeding-events`,
+        // Pinned now: a queued record sent later must keep the time it was actually recorded.
+        body: { ...input, occurredAt: input.occurredAt ?? new Date().toISOString() },
+        label: "Yemleme",
+        invalidate: [
+          ["feeding-events", companyId, tankId],
+          ["farm-stock-summary", companyId],
+          ["inventory-batches", companyId],
+        ],
+      }),
   });
 }

@@ -17,6 +17,69 @@ export interface Paginated<T> {
 interface RequestOptions {
   /** Set to skip attaching X-Company-Id — only for endpoints marked @SkipTenantContext() in the API. */
   skipCompanyContext?: boolean;
+  /** Sent as Idempotency-Key, so the API returns the original response if this request is repeated. */
+  idempotencyKey?: string;
+}
+
+export const OFFLINE_ERROR_CODE = "OFFLINE";
+export const NETWORK_ERROR_CODE = "NETWORK";
+
+export function isOffline() {
+  return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
+interface SendOptions {
+  token: string | null;
+  companyId: string | null;
+  path: string;
+  init?: RequestInit;
+  idempotencyKey?: string;
+}
+
+/**
+ * The one place a request actually goes out. Shared by useApiClient and the offline queue,
+ * which replays a request later under the company it was recorded for rather than whichever
+ * company is active by then.
+ */
+export async function sendApiRequest<T>({ token, companyId, path, init = {}, idempotencyKey }: SendOptions): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method !== "GET" && isOffline()) {
+    throw new ApiError(0, OFFLINE_ERROR_CODE, "Bu işlem için internet bağlantısı gerekli.");
+  }
+
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token ?? ""}`);
+  if (companyId) {
+    headers.set("X-Company-Id", companyId);
+  }
+  if (idempotencyKey) {
+    headers.set("Idempotency-Key", idempotencyKey);
+  }
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  } catch {
+    // fetch only rejects when the request never got an HTTP answer (no connection, DNS, CORS).
+    throw new ApiError(0, NETWORK_ERROR_CODE, "Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.");
+  }
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const err = body?.error;
+    throw new ApiError(
+      response.status,
+      err?.code ?? "UNKNOWN",
+      err?.message ?? response.statusText,
+      err?.requestId,
+      err?.details,
+    );
+  }
+
+  return body?.data as T;
 }
 
 /**
@@ -37,30 +100,13 @@ export function useApiClient() {
       options: RequestOptions = {},
     ): Promise<T> => {
       const token = await getToken();
-      const headers = new Headers(init.headers);
-      headers.set("Authorization", `Bearer ${token ?? ""}`);
-      if (!options.skipCompanyContext && companyId) {
-        headers.set("X-Company-Id", companyId);
-      }
-      if (init.body && !headers.has("Content-Type")) {
-        headers.set("Content-Type", "application/json");
-      }
-
-      const response = await fetch(`${API_URL}${path}`, { ...init, headers });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const err = body?.error;
-        throw new ApiError(
-          response.status,
-          err?.code ?? "UNKNOWN",
-          err?.message ?? response.statusText,
-          err?.requestId,
-          err?.details,
-        );
-      }
-
-      return body?.data as T;
+      return sendApiRequest<T>({
+        token,
+        companyId: options.skipCompanyContext ? null : companyId,
+        path,
+        init,
+        idempotencyKey: options.idempotencyKey,
+      });
     },
     [getToken, companyId],
   );

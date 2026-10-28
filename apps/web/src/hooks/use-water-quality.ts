@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
+import { useOfflineQueue } from "@/components/providers/offline-queue-provider";
 import { useApiClient } from "@/lib/api-client";
 import type { WaterQualityReading } from "@/lib/types";
 
@@ -28,15 +29,19 @@ export interface RecordWaterQualityReadingInput {
   notes?: string;
 }
 
+/** Queued instead of failing when offline — see OfflineQueueProvider. */
 export function useRecordWaterQualityReading(tankId: string) {
-  const api = useApiClient();
   const { companyId } = useActiveCompany();
-  const queryClient = useQueryClient();
+  const { submit } = useOfflineQueue();
   return useMutation({
     mutationFn: (input: RecordWaterQualityReadingInput) =>
-      api.post<WaterQualityReading>(`/tanks/${tankId}/water-quality-readings`, input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["water-quality-readings", companyId, tankId] });
-    },
+      submit<WaterQualityReading>({
+        companyId: companyId!,
+        path: `/tanks/${tankId}/water-quality-readings`,
+        // Pinned now: a queued record sent later must keep the time it was actually recorded.
+        body: { ...input, occurredAt: input.occurredAt ?? new Date().toISOString() },
+        label: "Su kalitesi ölçümü",
+        invalidate: [["water-quality-readings", companyId, tankId]],
+      }),
   });
 }

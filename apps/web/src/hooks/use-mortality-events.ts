@@ -1,7 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
+import { useOfflineQueue } from "@/components/providers/offline-queue-provider";
 import { useApiClient } from "@/lib/api-client";
 import type { MortalityEvent, MortalityReason } from "@/lib/types";
 
@@ -24,22 +25,26 @@ export interface ReportMortalityInput {
   notes?: string;
 }
 
+/** Queued instead of failing when offline — see OfflineQueueProvider. */
 export function useReportMortality(farmId: string, tankId: string) {
-  const api = useApiClient();
   const { companyId } = useActiveCompany();
-  const queryClient = useQueryClient();
+  const { submit } = useOfflineQueue();
   return useMutation({
     mutationFn: (input: ReportMortalityInput) =>
-      api.post<MortalityEvent>(`/tanks/${tankId}/mortality-events`, input),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["mortality-events", companyId, tankId] });
-      queryClient.invalidateQueries({ queryKey: ["fish-batches", companyId] });
-      queryClient.invalidateQueries({ queryKey: ["fish-batches", "tank", companyId, tankId] });
-      queryClient.invalidateQueries({
-        queryKey: ["fish-batches", companyId, variables.batchId],
-      });
-      queryClient.invalidateQueries({ queryKey: ["farm-stock-summary", companyId] });
-      queryClient.invalidateQueries({ queryKey: ["alerts", "farm", companyId, farmId] });
-    },
+      submit<MortalityEvent>({
+        companyId: companyId!,
+        path: `/tanks/${tankId}/mortality-events`,
+        // Pinned now: a queued record sent later must keep the time it was actually recorded.
+        body: { ...input, occurredAt: input.occurredAt ?? new Date().toISOString() },
+        label: "Ölüm kaydı",
+        invalidate: [
+          ["mortality-events", companyId, tankId],
+          ["fish-batches", companyId],
+          ["fish-batches", "tank", companyId, tankId],
+          ["fish-batches", companyId, input.batchId],
+          ["farm-stock-summary", companyId],
+          ["alerts", "farm", companyId, farmId],
+        ],
+      }),
   });
 }

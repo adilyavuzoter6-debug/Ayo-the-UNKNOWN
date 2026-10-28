@@ -4,6 +4,7 @@ import * as React from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { isQueued, QUEUED_MESSAGE } from "@/components/providers/offline-queue-provider";
 import { Skull } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -106,12 +107,12 @@ export function ReportMortalityDialog({
   async function onSubmit(values: FormValues) {
     try {
       const { unit, amount, ...rest } = values;
-      await reportMortality.mutateAsync({
+      const result = await reportMortality.mutateAsync({
         batchId,
         ...rest,
         ...(unit === "COUNT" ? { fishCount: amount } : { totalWeightG: amount }),
       });
-      toast.success("Ölüm kaydı eklendi.");
+      toast.success(isQueued(result) ? QUEUED_MESSAGE : "Ölüm kaydı eklendi.");
       form.reset();
       setOpen(false);
     } catch (error) {
