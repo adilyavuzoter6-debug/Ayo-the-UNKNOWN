@@ -2,6 +2,9 @@
   "name": "@aquai/api",
   "version": "0.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x || 24.x"
+  },
   "scripts": {
     "build": "nest build",
     "dev": "nest start --watch",

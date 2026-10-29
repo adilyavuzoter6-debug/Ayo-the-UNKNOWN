@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "electron .",
     "dist": "electron-builder",
-    "test": "node --test src/"
+    "test": "node --test src/*.test.js"
   },
   "devDependencies": {
     "electron": "44.7.0",
