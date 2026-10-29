@@ -13,6 +13,7 @@ import {
   Bell,
   ShieldCheck,
   ArrowRight,
+  Download,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
@@ -113,6 +114,13 @@ export default async function RootPage() {
               Zaten hesabım var
             </Link>
           </div>
+          <Link
+            href="/indir"
+            className="mt-5 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <Download className="size-4" />
+            Bağlantısız da çalışan masaüstü uygulamasını indirin (macOS, Windows)
+          </Link>
         </section>
 
         <section className="border-t border-border bg-card/50 py-16">
@@ -180,7 +188,9 @@ export default async function RootPage() {
       <footer className="border-t border-border py-6">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground md:px-6">
           <span>© {new Date().getFullYear()} Piscatio Technologies</span>
-          <span>Su ürünleri çiftlik yönetimi</span>
+          <Link href="/indir" className="hover:text-foreground">
+            Masaüstü uygulaması
+          </Link>
         </div>
       </footer>
     </div>

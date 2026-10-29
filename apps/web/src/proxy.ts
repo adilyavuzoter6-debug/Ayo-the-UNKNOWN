@@ -4,7 +4,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // Everything is private by default (docs/architecture/01-system-architecture.md §1.2 "Auth" —
 // every route requires a valid Clerk session unless explicitly public), except the marketing
 // landing page at "/" (exact — not a wildcard, so /dashboard etc. stay protected), "/pricing",
-// sign-in/sign-up, the invitation-acceptance page (its own client code already handles both the
+// the desktop app's download page "/indir", sign-in/sign-up, the invitation-acceptance page (its own client code already handles both the
 // signed-out and signed-in cases, and the token it needs must survive this redirect — see below),
 // and the PWA icon/manifest routes (extension-less `ImageResponse` route handlers, so they don't
 // match the static-file exclusion in `config.matcher` below — browsers and OS install prompts
@@ -12,6 +12,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 const isPublicRoute = createRouteMatcher([
   "/",
   "/pricing",
+  "/indir",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/accept-invitation(.*)",
