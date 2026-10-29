@@ -4960,4 +4960,55 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(await prisma.farm.count({ where: { companyId: tpl.companyId } })).toBe(1);
     });
   });
+
+  describe("AI farm assistant", () => {
+    const ask = (token: string, content: string) =>
+      request(app.getHttpServer())
+        .post("/api/v1/assistant/chat")
+        .set("Authorization", auth(token))
+        .send({ messages: [{ role: "user", content }] });
+
+    it("answers from the asker's own company only, and offers tools by role", async () => {
+      const farms = await ask(companyA.ownerToken, "tool:list_farms").expect(201);
+      const listed = JSON.parse(farms.body.data.reply) as { id: string }[];
+      expect(listed.map((f) => f.id)).toContain(companyA.farmId);
+      expect(listed.map((f) => f.id)).not.toContain(companyB.farmId);
+      expect(farms.body.data.remainingToday).toBeGreaterThan(0);
+
+      // Another company's farm or batch is invisible to the tools.
+      const crossFarm = await ask(companyA.ownerToken, `tool:farm_kpis {"farmId":"${companyB.farmId}"}`).expect(201);
+      expect(JSON.parse(crossFarm.body.data.reply).error).toContain("bulunamadı");
+      const bBatch = await prisma.fishBatch.findFirst({ where: { companyId: companyB.companyId } });
+      if (bBatch) {
+        const crossBatch = await ask(companyA.ownerToken, `tool:batch_details {"lotCode":"${bBatch.lotCode}"}`).expect(201);
+        expect(JSON.parse(crossBatch.body.data.reply).error).toContain("bulunamadı");
+      }
+
+      const ownerTools = (await ask(companyA.ownerToken, "tools?").expect(201)).body.data.reply as string;
+      expect(ownerTools.split(",")).toEqual(expect.arrayContaining(["list_farms", "anomalies", "compare_farms", "open_alerts"]));
+      // A worker can't open reports, so the assistant doesn't compare farms for them either.
+      const workerTools = (await ask(roleTokens.WORKER, "tools?").expect(201)).body.data.reply as string;
+      expect(workerTools.split(",")).toContain("list_farms");
+      expect(workerTools.split(",")).not.toContain("compare_farms");
+    });
+
+    it("is a Professional feature and validates the conversation", async () => {
+      const standard = await seedTenant(prisma, "assistant-std");
+      await prisma.company.update({ where: { id: standard.companyId }, data: { planTier: "STANDARD", trialEndsAt: null } });
+      const locked = await ask(standard.ownerToken, "merhaba");
+      expect(locked.status).toBe(403);
+      expect(locked.body.error.code).toBe("PLAN_UPGRADE_REQUIRED");
+
+      await request(app.getHttpServer())
+        .post("/api/v1/assistant/chat")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ messages: [{ role: "user", content: "x".repeat(4001) }] })
+        .expect(400);
+      await request(app.getHttpServer())
+        .post("/api/v1/assistant/chat")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ messages: [{ role: "user", content: "soru" }, { role: "assistant", content: "yanıt" }] })
+        .expect(400);
+    });
+  });
 });

@@ -16,6 +16,8 @@ export enum PlanFeature {
   EMAIL_ALERTS = "email_alerts",
   /** Farm comparison, record export and anomaly detection. */
   ADVANCED_REPORTS = "advanced_reports",
+  /** The AI farm assistant: questions about the company's own data, answered by Claude. */
+  AI_ASSISTANT = "ai_assistant",
 }
 
 const STANDARD_FEATURES = [PlanFeature.COST_TRACKING, PlanFeature.INSPECTION_REPORT, PlanFeature.EMAIL_ALERTS];
@@ -57,6 +59,7 @@ export const PLAN_FEATURE_LABEL: Record<PlanFeature, string> = {
   [PlanFeature.INSPECTION_REPORT]: "Denetim raporu",
   [PlanFeature.EMAIL_ALERTS]: "Kritik uyarılar için e-posta",
   [PlanFeature.ADVANCED_REPORTS]: "Gelişmiş raporlama (çiftlik karşılaştırması, Excel, anomali tespiti)",
+  [PlanFeature.AI_ASSISTANT]: "Yapay zeka çiftlik asistanı",
 };
 
 /** Paid plans in ascending order, for "available from X" messages. */

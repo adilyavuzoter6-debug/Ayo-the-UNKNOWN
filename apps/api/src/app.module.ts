@@ -41,6 +41,7 @@ import { InspectionModule } from "./modules/inspection/inspection.module";
 import { ReportsModule } from "./modules/reports/reports.module";
 import { PlansModule } from "./modules/plans/plans.module";
 import { DemoModule } from "./modules/demo/demo.module";
+import { AssistantModule } from "./modules/assistant/assistant.module";
 import { PlatformAdminModule } from "./modules/platform-admin/platform-admin.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
@@ -80,6 +81,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     InspectionModule,
     ReportsModule,
     DemoModule,
+    AssistantModule,
     PlatformAdminModule,
   ],
   controllers: [AppController],

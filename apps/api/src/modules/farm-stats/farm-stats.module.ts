@@ -12,6 +12,7 @@ import {
 @Module({
   imports: [BatchPerformanceModule],
   providers: [FarmStatsService],
+  exports: [FarmStatsService],
   controllers: [
     FarmStatsController,
     FarmDashboardKpisController,
