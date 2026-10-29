@@ -3778,7 +3778,7 @@ describe("Tenant isolation & authorization (integration)", () => {
       const row = list.body.data.find((r: { id: string }) => r.id === itemId);
       expect(row.totalQuantity).toBe(10);
       const balanceAt = (farmId: string) =>
-        row.balances.find((b: { farmId: string }) => b.farmId === farmId)?.quantity;
+        row.balances.find((b: { farmIds: string[] }) => b.farmIds.includes(farmId))?.quantity;
       expect(balanceAt(a1.farmId)).toBe(6);
       expect(balanceAt(a2.farmId)).toBe(4);
 
@@ -3873,7 +3873,7 @@ describe("Tenant isolation & authorization (integration)", () => {
         .set("Authorization", auth(companyA.ownerToken))
         .expect(200);
       const row = list.body.data.find((r: { id: string }) => r.id === itemId);
-      const at = (farmId: string) => row.balances.find((b: { farmId: string }) => b.farmId === farmId)?.quantity;
+      const at = (farmId: string) => row.balances.find((b: { farmIds: string[] }) => b.farmIds.includes(farmId))?.quantity;
       expect(at(a1.farmId)).toBe(8);
       expect(at(a2.farmId)).toBe(2);
 
