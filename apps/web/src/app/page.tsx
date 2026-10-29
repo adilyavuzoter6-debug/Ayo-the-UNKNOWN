@@ -149,10 +149,24 @@ export default async function RootPage() {
           </p>
           <Link
             href="/indir"
-            className="mx-auto mt-5 block max-w-sm text-sm text-balance text-muted-foreground hover:text-foreground sm:max-w-none"
+            className="group mx-auto mt-6 flex w-full max-w-md items-center gap-3.5 rounded-xl border border-border bg-card px-4 py-3 text-left shadow-sm ring-1 ring-foreground/5 transition hover:border-teal-500/60 hover:shadow-md"
           >
-            <Download className="mr-1.5 inline size-4 align-[-3px]" />
-            Bağlantısız da çalışan masaüstü uygulamasını indirin (macOS, Windows)
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500 text-white shadow-sm shadow-teal-500/30 transition group-hover:bg-teal-400">
+              <Download className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-foreground">Masaüstü uygulamasını indirin</span>
+              <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                Bağlantısız da çalışır
+                <span className="rounded border border-border bg-muted px-1.5 py-px text-[10px] font-medium text-foreground">
+                  macOS
+                </span>
+                <span className="rounded border border-border bg-muted px-1.5 py-px text-[10px] font-medium text-foreground">
+                  Windows
+                </span>
+              </span>
+            </span>
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-teal-500" />
           </Link>
         </section>
 
