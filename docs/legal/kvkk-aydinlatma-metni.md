@@ -57,6 +57,7 @@ sağlayıcılara (veri işleyen) aktarılır:
 | Cloudflare, Inc. | ABD | Alan adı (DNS) hizmeti |
 | GitHub, Inc. | ABD | Masaüstü uygulaması dosyalarının dağıtımı (indirme sırasında IP adresi) |
 | Google LLC | ABD | Yalnızca "Google ile giriş" seçeneğini kullanırsanız |
+| Cerebras Systems Inc. (veya yapılandırılan yapay zeka sağlayıcısı) | ABD | Yalnızca yapay zeka asistanını kullanırsanız: sorularınız ve yanıt için gereken çiftlik verileri (stok, yem, ölüm, su kalitesi, parti kodları) |
 
 Bu sağlayıcıların bir kısmı yurt dışında bulunduğundan aktarım KVKK m. 9 kapsamındadır. Aktarım
 dayanağı: [AVUKATIN BELİRLEYECEĞİ DAYANAK — ör. Kurul'ca ilan edilen standart sözleşme ve Kurum'a

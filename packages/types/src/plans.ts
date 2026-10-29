@@ -16,7 +16,7 @@ export enum PlanFeature {
   EMAIL_ALERTS = "email_alerts",
   /** Farm comparison, record export and anomaly detection. */
   ADVANCED_REPORTS = "advanced_reports",
-  /** The AI farm assistant: questions about the company's own data, answered by Claude. */
+  /** The AI farm assistant: questions about the company's own data, answered by a language model. */
   AI_ASSISTANT = "ai_assistant",
 }
 

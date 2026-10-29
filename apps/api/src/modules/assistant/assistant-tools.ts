@@ -1,11 +1,15 @@
 import { Injectable } from "@nestjs/common";
-import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
-import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableTool";
 import { Permission, ROLE_PERMISSIONS } from "@aquai/types";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import type { TenantContext } from "../../common/types/request-context";
 import { FarmStatsService } from "../farm-stats/farm-stats.service";
 import { ReportsService } from "../reports/reports.service";
+import type { AssistantTool } from "./assistant-tool";
+
+/** Typed by hand per tool; runTool has already checked the input against the schema. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const tool = (definition: Omit<AssistantTool, "run"> & { run: (input: any) => Promise<string> }): AssistantTool =>
+  definition as AssistantTool;
 
 const DAY_MS = 86_400_000;
 const round = (n: number, digits = 2) => Math.round(n * 10 ** digits) / 10 ** digits;
@@ -24,7 +28,7 @@ export class AssistantTools {
     private readonly reports: ReportsService,
   ) {}
 
-  forTenant(tenant: TenantContext): BetaRunnableTool[] {
+  forTenant(tenant: TenantContext): AssistantTool[] {
     const can = (permission: Permission) => ROLE_PERMISSIONS[tenant.role].includes(permission);
     const client = this.tenantPrisma.forTenant(tenant.companyId);
     const inScope = (farmId: string) => tenant.farmScopeIds.length === 0 || tenant.farmScopeIds.includes(farmId);
@@ -50,9 +54,9 @@ export class AssistantTools {
       return farm;
     };
 
-    const tools: (BetaRunnableTool | false)[] = [
+    const tools: (AssistantTool | false)[] = [
       can(Permission.FISH_BATCH_READ) &&
-        betaTool({
+        tool({
           name: "list_farms",
           description:
             "Lists the company's farms with their id, name and code, and each farm's live stock: facilities, ponds/tanks, live fish, biomass (kg), today's feed (kg) and open alerts. Call this first to get farm ids.",
@@ -73,7 +77,7 @@ export class AssistantTools {
         }),
 
       can(Permission.FISH_BATCH_READ) &&
-        betaTool({
+        tool({
           name: "farm_kpis",
           description:
             "Key figures for one farm right now: live fish, biomass (kg), active batches, average FCR over the last 30 days (feed / weight gain), average SGR (%/day), 7-day mortality (% of live stock), today's feed (kg) and open alerts.",
@@ -83,7 +87,7 @@ export class AssistantTools {
             required: ["farmId"],
             additionalProperties: false,
           },
-          run: ({ farmId }) =>
+          run: ({ farmId }: { farmId: string }) =>
             safely(async () => {
               await farmGuard(farmId);
               const k = await this.farmStats.getDashboardKpis(tenant.companyId, farmId);
@@ -98,7 +102,7 @@ export class AssistantTools {
         }),
 
       can(Permission.FISH_BATCH_READ) &&
-        betaTool({
+        tool({
           name: "farm_daily_trend",
           description:
             "One farm's day-by-day history: feed given (kg), fish lost, harvested kg, and the day's average water temperature (°C) and dissolved oxygen (mg/L). Use it to explain changes over time.",
@@ -111,7 +115,7 @@ export class AssistantTools {
             required: ["farmId"],
             additionalProperties: false,
           },
-          run: ({ farmId, days }) =>
+          run: ({ farmId, days }: { farmId: string; days?: number }) =>
             safely(async () => {
               await farmGuard(farmId);
               return this.farmStats.getDailyTrend(tenant.companyId, farmId, days ?? 30);
@@ -119,7 +123,7 @@ export class AssistantTools {
         }),
 
       can(Permission.FISH_BATCH_READ) &&
-        betaTool({
+        tool({
           name: "weight_forecast",
           description:
             "Projects a farm's live fish forward month by month: how many fish and how much biomass in each weight range (grams). Each batch grows at its own recorded rate (feed and weight gain since stocking) and the farm's recent mortality continues. It is a projection from records, not a certainty, and it ignores future harvests and transfers.",
@@ -133,7 +137,7 @@ export class AssistantTools {
             required: ["farmId", "monthsAhead"],
             additionalProperties: false,
           },
-          run: ({ farmId, monthsAhead, bucketWidthG }) =>
+          run: ({ farmId, monthsAhead, bucketWidthG }: { farmId: string; monthsAhead: number; bucketWidthG?: number }) =>
             safely(async () => {
               await farmGuard(farmId);
               const forecast = await this.farmStats.getWeightForecast(tenant.companyId, [farmId], bucketWidthG ?? 50, null);
@@ -157,7 +161,7 @@ export class AssistantTools {
         }),
 
       can(Permission.FISH_BATCH_READ) &&
-        betaTool({
+        tool({
           name: "anomalies",
           description:
             "Batches flagged by the app's anomaly rules: FCR well above the batch's target or its species' median, implausibly low FCR (likely missing feed records), or deaths in the last 7 days well above the batch's previous 4 weeks. Each comes with severity, the numbers and the reasons.",
@@ -166,7 +170,7 @@ export class AssistantTools {
         }),
 
       can(Permission.INSPECTION_REPORT_READ) &&
-        betaTool({
+        tool({
           name: "compare_farms",
           description:
             "Puts every farm side by side for a period: live fish and biomass now, feed given, realized FCR, deaths and mortality %, harvest, water temperature and oxygen, alerts, and (when the member may see costs) expenses, sales and period result.",
@@ -179,14 +183,14 @@ export class AssistantTools {
             required: ["periodStart", "periodEnd"],
             additionalProperties: false,
           },
-          run: ({ periodStart, periodEnd }) =>
+          run: ({ periodStart, periodEnd }: { periodStart: string; periodEnd: string }) =>
             safely(() =>
               this.reports.farmComparison(tenant, new Date(periodStart), new Date(`${periodEnd}T23:59:59.999Z`)),
             ),
         }),
 
       can(Permission.FISH_BATCH_READ) &&
-        betaTool({
+        tool({
           name: "batch_details",
           description:
             "One batch (lot) by its lot code: species, stocking date, initial and current count and average weight, where it is, the last weighings, feed and deaths in the last 30 days, and treatments still running or in their withdrawal period.",
@@ -196,7 +200,7 @@ export class AssistantTools {
             required: ["lotCode"],
             additionalProperties: false,
           },
-          run: ({ lotCode }) =>
+          run: ({ lotCode }: { lotCode: string }) =>
             safely(async () => {
               const batch = await client.fishBatch.findFirst({
                 where: { lotCode: { equals: lotCode, mode: "insensitive" }, deletedAt: null },
@@ -263,7 +267,7 @@ export class AssistantTools {
         }),
 
       can(Permission.ALERT_READ) &&
-        betaTool({
+        tool({
           name: "open_alerts",
           description:
             "The company's open alerts (newest first): type, severity, message, farm and tank, and when they were raised.",
@@ -291,6 +295,6 @@ export class AssistantTools {
             }),
         }),
     ];
-    return tools.filter((t): t is BetaRunnableTool => t !== false);
+    return tools.filter((t): t is AssistantTool => t !== false);
   }
 }

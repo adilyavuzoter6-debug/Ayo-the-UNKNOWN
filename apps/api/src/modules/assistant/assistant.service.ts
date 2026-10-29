@@ -25,7 +25,8 @@ Yanıt biçimi:
 - Sayıları Türkçe biçimde yaz (184.250 balık, 42,6 t, %2,4).`;
 
 /**
- * The AI farm assistant: answers a member's questions about their company's data with Claude,
+ * The AI farm assistant: answers a member's questions about their company's data with a language model
+ * (an open-weight model by default, or Claude; see assistant-model.ts),
  * through read-only tools scoped to the member's company, role and farms.
  */
 @Injectable()
