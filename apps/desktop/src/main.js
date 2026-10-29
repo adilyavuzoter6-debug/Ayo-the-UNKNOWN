@@ -1,8 +1,9 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { app, BrowserWindow, Menu, dialog, net, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, net, session, shell } = require("electron");
 const { createOfflineCache } = require("./offline-cache");
 const { isNewer } = require("./version");
 
@@ -18,17 +19,77 @@ const FORCE_OFFLINE = process.env.PISCATIO_FORCE_OFFLINE === "1";
 
 const APP_HOSTS = [APP_URL.hostname, `www.${APP_URL.hostname}`, CLERK_HOST, "img.clerk.com"];
 
+const PROTOCOL = "piscatio";
+
 let mainWindow = null;
+/** The `state` of the browser sign-in this app started; a hand-off carrying anything else is ignored. */
+let pendingSignInState = null;
+/** A piscatio:// link that arrived before the window existed. */
+let queuedDeepLink = null;
+
+if (process.defaultApp) {
+  // Running unpackaged (`electron .`): the OS must relaunch electron with this app's path.
+  app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  // macOS delivers piscatio:// links as an event; Windows starts a second instance with the link
+  // as an argument, which the lock above forwards here.
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
+  });
+  app.on("second-instance", (_event, argv) => {
+    const link = argv.find((arg) => arg.startsWith(`${PROTOCOL}://`));
+    if (link) handleDeepLink(link);
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   });
+  queuedDeepLink = process.argv.find((arg) => arg.startsWith(`${PROTOCOL}://`)) ?? null;
   app.whenReady().then(start);
+}
+
+/**
+ * Google refuses to sign in inside embedded browsers, so the sign-in page offers to continue in the
+ * system browser. That opens /desktop-login with a fresh random `state`; once signed in there, the
+ * site sends back piscatio://auth?ticket=…&state=… carrying a single-use Clerk sign-in token, which
+ * the window redeems on /sign-in. Checking `state` stops a link from some other source signing
+ * this app into an account the user never chose.
+ */
+function startBrowserSignIn() {
+  pendingSignInState = crypto.randomBytes(24).toString("base64url");
+  const url = new URL("/desktop-login", APP_URL);
+  url.searchParams.set("state", pendingSignInState);
+  void shell.openExternal(url.toString());
+}
+
+function handleDeepLink(link) {
+  if (!mainWindow) {
+    queuedDeepLink = link;
+    return;
+  }
+  let url;
+  try {
+    url = new URL(link);
+  } catch {
+    return;
+  }
+  const ticket = url.searchParams.get("ticket");
+  const state = url.searchParams.get("state");
+  if (url.hostname !== "auth" || !ticket || !pendingSignInState || state !== pendingSignInState) return;
+  pendingSignInState = null;
+
+  const signIn = new URL("/sign-in", APP_URL);
+  signIn.searchParams.set("__clerk_ticket", ticket);
+  signIn.searchParams.set("redirect_url", new URL(START_PATH, APP_URL).toString());
+  mainWindow.loadURL(signIn.toString());
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
 }
 
 function isAppUrl(url) {
@@ -154,6 +215,7 @@ function createWindow(ses) {
     show: false,
     webPreferences: {
       session: ses,
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
@@ -173,6 +235,12 @@ function createWindow(ses) {
   });
 
   mainWindow.loadURL(new URL(START_PATH, APP_URL).toString());
+
+  if (queuedDeepLink) {
+    const link = queuedDeepLink;
+    queuedDeepLink = null;
+    mainWindow.webContents.once("did-finish-load", () => handleDeepLink(link));
+  }
 }
 
 function buildMenu() {
@@ -277,8 +345,6 @@ async function checkForUpdates({ manual = false } = {}) {
 
 async function start() {
   const ses = session.fromPartition("persist:piscatio");
-  // Some sign-in providers (Google) refuse embedded browsers they recognise by user agent.
-  ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|piscatio|@aquai\/desktop)\/\S+/gi, ""));
 
   const cache = createOfflineCache({ dir: path.join(app.getPath("userData"), "offline-cache"), hosts: APP_HOSTS });
   void cache.prune();
@@ -286,6 +352,10 @@ async function start() {
 
   app.setAboutPanelOptions({ applicationName: "Piscatio", applicationVersion: app.getVersion(), copyright: "Piscatio Technologies" });
   buildMenu();
+  ipcMain.on("sign-in-in-browser", (event) => {
+    // Only the app's own pages may start a sign-in, not whatever site a link wandered off to.
+    if (isAppUrl(event.senderFrame?.url ?? "")) startBrowserSignIn();
+  });
   createWindow(ses);
 
   app.on("activate", () => {
