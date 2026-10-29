@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAdminCompanies, useIsPlatformAdmin } from "@/hooks/use-admin";
+import { PLAN_LABEL } from "@aquai/types";
 
 function fmt(n: number, digits = 0) {
   return n.toLocaleString("tr", { maximumFractionDigits: digits, minimumFractionDigits: digits });
@@ -128,7 +129,7 @@ export default function AdminPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={c.planTier === "TRIAL" ? "secondary" : "default"} className="text-[10px]">
-                        {c.planTier}
+                        {PLAN_LABEL[c.planTier]}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono">{c.memberCount}</TableCell>

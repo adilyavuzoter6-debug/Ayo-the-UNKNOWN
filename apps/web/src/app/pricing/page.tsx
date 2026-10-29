@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import { Check, Clock } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
@@ -22,9 +21,9 @@ const TIERS = [
     description: "Tek çiftlikli küçük işletmeler için.",
     features: [
       "1 çiftlik, 5 tanka kadar",
-      "Üretim, yemleme, sağlık takibi",
-      "Su kalitesi ölçümleri",
-      "Hasat kayıtları",
+      "Üretim, yemleme, sağlık ve hasat takibi",
+      "Su kalitesi ölçümleri ve uygulama içi uyarılar",
+      "Bağlantısız çalışan masaüstü uygulaması",
     ],
     highlighted: false,
   },
@@ -34,10 +33,11 @@ const TIERS = [
     price: 179,
     description: "Büyüyen, çoklu tesisli işletmeler için.",
     features: [
+      "Başlangıç'taki her şey",
       "Sınırsız çiftlik ve tank",
       "Kritik uyarılar için e-posta bildirimi",
-      "Üretim maliyeti takibi",
-      "Denetim raporu (PDF/yazdır)",
+      "Üretim maliyeti ve kg başı maliyet",
+      "Denetim raporu (yazdır / Excel)",
     ],
     highlighted: true,
   },
@@ -48,8 +48,9 @@ const TIERS = [
     description: "Kurumsal ölçekli işletmeler için.",
     features: [
       "Standart'taki her şey",
+      "Çiftlik karşılaştırması ve Excel'e aktarma",
+      "Anomali tespiti: FCR sapması ve ölüm riski",
       "Öncelikli destek",
-      "Gelişmiş raporlama",
       "Özel entegrasyon desteği",
     ],
     highlighted: false,
@@ -57,10 +58,10 @@ const TIERS = [
 ] as const;
 
 export default async function PricingPage() {
+  // Signed-in customers come here from the app to compare plans, so they see it too, with a way
+  // back and a request to switch instead of a trial sign-up.
   const { userId } = await auth();
-  if (userId) {
-    redirect("/dashboard");
-  }
+  const signedIn = !!userId;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -69,14 +70,20 @@ export default async function PricingPage() {
           <Link href="/">
             <Logo size={32} wordmarkClassName="text-foreground" />
           </Link>
-          <div className="flex items-center gap-2">
-            <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
-              Giriş Yap
+          {signedIn ? (
+            <Link href="/dashboard" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
+              Uygulamaya dön
             </Link>
-            <Link href="/sign-up" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
-              Ücretsiz Başla
-            </Link>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+                Giriş Yap
+              </Link>
+              <Link href="/sign-up" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
+                Ücretsiz Başla
+              </Link>
+            </div>
+          )}
         </div>
       </header>
 
@@ -126,17 +133,29 @@ export default async function PricingPage() {
                   ))}
                 </ul>
 
-                <Link
-                  href="/sign-up"
-                  className={cn(
-                    buttonVariants({ variant: tier.highlighted ? "default" : "outline" }),
-                    "mt-6 w-full",
-                  )}
-                >
-                  30 Gün Ücretsiz Dene
-                </Link>
+                {signedIn ? (
+                  <a
+                    href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`${tier.name} planına geçmek istiyorum`)}`}
+                    className={cn(
+                      buttonVariants({ variant: tier.highlighted ? "default" : "outline" }),
+                      "mt-6 w-full",
+                    )}
+                  >
+                    Bu plana geçin
+                  </a>
+                ) : (
+                  <Link
+                    href="/sign-up"
+                    className={cn(
+                      buttonVariants({ variant: tier.highlighted ? "default" : "outline" }),
+                      "mt-6 w-full",
+                    )}
+                  >
+                    30 Gün Ücretsiz Dene
+                  </Link>
+                )}
                 <p className="mt-2 flex items-center justify-center gap-1 text-center text-[11px] text-muted-foreground">
-                  <Clock className="size-3" /> Ödeme sistemi yakında aktif olacak
+                  <Clock className="size-3" /> Online ödeme yakında; şimdilik bizimle iletişime geçin
                 </p>
               </div>
             ))}

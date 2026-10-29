@@ -15,12 +15,15 @@ import {
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
+import { PlanFeature } from "@aquai/types";
 
 export interface NavItem {
   id: string;
   href: string;
   label: string;
   icon: LucideIcon;
+  /** The plan feature the whole page needs; the sidebar marks it when the plan lacks it. */
+  feature?: PlanFeature;
 }
 
 /** Main sidebar navigation, in display order. Kept separate from `settingsNavItem`. */
@@ -35,7 +38,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "harvest", href: "/harvest", label: "Hasat", icon: Scissors },
   { id: "water-quality", href: "/water-quality", label: "Su Kalitesi", icon: Droplets },
   { id: "stocks", href: "/stocks", label: "Stoklar", icon: Package },
-  { id: "costs", href: "/costs", label: "Maliyetler", icon: Wallet },
+  { id: "costs", href: "/costs", label: "Maliyetler", icon: Wallet, feature: PlanFeature.COST_TRACKING },
   { id: "reports", href: "/reports", label: "Raporlar", icon: BarChart3 },
   { id: "users", href: "/users", label: "Kullanıcılar", icon: Users },
 ];

@@ -1,4 +1,4 @@
-import type { Role } from "@aquai/types";
+import type { PlanTier, Role } from "@aquai/types";
 
 /** Mirrors apps/api Prisma models — response shapes over the wire (dates as ISO strings). */
 
@@ -8,7 +8,7 @@ export interface Company {
   legalName: string | null;
   countryCode: string;
   timezone: string;
-  planTier: "TRIAL" | "STARTER" | "STANDARD" | "PROFESSIONAL" | "ENTERPRISE";
+  planTier: PlanTier;
   status: "ACTIVE" | "SUSPENDED" | "CANCELLED";
   trialEndsAt: string | null;
   createdAt: string;

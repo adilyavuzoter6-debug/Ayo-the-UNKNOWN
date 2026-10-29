@@ -42,6 +42,9 @@ import { ApiError } from "@/lib/api-error";
 import { COST_CATEGORY_LABEL } from "@/lib/costs";
 import { cn } from "@/lib/utils";
 import type { CostCategory, CostEntry, FishBatch } from "@/lib/types";
+import { PlanFeature } from "@aquai/types";
+import { PlanLocked } from "@/components/shared/plan-locked";
+import { usePlan } from "@/hooks/use-plan";
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -265,7 +268,7 @@ function RecurringCostsPanel({ farmId }: { farmId: string }) {
   );
 }
 
-export default function CostsPage() {
+function CostsContent() {
   const { data: farms } = useFarms();
   const [selectedFarmId, setSelectedFarmId] = React.useState<string>("");
   const farmId =
@@ -578,4 +581,16 @@ export default function CostsPage() {
       )}
     </div>
   );
+}
+
+export default function CostsPage() {
+  const { has } = usePlan();
+  if (!has(PlanFeature.COST_TRACKING)) {
+    return (
+      <div className="mx-auto max-w-xl py-6">
+        <PlanLocked feature={PlanFeature.COST_TRACKING} />
+      </div>
+    );
+  }
+  return <CostsContent />;
 }

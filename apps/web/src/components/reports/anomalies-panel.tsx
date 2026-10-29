@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnomalies } from "@/hooks/use-reports";
 import type { Anomaly, AnomalyKind, AnomalySeverity } from "@/lib/types";
+import { PlanFeature } from "@aquai/types";
+import { PlanLocked } from "@/components/shared/plan-locked";
+import { usePlan } from "@/hooks/use-plan";
 
 const KIND: Record<AnomalyKind, { label: string; icon: typeof Activity }> = {
   FCR_HIGH: { label: "Yüksek FCR", icon: Wheat },
@@ -64,7 +67,7 @@ function AnomalyRow({ anomaly }: { anomaly: Anomaly }) {
  * Batches whose FCR or recent mortality looks out of line, as flagged by the API's anomaly rules.
  * `limit` shows only the most severe few, with a link to the full list on the reports page.
  */
-export function AnomaliesPanel({ limit }: { limit?: number }) {
+function AnomaliesContent({ limit }: { limit?: number }) {
   const router = useRouter();
   const { data, isLoading } = useAnomalies();
   const items = data ? (limit ? data.items.slice(0, limit) : data.items) : [];
@@ -106,4 +109,12 @@ export function AnomaliesPanel({ limit }: { limit?: number }) {
       ) : null}
     </PanelCard>
   );
+}
+
+export function AnomaliesPanel({ limit }: { limit?: number }) {
+  const { has } = usePlan();
+  if (!has(PlanFeature.ADVANCED_REPORTS)) {
+    return limit ? <PlanLocked feature={PlanFeature.ADVANCED_REPORTS} compact /> : null;
+  }
+  return <AnomaliesContent limit={limit} />;
 }

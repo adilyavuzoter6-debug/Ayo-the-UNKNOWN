@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PlanTier } from "@aquai/types";
 import { useApiClient } from "@/lib/api-client";
 import type { AdminCompanyDetail, AdminCompanyRow } from "@/lib/types";
 
@@ -30,5 +31,16 @@ export function useAdminCompany(companyId: string) {
     queryKey: ["admin", "companies", companyId],
     queryFn: () => api.get<AdminCompanyDetail>(`/admin/companies/${companyId}`, SKIP_TENANT),
     enabled: !!companyId,
+  });
+}
+
+/** Sets a company's plan: how a plan is granted until online payment exists. */
+export function useUpdateCompanyPlan(companyId: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { planTier: PlanTier; trialEndsAt?: string }) =>
+      api.patch(`/admin/companies/${companyId}/plan`, input, SKIP_TENANT),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin", "companies"] }),
   });
 }

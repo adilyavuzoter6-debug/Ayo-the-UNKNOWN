@@ -3,10 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/logo";
 import { useIsPlatformAdmin } from "@/hooks/use-admin";
+import { usePlan } from "@/hooks/use-plan";
 import { ALL_NAV_ITEMS, SETTINGS_NAV_ITEM } from "@/lib/nav-items";
 
 function isActive(pathname: string | null, href: string) {
@@ -25,6 +26,7 @@ export function AppSidebarContent({
   // is an admin, it grants nothing — the console's own routes are guarded server-side.
   const { data: adminStatus } = useIsPlatformAdmin();
   const isPlatformAdmin = adminStatus?.isPlatformAdmin === true;
+  const { has } = usePlan();
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -51,7 +53,7 @@ export function AppSidebarContent({
               title={collapsed ? item.label : undefined}
               className={cn(
                 "flex items-center gap-3 border-l-[3px] py-2.5 text-sm transition-colors",
-                collapsed ? "justify-center px-0" : "px-5",
+                collapsed ? "justify-center px-0" : "pr-4 pl-5",
                 active
                   ? "border-l-teal-400 bg-teal-500/15 font-semibold text-white"
                   : "border-l-transparent text-white/55 hover:text-white/85",
@@ -59,6 +61,9 @@ export function AppSidebarContent({
             >
               <Icon className="size-[18px] shrink-0" strokeWidth={active ? 2 : 1.5} />
               {!collapsed && <span className="whitespace-nowrap">{item.label}</span>}
+              {!collapsed && item.feature && !has(item.feature) ? (
+                <Lock className="ml-auto size-3.5 text-white/40" aria-label="Planınızda yok" />
+              ) : null}
             </Link>
           );
         })}

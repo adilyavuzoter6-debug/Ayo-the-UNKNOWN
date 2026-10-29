@@ -18,6 +18,9 @@ import { ApiError } from "@/lib/api-error";
 import { InspectionReportSection } from "@/components/reports/inspection-report-section";
 import { FarmComparisonSection } from "@/components/reports/farm-comparison-section";
 import { AnomaliesPanel } from "@/components/reports/anomalies-panel";
+import { PlanLocked } from "@/components/shared/plan-locked";
+import { PlanFeature } from "@aquai/types";
+import { usePlan } from "@/hooks/use-plan";
 
 const ACTION_LABEL: Record<string, string> = {
   CREATE: "Oluşturuldu",
@@ -26,6 +29,7 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 export default function ReportsPage() {
+  const { has } = usePlan();
   const [page, setPage] = React.useState(1);
   const pageSize = 20;
   const { data, isLoading, error } = useAuditLogs(page, pageSize);
@@ -53,8 +57,14 @@ export default function ReportsPage() {
       </div>
 
       <div className="space-y-6 print:hidden">
-        <AnomaliesPanel />
-        <FarmComparisonSection />
+        {has(PlanFeature.ADVANCED_REPORTS) ? (
+          <>
+            <AnomaliesPanel />
+            <FarmComparisonSection />
+          </>
+        ) : (
+          <PlanLocked feature={PlanFeature.ADVANCED_REPORTS} />
+        )}
       </div>
 
       <InspectionReportSection />

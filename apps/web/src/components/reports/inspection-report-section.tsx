@@ -34,6 +34,9 @@ import {
   type ExcelSheet,
 } from "@/lib/excel";
 import type { InspectionReport, MinMaxAvg, MortalityReason, TreatmentType } from "@/lib/types";
+import { PlanFeature } from "@aquai/types";
+import { PlanLocked } from "@/components/shared/plan-locked";
+import { usePlan } from "@/hooks/use-plan";
 
 const REASON_LABEL: Record<MortalityReason, string> = {
   UNKNOWN: "Bilinmiyor",
@@ -168,7 +171,7 @@ function inspectionSheets(report: InspectionReport): ExcelSheet<unknown>[] {
   ] as ExcelSheet<unknown>[];
 }
 
-export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: string } = {}) {
+function InspectionReportContent({ farmId: lockedFarmId }: { farmId?: string }) {
   const { data: farms } = useFarms();
   const [selectedFarmId, setSelectedFarmId] = React.useState("");
   const farmId =
@@ -488,4 +491,10 @@ export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: str
       ) : null}
     </div>
   );
+}
+
+export function InspectionReportSection({ farmId }: { farmId?: string } = {}) {
+  const { has } = usePlan();
+  if (!has(PlanFeature.INSPECTION_REPORT)) return <PlanLocked feature={PlanFeature.INSPECTION_REPORT} />;
+  return <InspectionReportContent farmId={farmId} />;
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PanelCard } from "@/components/shared/panel-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SpeciesSection } from "@/components/settings/species-section";
+import { PlanCard } from "@/components/settings/plan-card";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useCurrentCompany } from "@/hooks/use-companies";
 
@@ -13,34 +14,36 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">Company details for your active workspace.</p>
+        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Ayarlar</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Şirketiniz, planınız ve balık türleriniz.</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Company</CardTitle>
-          <CardDescription>Read-only for now — editing arrives in a later milestone.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+      <PanelCard title="Şirket">
+        <div className="px-4.5 py-4 text-sm">
           {isLoading ? (
-            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-20 w-full" />
           ) : company ? (
             <dl className="grid grid-cols-[120px_1fr] gap-y-2">
-              <dt className="text-muted-foreground">Name</dt>
+              <dt className="text-muted-foreground">Ad</dt>
               <dd className="font-medium">{company.name}</dd>
-              <dt className="text-muted-foreground">Country</dt>
+              {company.legalName ? (
+                <>
+                  <dt className="text-muted-foreground">Ünvan</dt>
+                  <dd>{company.legalName}</dd>
+                </>
+              ) : null}
+              <dt className="text-muted-foreground">Ülke</dt>
               <dd>{company.countryCode}</dd>
-              <dt className="text-muted-foreground">Timezone</dt>
+              <dt className="text-muted-foreground">Saat dilimi</dt>
               <dd>{company.timezone}</dd>
-              <dt className="text-muted-foreground">Plan</dt>
-              <dd>{company.planTier}</dd>
             </dl>
           ) : (
-            <p className="text-muted-foreground">No company selected.</p>
+            <p className="text-muted-foreground">Şirket seçilmedi.</p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </PanelCard>
+
+      {company ? <PlanCard company={company} /> : null}
 
       <SpeciesSection />
     </div>

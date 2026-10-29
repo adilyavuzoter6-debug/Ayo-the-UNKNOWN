@@ -1,6 +1,9 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
+import { toast } from "sonner";
+import { PLAN_LABEL, PLAN_TIERS, type PlanTier } from "@aquai/types";
 import { ArrowLeft, Building2, Fish, Scissors, Users } from "lucide-react";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +17,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAdminCompany } from "@/hooks/use-admin";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAdminCompany, useUpdateCompanyPlan } from "@/hooks/use-admin";
+import { ApiError } from "@/lib/api-error";
 import { ROLE_LABEL } from "@/lib/roles";
 
 function fmt(n: number, digits = 0) {
@@ -27,6 +35,56 @@ const BATCH_STATUS_LABEL: Record<string, string> = {
   HARVESTED: "Hasat edildi",
   CLOSED: "Kapalı",
 };
+
+/**
+ * Grants a plan once the customer has paid (or restarts a trial). A trial can be given an end date;
+ * left empty it runs 30 days from today.
+ */
+function PlanEditor({ companyId, current }: { companyId: string; current: PlanTier }) {
+  const [tier, setTier] = React.useState<PlanTier>(current);
+  const [trialEnd, setTrialEnd] = React.useState("");
+  const update = useUpdateCompanyPlan(companyId);
+
+  async function save() {
+    try {
+      await update.mutateAsync({ planTier: tier, ...(tier === "TRIAL" && trialEnd ? { trialEndsAt: trialEnd } : {}) });
+      toast.success(`Plan ${PLAN_LABEL[tier]} olarak kaydedildi.`);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Plan kaydedilemedi.");
+    }
+  }
+
+  return (
+    <PanelCard title="Plan">
+      <div className="flex flex-wrap items-end gap-3 px-4.5 py-4">
+        <div>
+          <Label className="mb-1 block text-[11px] text-muted-foreground">Plan</Label>
+          <Select value={tier} onValueChange={(v) => v && setTier(v as PlanTier)}>
+            <SelectTrigger className="w-44">
+              <SelectValue>{(v: PlanTier) => PLAN_LABEL[v]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {PLAN_TIERS.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {PLAN_LABEL[t]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {tier === "TRIAL" ? (
+          <div>
+            <Label className="mb-1 block text-[11px] text-muted-foreground">Deneme bitişi (boşsa 30 gün)</Label>
+            <Input type="date" value={trialEnd} onChange={(e) => setTrialEnd(e.target.value)} />
+          </div>
+        ) : null}
+        <Button size="sm" disabled={update.isPending || (tier === current && tier !== "TRIAL")} onClick={save}>
+          Kaydet
+        </Button>
+      </div>
+    </PanelCard>
+  );
+}
 
 export function AdminCompanyDetailClient({ companyId }: { companyId: string }) {
   const { data, isLoading, isError } = useAdminCompany(companyId);
@@ -68,7 +126,7 @@ export function AdminCompanyDetailClient({ companyId }: { companyId: string }) {
         <div className="flex flex-wrap items-center gap-2.5">
           <h1 className="font-display text-2xl font-bold tracking-tight">{company.name}</h1>
           <Badge variant={company.planTier === "TRIAL" ? "secondary" : "default"}>
-            {company.planTier}
+            {PLAN_LABEL[company.planTier]}
           </Badge>
           <Badge variant="outline">{company.status}</Badge>
         </div>
@@ -81,6 +139,8 @@ export function AdminCompanyDetailClient({ companyId }: { companyId: string }) {
             : ""}
         </p>
       </div>
+
+      <PlanEditor key={company.planTier} companyId={company.id} current={company.planTier} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Canlı balık" value={fmt(liveFish)} icon={Fish} />
