@@ -65,7 +65,7 @@ describe("OpenAICompatibleAssistantModel", () => {
     expect(url).toBe("https://llm.example/v1/chat/completions");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer test-key");
     const first = JSON.parse(init.body as string);
-    expect(first).toMatchObject({ model: "gpt-oss-120b", tool_choice: "auto", reasoning_effort: "low" });
+    expect(first).toMatchObject({ model: "gpt-oss-120b", tool_choice: "auto", reasoning_effort: "low", max_tokens: 4096 });
     expect(first.messages[0]).toEqual({ role: "system", content: "talimat\n\nbağlam" });
     expect(first.tools[0].function.name).toBe("farm_kpis");
 
@@ -84,7 +84,18 @@ describe("OpenAICompatibleAssistantModel", () => {
     expect(second.messages.at(-1).content).toContain("geçerli JSON değil");
   });
 
-  it("explains a full quota and a missing key", async () => {
+  it("accepts tool arguments sent as an object rather than a JSON string", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        reply({ content: "", tool_calls: [{ id: "c", type: "function", function: { name: "farm_kpis", arguments: { farmId: "f2" } } }] }),
+      )
+      .mockResolvedValueOnce(reply({ content: "Tamam." }));
+    await new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [farms] });
+    const second = JSON.parse((fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string);
+    expect(second.messages.at(-1).content).toBe('{"seen":{"farmId":"f2"}}');
+  });
+
+  it("explains a full quota and a missing key or address", async () => {
     fetchMock.mockResolvedValueOnce(new Response("{}", { status: 429 }));
     await expect(
       new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [] }),
@@ -94,5 +105,12 @@ describe("OpenAICompatibleAssistantModel", () => {
     await expect(
       new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [] }),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    process.env.ASSISTANT_API_KEY = "test-key";
+    delete process.env.ASSISTANT_BASE_URL;
+    await expect(
+      new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [] }),
+    ).rejects.toThrow("yapılandırılmadı");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

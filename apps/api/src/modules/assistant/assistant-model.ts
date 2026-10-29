@@ -22,26 +22,28 @@ const TOO_BROAD =
   "Bu soru için çok fazla veriye bakmam gerekti ve yanıtı tamamlayamadım. Soruyu daha dar sormayı deneyin (örneğin tek bir çiftlik ya da parti).";
 
 /**
- * Any model behind an OpenAI-compatible chat completions API: Cerebras or Groq hosting open-weight
- * models, OpenRouter, or a self-hosted vLLM / Ollama server. Configured by environment:
+ * Any model behind an OpenAI-compatible chat completions API. Configured by environment:
  *
- *   ASSISTANT_BASE_URL          default https://api.cerebras.ai/v1
- *   ASSISTANT_API_KEY           the provider's key (not needed for a local server)
- *   ASSISTANT_MODEL             default gpt-oss-120b (OpenAI's open-weight model, Apache 2.0)
+ *   ASSISTANT_BASE_URL          the provider's API root, for example
+ *     Cloudflare Workers AI (free daily allowance): https://api.cloudflare.com/client/v4/accounts/<account id>/ai/v1
+ *     Groq (model openai/gpt-oss-120b):             https://api.groq.com/openai/v1
+ *     Ollama on the same machine (no key):          http://localhost:11434/v1
+ *   ASSISTANT_API_KEY           the provider's key or API token (not needed for a local server)
+ *   ASSISTANT_MODEL             default @cf/openai/gpt-oss-120b: OpenAI's open-weight model (Apache 2.0) on Workers AI
  *   ASSISTANT_REASONING_EFFORT  low | medium | high; defaults to low for gpt-oss models
  */
 @Injectable()
 export class OpenAICompatibleAssistantModel implements AssistantModel {
   private readonly logger = new Logger(OpenAICompatibleAssistantModel.name);
-  private readonly baseUrl = (process.env.ASSISTANT_BASE_URL ?? "https://api.cerebras.ai/v1").replace(/\/+$/, "");
+  private readonly baseUrl = (process.env.ASSISTANT_BASE_URL ?? "").replace(/\/+$/, "");
   private readonly apiKey = process.env.ASSISTANT_API_KEY;
-  private readonly model = process.env.ASSISTANT_MODEL ?? "gpt-oss-120b";
+  private readonly model = process.env.ASSISTANT_MODEL ?? "@cf/openai/gpt-oss-120b";
   private readonly reasoningEffort =
     process.env.ASSISTANT_REASONING_EFFORT ?? (this.model.includes("gpt-oss") ? "low" : undefined);
 
   async answer({ system, messages, tools }: { system: string[]; messages: AssistantTurn[]; tools: AssistantTool[] }) {
     const local = /^https?:\/\/(localhost|127\.0\.0\.1)/.test(this.baseUrl);
-    if (!this.apiKey && !local) throw new ServiceUnavailableException(UNCONFIGURED);
+    if (!this.baseUrl || (!this.apiKey && !local)) throw new ServiceUnavailableException(UNCONFIGURED);
 
     const conversation: Record<string, unknown>[] = [
       { role: "system", content: system.join("\n\n") },
@@ -52,19 +54,25 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
       function: { name: t.name, description: t.description, parameters: t.inputSchema },
     }));
 
+    const tokens = { prompt: 0, completion: 0 };
     for (let trip = 0; trip < MAX_ROUND_TRIPS; trip++) {
-      const message = await this.complete(conversation, functions);
+      const { message, usage } = await this.complete(conversation, functions);
+      tokens.prompt += usage?.prompt_tokens ?? 0;
+      tokens.completion += usage?.completion_tokens ?? 0;
       const calls = message.tool_calls ?? [];
       if (calls.length === 0) {
+        // Logged so the provider's free allowance can be judged against real questions.
+        this.logger.log(`Answered in ${trip + 1} round trips, ${tokens.prompt} prompt + ${tokens.completion} completion tokens.`);
         // Some open models put their reasoning in <think> tags in the answer itself.
         const text = (message.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
         return text || TOO_BROAD;
       }
       conversation.push({ role: "assistant", content: message.content ?? "", tool_calls: calls });
       for (const call of calls) {
-        let args: unknown;
+        // Arguments are a JSON string in the OpenAI format; some compatible servers send the object.
+        let args: unknown = call.function.arguments;
         try {
-          args = JSON.parse(call.function.arguments || "{}");
+          if (typeof args === "string") args = JSON.parse(args || "{}");
         } catch {
           args = undefined;
         }
@@ -92,7 +100,9 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
           messages: conversation,
           tools: functions,
           tool_choice: "auto",
-          max_completion_tokens: 4096,
+          // max_tokens rather than max_completion_tokens: every compatible server reads it, and Workers AI
+          // would otherwise cap the reply at its default of 256 tokens.
+          max_tokens: 4096,
           ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
         }),
         signal: AbortSignal.timeout(90_000),
@@ -102,7 +112,8 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
       throw new ServiceUnavailableException("Asistanın yapay zeka servisine ulaşılamadı. Lütfen tekrar deneyin.");
     }
     if (res.status === 429) {
-      throw new ServiceUnavailableException("Asistanın kullanım kotası şu an dolu. Bir dakika sonra tekrar deneyin.");
+      // A per-minute limit or a used-up daily allowance; the provider's answer doesn't always say which.
+      throw new ServiceUnavailableException("Asistanın kullanım kotası şu an dolu. Lütfen daha sonra tekrar deneyin.");
     }
     if (res.status === 401 || res.status === 403) {
       this.logger.error(`Assistant model rejected the API key (${res.status}).`);
@@ -116,11 +127,12 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
       choices?: {
         message?: {
           content?: string | null;
-          tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
+          tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string | object } }[];
         };
       }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
-    return body.choices?.[0]?.message ?? {};
+    return { message: body.choices?.[0]?.message ?? {}, usage: body.usage };
   }
 }
 

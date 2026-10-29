@@ -54,10 +54,9 @@ sağlayıcılara (veri işleyen) aktarılır:
 | Render Services, Inc. | Sunucular Almanya (Frankfurt); şirket ABD | Uygulama sunucusu ve veritabanı (tüm Hizmet verileri) |
 | Vercel Inc. | ABD (küresel dağıtım ağı) | Web sitesinin barındırılması |
 | Resend (Plus Five Five, Inc.) | ABD | Bildirim e-postalarının gönderilmesi (e-posta adresi, bildirim içeriği) |
-| Cloudflare, Inc. | ABD | Alan adı (DNS) hizmeti |
+| Cloudflare, Inc. | ABD | Alan adı (DNS) hizmeti; yapay zeka asistanını kullanırsanız sorularınızın yanıtlanması (Workers AI): sorularınız ve yanıt için gereken çiftlik verileri (stok, yem, ölüm, su kalitesi, parti kodları) |
 | GitHub, Inc. | ABD | Masaüstü uygulaması dosyalarının dağıtımı (indirme sırasında IP adresi) |
 | Google LLC | ABD | Yalnızca "Google ile giriş" seçeneğini kullanırsanız |
-| Cerebras Systems Inc. (veya yapılandırılan yapay zeka sağlayıcısı) | ABD | Yalnızca yapay zeka asistanını kullanırsanız: sorularınız ve yanıt için gereken çiftlik verileri (stok, yem, ölüm, su kalitesi, parti kodları) |
 
 Bu sağlayıcıların bir kısmı yurt dışında bulunduğundan aktarım KVKK m. 9 kapsamındadır. Aktarım
 dayanağı: [AVUKATIN BELİRLEYECEĞİ DAYANAK — ör. Kurul'ca ilan edilen standart sözleşme ve Kurum'a
