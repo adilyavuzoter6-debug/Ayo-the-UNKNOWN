@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe, VersioningType } from "@nestjs/common";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
 
@@ -8,7 +9,10 @@ async function bootstrap(): Promise<void> {
   // rawBody: true preserves the raw request bytes on req.rawBody (in addition to the normal
   // parsed req.body) for every route — needed by the Clerk webhook's svix signature
   // verification, which must hash the exact bytes Clerk signed, not a re-serialized JSON object.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // Render puts one proxy in front of the app; without this every request seems to come from it,
+  // and the rate limits count all visitors as one.
+  app.set("trust proxy", 1);
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
   app.setGlobalPrefix("api");
