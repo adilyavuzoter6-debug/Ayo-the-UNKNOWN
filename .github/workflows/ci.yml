@@ -94,4 +94,6 @@ jobs:
       # docs/architecture/13-testing-strategy.md §13.4: this suite is a release gate. A failure
       # here must block merge — do not add continue-on-error to this step.
       - name: Cross-tenant isolation & integration tests
-        run: pnpm --filter @aquai/api run test:integration
+        # Through turbo so @aquai/types and @aquai/validation are built first (test:integration
+        # dependsOn ^build); the packages resolve to their dist/ output.
+        run: pnpm turbo run test:integration --filter=@aquai/api
