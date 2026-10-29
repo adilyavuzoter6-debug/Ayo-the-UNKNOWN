@@ -103,7 +103,8 @@ function AnomaliesContent({ limit }: { limit?: number }) {
         <p className="border-t border-border px-4.5 py-2.5 text-[11px] leading-snug text-muted-foreground">
           FCR, partinin hedef FCR&apos;sı varsa onunla, yoksa aynı türdeki en az 5 partinin ortancasıyla karşılaştırılır
           ({data.batchesWithFcr}/{data.batchesChecked} partinin FCR&apos;ı hesaplanabildi; bunun için en az 30 günlük
-          olması ve tartımla ölçülmüş büyümesi olması gerekir). Ölüm riski, son 7 günü partinin önceki 4 haftasıyla
+          olması ve tartımla ölçülmüş büyümesi olması gerekir; son tartımdan sonra verilen yem, büyümesi henüz
+          ölçülmediği için hesaba girmez). Ölüm riski, son 7 günü partinin önceki 4 haftasıyla
           karşılaştırır.
         </p>
       ) : null}

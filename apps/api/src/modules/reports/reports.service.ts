@@ -119,12 +119,29 @@ export class ReportsService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * DAY_MS);
     const thirtyFiveDaysAgo = new Date(now.getTime() - 35 * DAY_MS);
 
+    // Growth is only known as of a batch's last weighing, so FCR counts the feed given up to then;
+    // feed after it would be divided by growth nobody has measured yet.
+    const lastWeighed = new Map(
+      (
+        await client.weightSample.groupBy({
+          by: ["batchId"],
+          where: { batchId: { in: batchIds } },
+          _max: { occurredAt: true },
+        })
+      ).map((row) => [row.batchId, row._max.occurredAt]),
+    );
+
     const [feed, harvests, dead, deaths7d, deathsPrior, waterAlerts, treatments] = await Promise.all([
-      client.feedingEvent.groupBy({
-        by: ["batchId"],
-        where: { batchId: { in: batchIds } },
-        _sum: { quantityKg: true },
-      }),
+      Promise.all(
+        batchIds.map(async (batchId) => {
+          const until = lastWeighed.get(batchId);
+          const agg = await client.feedingEvent.aggregate({
+            where: { batchId, ...(until ? { occurredAt: { lte: until } } : {}) },
+            _sum: { quantityKg: true },
+          });
+          return { batchId, _sum: agg._sum };
+        }),
+      ),
       client.harvestRecord.groupBy({
         by: ["batchId"],
         where: { batchId: { in: batchIds }, type: "ACTUAL", deletedAt: null },

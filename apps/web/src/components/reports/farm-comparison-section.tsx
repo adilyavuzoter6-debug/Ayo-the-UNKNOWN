@@ -284,8 +284,8 @@ export function FarmComparisonSection() {
             </div>
             <p className="border-t border-border px-4.5 py-2.5 text-[11px] leading-snug text-muted-foreground">
               Canlı balık, biyokütle ve FCR bugünkü duruma göre; diğer sütunlar seçilen dönem içindir. FCR, stoklamadan
-              bu yana verilen yemin üretilen biyokütleye (hasat ve ölüm dahil) oranıdır ve yalnızca en az bir tartımla
-              büyümesi ölçülmüş partileri kapsar. Ölüm oranı, dönemde ölenlerin dönem sonu stoku ile ölenlerin toplamına
+              son tartıma kadar verilen yemin o tarihe kadar üretilen biyokütleye (hasat ve ölüm dahil) oranıdır ve
+              yalnızca en az bir tartımla büyümesi ölçülmüş partileri kapsar. Ölüm oranı, dönemde ölenlerin dönem sonu stoku ile ölenlerin toplamına
               oranıdır. En yüksek FCR ve ölüm oranı turuncu gösterilir.
             </p>
           </>
