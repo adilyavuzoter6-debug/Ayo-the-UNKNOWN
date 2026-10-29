@@ -79,6 +79,11 @@ export async function sendApiRequest<T>({ token, companyId, path, init = {}, ide
     );
   }
 
+  // A paginated endpoint answers { data: items, meta: { page, pageSize, total } }; callers typed for
+  // Paginated<T> get both back together.
+  if (Array.isArray(body?.data) && typeof body?.meta?.total === "number") {
+    return { items: body.data, ...body.meta } as T;
+  }
   return body?.data as T;
 }
 

@@ -15,18 +15,13 @@ import {
 } from "@/components/ui/table";
 import { useAuditLogs } from "@/hooks/use-audit-logs";
 import { ApiError } from "@/lib/api-error";
+import { auditActionLabel, auditEntityLabel } from "@/lib/audit-labels";
 import { InspectionReportSection } from "@/components/reports/inspection-report-section";
 import { FarmComparisonSection } from "@/components/reports/farm-comparison-section";
 import { AnomaliesPanel } from "@/components/reports/anomalies-panel";
 import { PlanLocked } from "@/components/shared/plan-locked";
 import { PlanFeature } from "@aquai/types";
 import { usePlan } from "@/hooks/use-plan";
-
-const ACTION_LABEL: Record<string, string> = {
-  CREATE: "Oluşturuldu",
-  UPDATE: "Güncellendi",
-  DELETE: "Silindi",
-};
 
 export default function ReportsPage() {
   const { has } = usePlan();
@@ -97,9 +92,9 @@ export default function ReportsPage() {
                         {new Date(entry.occurredAt).toLocaleString("tr")}
                       </TableCell>
                       <TableCell className="text-xs font-medium">
-                        {ACTION_LABEL[entry.action] ?? entry.action}
+                        {auditActionLabel(entry.action)}
                       </TableCell>
-                      <TableCell className="text-xs">{entry.entityType}</TableCell>
+                      <TableCell className="text-xs">{auditEntityLabel(entry.entityType)}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         …{entry.entityId.slice(-8)}
                       </TableCell>
