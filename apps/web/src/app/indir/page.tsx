@@ -4,6 +4,7 @@ import { Download, Laptop, Monitor, WifiOff } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
 import { SiteFooter } from "@/components/landing/site-footer";
+import { DOWNLOADS } from "@/lib/downloads";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -11,17 +12,14 @@ export const metadata: Metadata = {
   description: "Bağlantı koptuğunda da çalışan Piscatio masaüstü uygulamasını macOS ve Windows için indirin.",
 };
 
-// Installers are attached to GitHub releases by .github/workflows/desktop-release.yml. Their file
-// names carry no version, so /releases/latest/download/<name> always serves the newest build.
-const RELEASES = "https://github.com/adilyavuzoter6-debug/Ayo-the-UNKNOWN/releases/latest/download";
 
 const PLATFORMS = [
   {
     icon: Laptop,
     name: "macOS",
     downloads: [
-      { label: "Apple Silicon (M1 ve sonrası)", file: "Piscatio-mac-arm64.dmg" },
-      { label: "Intel işlemcili Mac", file: "Piscatio-mac-x64.dmg" },
+      { label: "Apple Silicon (M1 ve sonrası)", href: DOWNLOADS.macArm },
+      { label: "Intel işlemcili Mac", href: DOWNLOADS.macIntel },
     ],
     firstLaunch:
       "İlk açılışta macOS uygulamanın doğrulanamadığını söyler. Sistem Ayarları › Gizlilik ve Güvenlik bölümünde en alttaki “Yine de Aç” düğmesine basın; bu yalnızca bir kez gerekir.",
@@ -29,7 +27,7 @@ const PLATFORMS = [
   {
     icon: Monitor,
     name: "Windows",
-    downloads: [{ label: "Windows 10 / 11 (64 bit)", file: "Piscatio-win-x64.exe" }],
+    downloads: [{ label: "Windows 10 / 11 (64 bit)", href: DOWNLOADS.windows }],
     firstLaunch:
       "Kurulumda Windows SmartScreen uyarısı çıkarsa “Ek bilgi”ye, ardından “Yine de çalıştır”a tıklayın.",
   },
@@ -81,8 +79,8 @@ export default function DownloadPage() {
               <div className="flex flex-col gap-2">
                 {platform.downloads.map((download) => (
                   <a
-                    key={download.file}
-                    href={`${RELEASES}/${download.file}`}
+                    key={download.href}
+                    href={download.href}
                     className={cn(buttonVariants({ variant: "default" }), "justify-start")}
                   >
                     <Download className="size-4" />
