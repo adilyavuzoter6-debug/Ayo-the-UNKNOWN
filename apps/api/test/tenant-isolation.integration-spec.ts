@@ -4568,4 +4568,121 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(transfer?.toTankCode).toBe(toTank.code);
     });
   });
+
+  describe("cross-farm reports & anomalies", () => {
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    const today = () => new Date().toISOString().slice(0, 10);
+
+    async function reportFarm(code: string) {
+      const farm = await prisma.farm.create({
+        data: { companyId: companyA.companyId, name: `Rapor ${code}`, code: `REP-${code}-${Date.now()}` },
+      });
+      const section = await prisma.farmSection.create({
+        data: { companyId: companyA.companyId, farmId: farm.id, name: "S" },
+      });
+      const tank = await prisma.tank.create({
+        data: { companyId: companyA.companyId, farmSectionId: section.id, code: `REP${code}${Date.now()}`, type: "TANK" },
+      });
+      return { farmId: farm.id, tankId: tank.id };
+    }
+
+    async function stock(tankId: string, fishCount: number, avgWeightG: number) {
+      const res = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ speciesId, lotCode: nextLotCode(), tankId, fishCount, avgWeightG, farmEntryDate: "2026-01-01" })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    async function mortality(tankId: string, batchId: string, fishCount: number, occurredAt?: string) {
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tankId}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId, fishCount, reason: "DISEASE", ...(occurredAt ? { occurredAt } : {}) })
+        .expect(201);
+    }
+
+    it("farm comparison: one row per farm with its own stock, deaths and harvest; another company sees none of them", async () => {
+      const f1 = await reportFarm("CMP1");
+      const f2 = await reportFarm("CMP2");
+      const b1 = await stock(f1.tankId, 1000, 100);
+      await stock(f2.tankId, 500, 200);
+      await mortality(f1.tankId, b1, 50);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/reports/farm-comparison?periodStart=${daysAgo(30).slice(0, 10)}&periodEnd=${today()}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data.canSeeCosts).toBe(true);
+      const row1 = res.body.data.farms.find((r: { farmId: string }) => r.farmId === f1.farmId);
+      const row2 = res.body.data.farms.find((r: { farmId: string }) => r.farmId === f2.farmId);
+      expect(row1).toMatchObject({ fishCount: 950, biomassKg: 95, mortalityCount: 50, mortalityPct: 5, activeBatches: 1 });
+      expect(row1.costs).not.toBeNull();
+      expect(row2).toMatchObject({ fishCount: 500, biomassKg: 100, mortalityCount: 0, avgWeightG: 200 });
+
+      const other = await request(app.getHttpServer())
+        .get(`/api/v1/reports/farm-comparison?periodStart=${daysAgo(30).slice(0, 10)}&periodEnd=${today()}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(200);
+      const otherIds = other.body.data.farms.map((r: { farmId: string }) => r.farmId);
+      expect(otherIds).not.toContain(f1.farmId);
+      expect(otherIds).not.toContain(f2.farmId);
+    });
+
+    it("records export: rows carry farm, tank and lot; a farm id from another company is ignored", async () => {
+      const f = await reportFarm("REC");
+      const batchId = await stock(f.tankId, 400, 80);
+      await mortality(f.tankId, batchId, 7);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/reports/records?periodStart=${daysAgo(7).slice(0, 10)}&periodEnd=${today()}&farmIds=${f.farmId}`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data.mortality.truncated).toBe(false);
+      expect(res.body.data.mortality.rows).toEqual([
+        expect.objectContaining({ farmName: "Rapor REC", fishCount: 7, reason: "DISEASE" }),
+      ]);
+
+      const cross = await request(app.getHttpServer())
+        .get(`/api/v1/reports/records?periodStart=${daysAgo(7).slice(0, 10)}&periodEnd=${today()}&farmIds=${f.farmId}`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(200);
+      expect(cross.body.data.mortality.rows).toEqual([]);
+    });
+
+    it("rejects a missing, reversed or over-long period, and roles without report access", async () => {
+      const get = (query: string, token = companyA.ownerToken) =>
+        request(app.getHttpServer()).get(`/api/v1/reports/farm-comparison?${query}`).set("Authorization", auth(token));
+      expect((await get("periodStart=2026-01-01")).status).toBe(400);
+      expect((await get("periodStart=2026-03-01&periodEnd=2026-01-01")).status).toBe(400);
+      expect((await get("periodStart=2024-01-01&periodEnd=2026-01-01")).status).toBe(400);
+      expect((await get(`periodStart=2026-01-01&periodEnd=${today()}`, roleTokens.WORKER)).status).toBe(403);
+    });
+
+    it("anomalies: a week of deaths well above the batch's own past is flagged, and stays inside the company", async () => {
+      const f = await reportFarm("ANOM");
+      const batchId = await stock(f.tankId, 10_000, 100);
+      await mortality(f.tankId, batchId, 20, daysAgo(20));
+      await mortality(f.tankId, batchId, 300, daysAgo(2));
+
+      const res = await request(app.getHttpServer())
+        .get("/api/v1/reports/anomalies")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      const item = res.body.data.items.find((a: { batchId: string }) => a.batchId === batchId);
+      expect(item).toMatchObject({
+        kind: "MORTALITY_RISK",
+        severity: "HIGH",
+        farms: [{ id: f.farmId, name: "Rapor ANOM" }],
+      });
+      expect(item.value).toBeCloseTo((300 / 9_980) * 100, 1);
+
+      const other = await request(app.getHttpServer())
+        .get("/api/v1/reports/anomalies")
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(200);
+      expect(other.body.data.items.map((a: { batchId: string }) => a.batchId)).not.toContain(batchId);
+    });
+  });
 });

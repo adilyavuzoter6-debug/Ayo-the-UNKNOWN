@@ -37,6 +37,7 @@ import { CostScenariosModule } from "./modules/cost-scenarios/cost-scenarios.mod
 import { SuppliesModule } from "./modules/supplies/supplies.module";
 import { ColdStorageModule } from "./modules/cold-storage/cold-storage.module";
 import { InspectionModule } from "./modules/inspection/inspection.module";
+import { ReportsModule } from "./modules/reports/reports.module";
 import { PlatformAdminModule } from "./modules/platform-admin/platform-admin.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
@@ -73,6 +74,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     SuppliesModule,
     ColdStorageModule,
     InspectionModule,
+    ReportsModule,
     PlatformAdminModule,
   ],
   controllers: [AppController],
