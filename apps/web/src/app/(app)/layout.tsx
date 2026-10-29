@@ -9,6 +9,7 @@ import { useActiveCompany } from "@/components/providers/active-company-provider
 import { useMyCompanies } from "@/hooks/use-companies";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { cn } from "@/lib/utils";
 
 /**
@@ -134,11 +135,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {activeCompany.name} için 30 günlük ücretsiz deneme süreniz doldu. Hesabınızı
-            etkinleştirmek için bizimle iletişime geçin.
+            etkinleştirmek için {CONTACT_EMAIL} adresinden bizimle iletişime geçin.
           </p>
           <div className="mt-6 flex flex-col items-center gap-2">
             <a
-              href="mailto:destek@piscatiotechnologies.com"
+              href={`mailto:${CONTACT_EMAIL}`}
               className={cn(buttonVariants({ variant: "default" }), "w-full")}
             >
               Bizimle iletişime geçin

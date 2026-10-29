@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
+import { SiteFooter } from "@/components/landing/site-footer";
 import { ProductPreview } from "@/components/landing/product-preview";
 import { cn } from "@/lib/utils";
 
@@ -272,22 +273,7 @@ export default async function RootPage() {
         </section>
       </main>
 
-      <footer className="border-t border-border py-6">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
-          <span>© {new Date().getFullYear()} Piscatio Technologies</span>
-          <nav className="flex flex-wrap gap-x-5 gap-y-2">
-            <Link href="/pricing" className="hover:text-foreground">
-              Fiyatlandırma
-            </Link>
-            <Link href="/indir" className="hover:text-foreground">
-              Masaüstü uygulaması
-            </Link>
-            <Link href="/sign-in" className="hover:text-foreground">
-              Giriş yap
-            </Link>
-          </nav>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

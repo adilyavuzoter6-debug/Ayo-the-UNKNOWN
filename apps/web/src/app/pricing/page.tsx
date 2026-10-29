@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { Check, Clock } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
+import { SiteFooter } from "@/components/landing/site-footer";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -142,17 +144,16 @@ export default async function PricingPage() {
 
           <p className="mx-auto mt-10 max-w-xl text-center text-xs text-muted-foreground">
             Fiyatlar dolar cinsinden gösterilmektedir; ödeme Türk Lirası karşılığı üzerinden
-            alınacaktır.
+            alınacaktır. Sorularınız ve kurumsal teklif için{" "}
+            <a href={`mailto:${CONTACT_EMAIL}`} className="font-medium text-foreground underline-offset-4 hover:underline">
+              {CONTACT_EMAIL}
+            </a>
+            .
           </p>
         </section>
       </main>
 
-      <footer className="border-t border-border py-6">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground md:px-6">
-          <span>© {new Date().getFullYear()} Piscatio Technologies</span>
-          <span>Su ürünleri çiftlik yönetimi</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

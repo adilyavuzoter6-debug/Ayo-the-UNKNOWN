@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Download, Laptop, Monitor, WifiOff } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
+import { SiteFooter } from "@/components/landing/site-footer";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -103,12 +104,7 @@ export default function DownloadPage() {
         </section>
       </main>
 
-      <footer className="border-t border-border py-6">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground md:px-6">
-          <span>© {new Date().getFullYear()} Piscatio Technologies</span>
-          <span>Su ürünleri çiftlik yönetimi</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
