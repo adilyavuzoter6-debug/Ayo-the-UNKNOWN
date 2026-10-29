@@ -12,6 +12,7 @@ import { CompanySwitcher } from "@/components/layout/company-switcher";
 import { OfflineStatus } from "@/components/layout/offline-status";
 import { resolveNavTitle } from "@/lib/nav-items";
 import { useCompanyAlerts } from "@/hooks/use-alerts";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 
 export function AppTopbar() {
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
@@ -81,13 +82,18 @@ export function AppTopbar() {
         </Link>
       ) : null}
 
-      <button
-        type="button"
+      {/* A new window, so a web mail handler doesn't replace the app and the desktop app hands it to the
+          system mail program (its window-open handler opens outside links externally). */}
+      <a
+        href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Piscatio destek")}`}
+        target="_blank"
+        rel="noreferrer"
         aria-label="Yardım"
+        title={`Yardım: ${SUPPORT_EMAIL}`}
         className="hidden size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted/60 sm:flex"
       >
         <HelpCircle className="size-4" />
-      </button>
+      </a>
 
       <UserButton />
     </header>
