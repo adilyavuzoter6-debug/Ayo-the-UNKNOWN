@@ -1,5 +1,10 @@
+import type { Metadata } from "next";
 import { AuthCard } from "@/components/auth/auth-card";
 import { Logo } from "@/components/shared/logo";
+
+export const metadata: Metadata = {
+  title: "Giriş yap",
+};
 
 export default function SignInPage() {
   return (

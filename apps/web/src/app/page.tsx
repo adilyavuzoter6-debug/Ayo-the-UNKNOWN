@@ -14,10 +14,37 @@ import {
   ShieldCheck,
   ArrowRight,
   Download,
+  WifiOff,
+  FileSpreadsheet,
+  Activity,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
+import { ProductPreview } from "@/components/landing/product-preview";
 import { cn } from "@/lib/utils";
+
+const HIGHLIGHTS = [
+  {
+    icon: WifiOff,
+    title: "Bağlantı koptuğunda da çalışır",
+    description:
+      "Masaüstü uygulaması internetsiz açılır; yemleme, ölüm ve su kalitesi kayıtları bağlantı gelince kendiliğinden gönderilir.",
+    href: "/indir",
+    linkLabel: "Uygulamayı indirin",
+  },
+  {
+    icon: Activity,
+    title: "Sorunu siz fark etmeden işaretler",
+    description:
+      "Ölümleri kendi geçmişine göre artan, FCR'ı hedefinden ya da benzerlerinden sapan partiler gerekçesiyle listelenir.",
+  },
+  {
+    icon: FileSpreadsheet,
+    title: "Çiftlikleri yan yana koyun",
+    description:
+      "Stok, yem, FCR, ölüm, hasat ve maliyeti çiftlik çiftlik karşılaştırın; tüm kayıtlarla birlikte Excel'e aktarın.",
+  },
+];
 
 const FEATURES = [
   {
@@ -71,12 +98,13 @@ export default async function RootPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="border-b border-border">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 md:px-6">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-4 md:px-6">
           <Logo size={32} wordmarkClassName="text-foreground" />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
+            {/* Pricing moves to the footer on phones, where three header links don't fit. */}
             <Link
               href="/pricing"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden sm:inline-flex")}
             >
               Fiyatlandırma
             </Link>
@@ -91,11 +119,11 @@ export default async function RootPage() {
       </header>
 
       <main className="flex-1">
-        <section className="mx-auto max-w-4xl px-4 py-20 text-center md:px-6 md:py-28">
-          <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-5xl">
+        <section className="mx-auto max-w-4xl px-4 pt-16 pb-12 text-center md:px-6 md:pt-24">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-balance text-foreground md:text-5xl">
             Alabalık çiftliğinizi <span className="text-teal-500">tek yerden</span> yönetin
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground md:text-lg">
+          <p className="mx-auto mt-5 max-w-2xl text-base text-pretty text-muted-foreground md:text-lg">
             Üretim, yemleme, sağlık, su kalitesi, hasat ve maliyet takibini bir araya getiren; kritik
             durumları anında e-posta ile bildiren, denetime hazır raporlar üreten su ürünleri çiftlik
             yönetim yazılımı.
@@ -114,13 +142,40 @@ export default async function RootPage() {
               Zaten hesabım var
             </Link>
           </div>
+          <p className="mt-4 text-xs text-muted-foreground">30 gün ücretsiz · Kredi kartı gerekmez</p>
           <Link
             href="/indir"
-            className="mt-5 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+            className="mx-auto mt-5 block max-w-sm text-sm text-balance text-muted-foreground hover:text-foreground sm:max-w-none"
           >
-            <Download className="size-4" />
+            <Download className="mr-1.5 inline size-4 align-[-3px]" />
             Bağlantısız da çalışan masaüstü uygulamasını indirin (macOS, Windows)
           </Link>
+        </section>
+
+        <section className="px-4 pb-16 md:px-6 md:pb-24">
+          <ProductPreview />
+        </section>
+
+        <section className="border-t border-border py-16">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 md:grid-cols-3 md:px-6">
+            {HIGHLIGHTS.map((h) => (
+              <div key={h.title} className="rounded-xl border border-border bg-card p-6 ring-1 ring-foreground/5">
+                <div className="mb-4 flex size-10 items-center justify-center rounded-lg bg-navy-900">
+                  <h.icon className="size-5 text-teal-400" />
+                </div>
+                <h3 className="font-display text-base font-semibold text-foreground">{h.title}</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground">{h.description}</p>
+                {h.href ? (
+                  <Link
+                    href={h.href}
+                    className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-teal-500 hover:underline"
+                  >
+                    {h.linkLabel} <ArrowRight className="size-3.5" />
+                  </Link>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </section>
 
         <section className="border-t border-border bg-card/50 py-16">
@@ -130,11 +185,11 @@ export default async function RootPage() {
                 Çiftliğinizin her yönü, tek panelde
               </h2>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               {FEATURES.map((feature) => (
                 <div
                   key={feature.title}
-                  className="rounded-xl border border-border bg-card p-5 ring-1 ring-foreground/5"
+                  className="rounded-xl border border-border bg-card p-4 ring-1 ring-foreground/5 sm:p-5"
                 >
                   <div className="mb-3 flex size-9 items-center justify-center rounded-lg bg-teal-500/10">
                     <feature.icon className="size-4.5 text-teal-500" />
@@ -142,7 +197,7 @@ export default async function RootPage() {
                   <h3 className="font-display text-sm font-semibold text-foreground">
                     {feature.title}
                   </h3>
-                  <p className="mt-1.5 text-[13px] leading-snug text-muted-foreground">
+                  <p className="mt-1.5 text-xs leading-snug text-muted-foreground sm:text-[13px]">
                     {feature.description}
                   </p>
                 </div>
@@ -183,14 +238,54 @@ export default async function RootPage() {
             </div>
           </div>
         </section>
+
+        <section className="px-4 pb-16 md:px-6">
+          <div className="mx-auto flex max-w-6xl flex-col items-center gap-5 rounded-2xl bg-navy-900 px-6 py-12 text-center md:py-14">
+            <h2 className="font-display text-2xl font-bold tracking-tight text-balance text-white md:text-3xl">
+              İlk partinizi bugün kaydedin
+            </h2>
+            <p className="max-w-xl text-sm text-pretty text-white/70 md:text-base">
+              Kurulum yok, kredi kartı yok. 30 gün boyunca tüm özellikleri ücretsiz kullanın; çiftliğinize
+              uyup uymadığına kendi verinizle karar verin.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <Link
+                href="/sign-up"
+                className={cn(
+                  buttonVariants({ size: "lg" }),
+                  "bg-teal-500 px-6 text-navy-950 hover:bg-teal-400",
+                )}
+              >
+                Ücretsiz Başla <ArrowRight className="size-4" />
+              </Link>
+              <Link
+                href="/pricing"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "lg" }),
+                  "border-white/25 bg-transparent px-6 text-white hover:bg-white/10 hover:text-white",
+                )}
+              >
+                Fiyatları görün
+              </Link>
+            </div>
+          </div>
+        </section>
       </main>
 
       <footer className="border-t border-border py-6">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground md:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
           <span>© {new Date().getFullYear()} Piscatio Technologies</span>
-          <Link href="/indir" className="hover:text-foreground">
-            Masaüstü uygulaması
-          </Link>
+          <nav className="flex flex-wrap gap-x-5 gap-y-2">
+            <Link href="/pricing" className="hover:text-foreground">
+              Fiyatlandırma
+            </Link>
+            <Link href="/indir" className="hover:text-foreground">
+              Masaüstü uygulaması
+            </Link>
+            <Link href="/sign-in" className="hover:text-foreground">
+              Giriş yap
+            </Link>
+          </nav>
         </div>
       </footer>
     </div>

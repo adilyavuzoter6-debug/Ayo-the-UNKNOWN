@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { ActiveCompanyProvider } from "@/components/providers/active-company-provider";
 import { PwaRegister } from "@/components/providers/pwa-register";
+import { clerkLocalization } from "@/lib/clerk-localization";
 import "./globals.css";
 
 const sora = Sora({
@@ -25,9 +26,25 @@ const jetbrainsMono = JetBrains_Mono({
   weight: ["400", "500", "600"],
 });
 
+const DESCRIPTION =
+  "Alabalık ve su ürünleri çiftlikleri için üretim, yemleme, sağlık, su kalitesi, hasat ve maliyet takibi; " +
+  "kritik durumlarda anında uyarı, denetime hazır raporlar ve bağlantısız çalışan masaüstü uygulaması.";
+
 export const metadata: Metadata = {
-  title: "Piscatio — Aquaculture Farm Management",
-  description: "Multi-tenant farm management platform for aquaculture operations.",
+  metadataBase: new URL("https://piscatiotechnologies.com"),
+  title: {
+    default: "Piscatio — Su ürünleri çiftlik yönetim yazılımı",
+    template: "%s · Piscatio",
+  },
+  description: DESCRIPTION,
+  openGraph: {
+    type: "website",
+    locale: "tr_TR",
+    siteName: "Piscatio",
+    title: "Piscatio — Alabalık çiftliğinizi tek yerden yönetin",
+    description: DESCRIPTION,
+  },
+  twitter: { card: "summary_large_image" },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -41,7 +58,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
+    <ClerkProvider localization={clerkLocalization}>
       <html
         lang="tr"
         className={`${sora.variable} ${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}

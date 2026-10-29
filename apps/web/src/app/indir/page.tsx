@@ -1,8 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Download, Laptop, Monitor, WifiOff } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
 import { cn } from "@/lib/utils";
+
+export const metadata: Metadata = {
+  title: "Masaüstü uygulaması",
+  description: "Bağlantı koptuğunda da çalışan Piscatio masaüstü uygulamasını macOS ve Windows için indirin.",
+};
 
 // Installers are attached to GitHub releases by .github/workflows/desktop-release.yml. Their file
 // names carry no version, so /releases/latest/download/<name> always serves the newest build.

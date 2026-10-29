@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
@@ -5,6 +6,11 @@ import { Check, Clock } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
 import { cn } from "@/lib/utils";
+
+export const metadata: Metadata = {
+  title: "Fiyatlandırma",
+  description: "Piscatio planları ve fiyatları. Her plan 30 gün ücretsiz deneme ile başlar, kredi kartı gerekmez.",
+};
 
 const TIERS = [
   {

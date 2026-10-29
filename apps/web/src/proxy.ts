@@ -6,7 +6,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // landing page at "/" (exact — not a wildcard, so /dashboard etc. stay protected), "/pricing",
 // the desktop app's download page "/indir", sign-in/sign-up, the invitation-acceptance page (its own client code already handles both the
 // signed-out and signed-in cases, and the token it needs must survive this redirect — see below),
-// and the PWA icon/manifest routes (extension-less `ImageResponse` route handlers, so they don't
+// and the PWA icon/manifest and link-preview image routes (extension-less `ImageResponse` route handlers, so they don't
 // match the static-file exclusion in `config.matcher` below — browsers and OS install prompts
 // fetch these while signed out, e.g. from the landing page).
 const isPublicRoute = createRouteMatcher([
@@ -21,6 +21,7 @@ const isPublicRoute = createRouteMatcher([
   "/icon-192",
   "/icon-512",
   "/icon-512-maskable",
+  "/opengraph-image(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
