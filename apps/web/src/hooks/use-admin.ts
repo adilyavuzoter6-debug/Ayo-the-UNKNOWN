@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PlanTier } from "@aquai/types";
 import { useApiClient } from "@/lib/api-client";
-import type { AdminCompanyDetail, AdminCompanyRow } from "@/lib/types";
+import type { AdminAssistantFeedback, AdminCompanyDetail, AdminCompanyRow } from "@/lib/types";
 
 /** Every admin route is @SkipTenantContext on the API, so no X-Company-Id is sent. */
 const SKIP_TENANT = { skipCompanyContext: true } as const;
@@ -31,6 +31,14 @@ export function useAdminCompany(companyId: string) {
     queryKey: ["admin", "companies", companyId],
     queryFn: () => api.get<AdminCompanyDetail>(`/admin/companies/${companyId}`, SKIP_TENANT),
     enabled: !!companyId,
+  });
+}
+
+export function useAdminAssistantFeedback() {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: ["admin", "assistant-feedback"],
+    queryFn: () => api.get<AdminAssistantFeedback>("/admin/assistant-feedback", SKIP_TENANT),
   });
 }
 

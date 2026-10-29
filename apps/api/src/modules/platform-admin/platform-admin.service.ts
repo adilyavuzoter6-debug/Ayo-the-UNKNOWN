@@ -31,6 +31,35 @@ export class PlatformAdminService {
     return user?.isPlatformAdmin === true;
   }
 
+  /**
+   * The latest 👍/👎 members gave assistant answers, across all companies, with the share that was
+   * 👍 overall: where the assistant falls short, and the examples it could later be improved with.
+   */
+  async listAssistantFeedback() {
+    const [rows, total, helpful] = await Promise.all([
+      this.prisma.assistantFeedback.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          question: true,
+          answer: true,
+          helpful: true,
+          comment: true,
+          createdAt: true,
+          company: { select: { name: true, demoKind: true } },
+        },
+      }),
+      this.prisma.assistantFeedback.count(),
+      this.prisma.assistantFeedback.count({ where: { helpful: true } }),
+    ]);
+    return {
+      total,
+      helpful,
+      entries: rows.map(({ company, ...row }) => ({ ...row, companyName: company.name, isDemo: company.demoKind !== null })),
+    };
+  }
+
   /** One row per tenant: the "cari" overview — who is producing what, and how much is standing in their tanks right now. */
   async listCompanies() {
     const companies = await this.prisma.company.findMany({

@@ -15,3 +15,12 @@ export function useAssistantChat() {
       api.post<{ reply: string; remainingToday: number }>("/assistant/chat", { messages }),
   });
 }
+
+/** A member's 👍/👎 on one answer, kept with the question and answer it is about. */
+export function useAssistantFeedback() {
+  const api = useApiClient();
+  return useMutation({
+    mutationFn: (input: { question: string; answer: string; helpful: boolean; comment?: string }) =>
+      api.post<{ id: string }>("/assistant/feedback", input),
+  });
+}

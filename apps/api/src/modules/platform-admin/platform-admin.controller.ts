@@ -38,6 +38,13 @@ export class PlatformAdminController {
     return this.platformAdminService.getCompanyDetail(id);
   }
 
+  @Get("assistant-feedback")
+  @SkipTenantContext()
+  @UseGuards(PlatformAdminGuard)
+  listAssistantFeedback() {
+    return this.platformAdminService.listAssistantFeedback();
+  }
+
   /** Until online payment exists, a plan is set here once the customer has paid. */
   @Patch("companies/:id/plan")
   @SkipTenantContext()

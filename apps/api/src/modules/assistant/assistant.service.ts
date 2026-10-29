@@ -3,6 +3,7 @@ import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import type { TenantContext } from "../../common/types/request-context";
 import { ASSISTANT_MODEL, type AssistantModel, type AssistantTurn } from "./assistant-model";
 import { AssistantTools } from "./assistant-tools";
+import type { AssistantFeedbackDto } from "./dto/assistant-feedback.dto";
 
 /** Questions a company may ask per day: a bound on cost, generous for real use. */
 const DAILY_QUESTIONS = 100;
@@ -103,5 +104,20 @@ export class AssistantService {
       tools: this.tools.forTenant(tenant),
     });
     return { reply: tidyReply(reply), remainingToday: limit - used - 1 };
+  }
+
+  /** Keeps a member's 👍/👎 on an answer: to judge the assistant by, and as examples to improve it with later. */
+  feedback(tenant: TenantContext, userId: string, dto: AssistantFeedbackDto) {
+    return this.tenantPrisma.forTenant(tenant.companyId).assistantFeedback.create({
+      data: {
+        companyId: tenant.companyId,
+        userId,
+        question: dto.question,
+        answer: dto.answer,
+        helpful: dto.helpful,
+        comment: dto.comment?.trim() || null,
+      },
+      select: { id: true },
+    });
   }
 }

@@ -686,6 +686,22 @@ export interface InspectionReport {
   totalFeedKg: number;
 }
 
+/** Members' 👍/👎 on assistant answers, newest first, with the overall 👍 count. */
+export interface AdminAssistantFeedback {
+  total: number;
+  helpful: number;
+  entries: {
+    id: string;
+    question: string;
+    answer: string;
+    helpful: boolean;
+    comment: string | null;
+    createdAt: string;
+    companyName: string;
+    isDemo: boolean;
+  }[];
+}
+
 /** Platform-admin console (cross-tenant, PLATFORM_ADMIN only). */
 export interface AdminCompanyRow {
   id: string;

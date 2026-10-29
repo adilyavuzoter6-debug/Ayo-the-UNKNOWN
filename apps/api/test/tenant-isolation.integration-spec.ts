@@ -5006,6 +5006,32 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(workerTools.split(",")).not.toContain("çiftlik karşılaştırması");
     });
 
+    it("keeps a member's 👍/👎 on an answer, readable only by a platform admin", async () => {
+      const send = (token: string, body: object) =>
+        request(app.getHttpServer()).post("/api/v1/assistant/feedback").set("Authorization", auth(token)).send(body);
+      const question = `Kaç balık var? ${Date.now()}`;
+      await send(companyA.ownerToken, { question, answer: "131.614 balık.", helpful: false, comment: "  Rakam eski  " }).expect(201);
+      await send(companyA.ownerToken, { question: "q", answer: "a" }).expect(400);
+
+      const saved = await prisma.assistantFeedback.findFirstOrThrow({ where: { question } });
+      expect(saved).toMatchObject({ companyId: companyA.companyId, helpful: false, comment: "Rakam eski" });
+
+      await request(app.getHttpServer())
+        .get("/api/v1/admin/assistant-feedback")
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(403);
+      const listed = await request(app.getHttpServer())
+        .get("/api/v1/admin/assistant-feedback")
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .expect(200);
+      expect(listed.body.data.entries.find((f: { question: string }) => f.question === question)).toMatchObject({
+        helpful: false,
+        comment: "Rakam eski",
+        companyName: expect.any(String),
+        isDemo: false,
+      });
+    });
+
     it("is a Professional feature and validates the conversation", async () => {
       const standard = await seedTenant(prisma, "assistant-std");
       await prisma.company.update({ where: { id: standard.companyId }, data: { planTier: "STANDARD", trialEndsAt: null } });

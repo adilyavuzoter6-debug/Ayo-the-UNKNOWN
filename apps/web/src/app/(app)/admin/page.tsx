@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Building2, Fish, ShieldAlert } from "lucide-react";
+import { Building2, Fish, ShieldAlert, ThumbsDown, ThumbsUp } from "lucide-react";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAdminCompanies, useIsPlatformAdmin } from "@/hooks/use-admin";
+import { useAdminAssistantFeedback, useAdminCompanies, useIsPlatformAdmin } from "@/hooks/use-admin";
 import { PLAN_LABEL } from "@aquai/types";
 
 function fmt(n: number, digits = 0) {
@@ -152,7 +152,61 @@ export default function AdminPage() {
           </div>
         )}
       </PanelCard>
+
+      <AssistantFeedbackPanel />
     </div>
+  );
+}
+
+/** Members' 👍/👎 on assistant answers: where the assistant falls short, in their own words. */
+function AssistantFeedbackPanel() {
+  const { data, isLoading, isError } = useAdminAssistantFeedback();
+  const share = data && data.total > 0 ? Math.round((data.helpful / data.total) * 100) : null;
+
+  return (
+    <PanelCard title="Asistan geri bildirimleri">
+      {data && data.total > 0 ? (
+        <p className="border-b border-border px-4.5 py-2.5 text-xs text-muted-foreground">
+          {fmt(data.total)} değerlendirme · %{share} yararlı{data.total > data.entries.length ? " · son 200 gösteriliyor" : ""}
+        </p>
+      ) : null}
+      {isLoading ? (
+        <div className="p-4">
+          <Skeleton className="h-32 rounded" />
+        </div>
+      ) : isError ? (
+        <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">Geri bildirimler yüklenemedi.</p>
+      ) : !data || data.entries.length === 0 ? (
+        <p className="px-4.5 py-10 text-center text-sm text-muted-foreground">Henüz geri bildirim yok.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {data.entries.map((f) => (
+            <li key={f.id} className="space-y-1.5 px-4.5 py-3.5 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                {f.helpful ? (
+                  <ThumbsUp className="size-3.5 text-teal-500" />
+                ) : (
+                  <ThumbsDown className="size-3.5 text-destructive" />
+                )}
+                <span className="font-medium text-foreground">{f.companyName}</span>
+                {f.isDemo ? (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Demo
+                  </Badge>
+                ) : null}
+                <span>{new Date(f.createdAt).toLocaleString("tr")}</span>
+              </div>
+              <p className="font-medium text-foreground">{f.question}</p>
+              {f.comment ? <p className="text-destructive">“{f.comment}”</p> : null}
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none">Yanıtı göster</summary>
+                <p className="mt-1.5 whitespace-pre-wrap">{f.answer}</p>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
+    </PanelCard>
   );
 }
 

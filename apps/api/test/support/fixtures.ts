@@ -5,6 +5,7 @@ import { ROLES, type Role } from "@aquai/types";
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.auditLog.deleteMany();
   await prisma.alert.deleteMany();
+  await prisma.assistantFeedback.deleteMany();
   await prisma.feedingEvent.deleteMany();
   await prisma.waterQualityReading.deleteMany();
   await prisma.harvestRecord.deleteMany();

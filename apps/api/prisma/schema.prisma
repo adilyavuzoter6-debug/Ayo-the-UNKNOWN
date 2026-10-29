@@ -41,6 +41,7 @@ model Company {
   auditLogs   AuditLog[]
   invitations Invitation[]
   idempotencyRecords IdempotencyRecord[]
+  assistantFeedback  AssistantFeedback[]
 
   @@map("companies")
 
@@ -1137,4 +1138,23 @@ model IdempotencyRecord {
   @@unique([companyId, key])
   @@index([createdAt])
   @@map("idempotency_records")
+}
+
+/// A member's 👍/👎 on one assistant answer, with the question and answer as they were, so answers
+/// can be judged and, later, used as examples for improving the assistant.
+model AssistantFeedback {
+  id        String   @id @default(cuid())
+  companyId String
+  userId    String
+  question  String
+  answer    String
+  helpful   Boolean
+  comment   String?
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([createdAt])
+  @@map("assistant_feedback")
 }

@@ -9,6 +9,7 @@ import { useAssistantChat, type AssistantTurn } from "@/hooks/use-assistant";
 import { usePlan } from "@/hooks/use-plan";
 import { ApiError } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
+import { AnswerFeedback } from "./answer-feedback";
 import { AssistantMessage } from "./assistant-message";
 
 const SUGGESTIONS = [
@@ -132,6 +133,9 @@ export function AssistantPanel() {
                       </span>
                       <div className="min-w-0 flex-1 leading-relaxed text-foreground">
                         <AssistantMessage text={t.content} />
+                        {turns[i - 1]?.role === "user" ? (
+                          <AnswerFeedback question={turns[i - 1]!.content} answer={t.content} />
+                        ) : null}
                       </div>
                     </div>
                   ),

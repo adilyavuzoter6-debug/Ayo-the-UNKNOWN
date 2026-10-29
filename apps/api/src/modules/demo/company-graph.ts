@@ -15,6 +15,7 @@ const NOT_COPIED = new Set([
   "Invitation",
   "AuditLog",
   "IdempotencyRecord",
+  "AssistantFeedback",
 ]);
 
 export interface ModelPlan {
