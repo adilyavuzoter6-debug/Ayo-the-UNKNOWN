@@ -11,6 +11,8 @@ export interface Company {
   planTier: PlanTier;
   status: "ACTIVE" | "SUSPENDED" | "CANCELLED";
   trialEndsAt: string | null;
+  /** Set on demo companies: the sample-data TEMPLATE and the per-visitor VISITOR copies. */
+  demoKind: "TEMPLATE" | "VISITOR" | null;
   createdAt: string;
 }
 

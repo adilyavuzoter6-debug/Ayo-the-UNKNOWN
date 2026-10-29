@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { SignIn, SignUp } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { useDesktopBridge } from "@/lib/desktop";
@@ -34,6 +35,12 @@ export function AuthCard({ mode }: { mode: "sign-in" | "sign-up" }) {
         </div>
       ) : null}
       {mode === "sign-in" ? <SignIn appearance={appearance} /> : <SignUp appearance={appearance} />}
+      <p className="text-center text-sm text-muted-foreground">
+        Önce denemek mi istersiniz?{" "}
+        <Link href="/demo" className="font-medium text-teal-500 hover:underline">
+          Hesap açmadan canlı demoyu açın →
+        </Link>
+      </p>
     </>
   );
 }

@@ -58,6 +58,12 @@ export default function DownloadPage() {
             Çiftlikte bağlantı koptuğunda da çalışır: son görüntülediğiniz veriler açık kalır, yemleme,
             ölüm ve su kalitesi kayıtları bağlantı geldiğinde otomatik gönderilir.
           </p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Kurmadan önce görmek isterseniz{" "}
+            <Link href="/demo" className="font-medium text-teal-500 hover:underline">
+              canlı demoyu tarayıcıda açın →
+            </Link>
+          </p>
         </section>
 
         <section className="mx-auto grid max-w-4xl grid-cols-1 gap-4 px-4 pb-12 md:grid-cols-2 md:px-6">

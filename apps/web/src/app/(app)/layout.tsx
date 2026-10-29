@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SignOutButton } from "@clerk/nextjs";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppTopbar } from "@/components/layout/app-topbar";
+import { DemoBanner, DemoWelcome } from "@/components/demo/demo-banner";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { useMyCompanies } from "@/hooks/use-companies";
 import { buttonVariants } from "@/components/ui/button";
@@ -159,8 +160,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen w-full">
       <AppSidebar />
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        {activeCompany?.demoKind === "VISITOR" ? <DemoBanner createdAt={activeCompany.createdAt} /> : null}
         <AppTopbar />
         <main className="flex-1 bg-muted/20 p-4 md:p-6">{children}</main>
+        {activeCompany?.demoKind === "VISITOR" ? <DemoWelcome companyId={activeCompany.id} /> : null}
       </div>
     </div>
   );

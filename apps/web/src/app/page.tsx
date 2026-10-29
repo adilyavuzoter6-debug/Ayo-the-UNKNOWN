@@ -17,6 +17,7 @@ import {
   WifiOff,
   FileSpreadsheet,
   Activity,
+  PlayCircle,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
@@ -137,13 +138,15 @@ export default async function RootPage() {
               Ücretsiz Başla <ArrowRight className="size-4" />
             </Link>
             <Link
-              href="/sign-in"
+              href="/demo"
               className={cn(buttonVariants({ variant: "outline", size: "lg" }), "px-6")}
             >
-              Zaten hesabım var
+              <PlayCircle className="size-4 text-teal-500" /> Canlı demoyu deneyin
             </Link>
           </div>
-          <p className="mt-4 text-xs text-muted-foreground">30 gün ücretsiz · Kredi kartı gerekmez</p>
+          <p className="mt-4 text-xs text-muted-foreground">
+            30 gün ücretsiz · Kredi kartı gerekmez · Demo için hesap bile gerekmez
+          </p>
           <Link
             href="/indir"
             className="mx-auto mt-5 block max-w-sm text-sm text-balance text-muted-foreground hover:text-foreground sm:max-w-none"
@@ -260,13 +263,13 @@ export default async function RootPage() {
                 Ücretsiz Başla <ArrowRight className="size-4" />
               </Link>
               <Link
-                href="/pricing"
+                href="/demo"
                 className={cn(
                   buttonVariants({ variant: "outline", size: "lg" }),
                   "border-white/25 bg-transparent px-6 text-white hover:bg-white/10 hover:text-white",
                 )}
               >
-                Fiyatları görün
+                <PlayCircle className="size-4" /> Önce demoyu deneyin
               </Link>
             </div>
           </div>

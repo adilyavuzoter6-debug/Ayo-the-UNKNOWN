@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Fish, HeartPulse, Scale, TrendingUp, Wheat } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Badge } from "@/components/ui/badge";
@@ -107,7 +108,12 @@ export function ProductPreview() {
           </div>
         </div>
       </div>
-      <figcaption className="mt-3 text-center text-xs text-muted-foreground">Örnek verilerle uygulama görünümü</figcaption>
+      <figcaption className="mt-3 text-center text-xs text-muted-foreground">
+        Örnek verilerle uygulama görünümü ·{" "}
+        <Link href="/demo" className="font-medium text-teal-500 hover:underline">
+          Canlı demoda kendiniz deneyin →
+        </Link>
+      </figcaption>
     </figure>
   );
 }
