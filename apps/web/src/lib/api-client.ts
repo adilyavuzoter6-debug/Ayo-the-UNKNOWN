@@ -5,7 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useActiveCompany } from "@/components/providers/active-company-provider";
 import { ApiError } from "@/lib/api-error";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
 
 export interface Paginated<T> {
   items: T[];
@@ -23,6 +23,8 @@ interface RequestOptions {
 
 export const OFFLINE_ERROR_CODE = "OFFLINE";
 export const NETWORK_ERROR_CODE = "NETWORK";
+/** No session token yet: right after signing in, Clerk can take a moment to hand one out. */
+export const SESSION_PENDING_CODE = "SESSION_PENDING";
 
 export function isOffline() {
   return typeof navigator !== "undefined" && !navigator.onLine;
@@ -105,6 +107,8 @@ export function useApiClient() {
       options: RequestOptions = {},
     ): Promise<T> => {
       const token = await getToken();
+      // Sending without a token would only earn a 401, which is final; this one is retried.
+      if (!token) throw new ApiError(0, SESSION_PENDING_CODE, "Oturum hazırlanıyor…");
       return sendApiRequest<T>({
         token,
         companyId: options.skipCompanyContext ? null : companyId,

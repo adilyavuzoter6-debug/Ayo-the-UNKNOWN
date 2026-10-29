@@ -7,6 +7,7 @@ import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persi
 import { persistQueryClient } from "@tanstack/react-query-persist-client";
 import { del, get, set } from "idb-keyval";
 import { ApiError } from "@/lib/api-error";
+import { SESSION_PENDING_CODE } from "@/lib/api-client";
 import { OfflineQueueProvider } from "@/components/providers/offline-queue-provider";
 
 const CACHE_KEY = "piscatio.query-cache";
@@ -74,6 +75,8 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             // be written to (or restored from) IndexedDB.
             gcTime: OFFLINE_CACHE_MAX_AGE_MS,
             retry: (failureCount, error) => {
+              // Just signed in and the session token isn't there yet: it will be in a moment.
+              if (error instanceof ApiError && error.code === SESSION_PENDING_CODE) return failureCount < 6;
               // Don't retry auth/permission/not-found errors — retrying won't fix a 401/403/404.
               if (error instanceof ApiError && error.status < 500) return false;
               return failureCount < 2;
