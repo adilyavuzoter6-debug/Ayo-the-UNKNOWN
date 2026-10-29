@@ -1,0 +1,59 @@
+name: Desktop release
+
+# Builds the Electron shell (apps/desktop) for macOS and Windows and attaches the installers to
+# a GitHub release. Triggered by pushing a tag like `desktop-v1.0.1`; the tag's version must match
+# apps/desktop/package.json, which is what the app compares against to offer updates.
+#
+# Installers are deliberately unsigned (ad-hoc on macOS): users see the "unidentified developer"
+# warning on first launch. Artifact names carry no version, so
+# https://github.com/<repo>/releases/latest/download/Piscatio-mac-arm64.dmg always points at the
+# newest build — the website's download buttons rely on that.
+
+on:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: --mac
+            files: apps/desktop/dist/*.dmg
+          - os: windows-latest
+            target: --win
+            files: apps/desktop/dist/*.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Check tag matches package version
+        shell: bash
+        run: |
+          expected="desktop-v$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json ($expected)"; exit 1
+          fi
+
+      - run: npm ci
+      - run: npm test
+      - run: npx electron-builder ${{ matrix.target }} --publish never
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Piscatio ${{ github.ref_name }}
+          files: ${{ matrix.files }}
+          fail_on_unmatched_files: true
