@@ -126,7 +126,7 @@ export class AssistantTools {
         tool({
           name: "weight_forecast",
           description:
-            "Projects live fish forward month by month: how many fish and how much biomass in each weight range (grams), for one farm or, without farmId, all farms together. Each batch grows at its own recorded rate (feed and weight gain since stocking) and recent mortality continues. It is a projection from records, not a certainty, and it ignores future harvests and transfers.",
+            "Projects live fish forward month by month: how many fish and how much biomass in each weight range (grams), for one farm or, without farmId, all farms together. Growth follows water temperature (thermal growth coefficient fitted from each batch's own weighings and the farm's temperature records; colder months grow slower), falling back to feed-based growth where there are no temperature records; recent mortality continues. It is a projection from records, not a certainty, and it ignores future harvests and transfers.",
           inputSchema: {
             type: "object",
             properties: {
@@ -139,16 +139,26 @@ export class AssistantTools {
           },
           run: ({ farmId, monthsAhead, bucketWidthG }: { farmId?: string; monthsAhead: number; bucketWidthG?: number }) =>
             safely(async () => {
-              const farmIds = farmId ? [(await farmGuard(farmId)).id] : (await visibleFarms()).map((f) => f.id);
-              const forecast = await this.farmStats.getWeightForecast(tenant.companyId, farmIds, bucketWidthG ?? 50, null);
+              const farms = farmId ? [await farmGuard(farmId)] : await visibleFarms();
+              const forecast = await this.farmStats.getWeightForecast(
+                tenant.companyId,
+                farms.map((f) => f.id),
+                bucketWidthG ?? 50,
+                null,
+              );
               const month = forecast.months.find((m) => m.monthsAhead === monthsAhead);
               return {
+                // Named in the answer, so the member knows what the numbers cover.
+                scope: farmId ? farms[0]!.name : `Tüm çiftlikler (${farms.map((f) => f.name).join(", ")})`,
                 monthsAhead,
                 dailyMortalityRatePct: round(forecast.dailyMortalityRatePct, 3),
                 batchesProjected: forecast.totalActiveBatches,
+                batchesGrownByTemperature: forecast.batchesWithOwnTgc + forecast.batchesWithSharedTgc,
                 batchesWithoutGrowthData: forecast.batchesFlat,
+                expectedWaterTemperatureC: month?.avgTemperatureC ?? null,
                 totalFish: month?.totalCount ?? 0,
                 totalBiomassKg: round(month?.totalBiomassKg ?? 0, 0),
+                averageWeightG: month && month.totalCount > 0 ? round((month.totalBiomassKg * 1000) / month.totalCount, 0) : null,
                 ranges: (month?.buckets ?? []).map((b) => ({
                   fromG: b.startG,
                   toG: b.endG,

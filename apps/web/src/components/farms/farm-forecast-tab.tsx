@@ -280,12 +280,36 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
                     <div className="mb-0.5 text-muted-foreground">Tahmini toplam biyokütle</div>
                     <div className="font-mono font-medium text-foreground">{fmt(month.totalBiomassKg)} kg</div>
                   </div>
-                  <div>
-                    <div className="mb-0.5 text-muted-foreground">Kendi FCR&apos;ı ölçülen parti</div>
-                    <div className="font-mono font-medium text-foreground">
-                      {weightForecast.batchesWithOwnFcr}/{weightForecast.totalActiveBatches}
+                  {month.avgTemperatureC !== null ? (
+                    <div>
+                      <div className="mb-0.5 text-muted-foreground">Beklenen ort. su sıcaklığı</div>
+                      <div className="font-mono font-medium text-foreground">
+                        {fmt(month.avgTemperatureC, 1)} °C
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
+                  {weightForecast.batchesWithOwnTgc + weightForecast.batchesWithSharedTgc > 0 ? (
+                    <div>
+                      <div className="mb-0.5 text-muted-foreground">Sıcaklığa göre büyüyen parti</div>
+                      <div className="font-mono font-medium text-foreground">
+                        {weightForecast.batchesWithOwnTgc + weightForecast.batchesWithSharedTgc}/
+                        {weightForecast.totalActiveBatches}
+                        {weightForecast.batchesWithSharedTgc > 0 ? (
+                          <span className="ml-1 font-sans text-[10px] font-normal text-muted-foreground">
+                            ({weightForecast.batchesWithSharedTgc} benzer partilerden)
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                  {weightForecast.batchesWithOwnFcr > 0 ? (
+                    <div>
+                      <div className="mb-0.5 text-muted-foreground">Kendi FCR&apos;ı ile büyüyen parti</div>
+                      <div className="font-mono font-medium text-foreground">
+                        {weightForecast.batchesWithOwnFcr}/{weightForecast.totalActiveBatches}
+                      </div>
+                    </div>
+                  ) : null}
                   {avgFcr ? (
                     <div>
                       <div className="mb-0.5 text-muted-foreground">Ortalama FCR ile tahmin edilen</div>
@@ -333,13 +357,15 @@ export function FarmForecastTab({ farmId }: { farmId: string }) {
         <div className="flex items-start gap-2 border-t border-border px-4.5 py-3 text-[11px] text-muted-foreground">
           <TrendingDown className="mt-0.5 size-3.5 shrink-0" />
           <p>
-            Önce her partinin, stoklamadan bu yana yediği toplam yem ile kazandığı biyokütleden
-            hesaplanan kendi gerçekleşen FCR&apos;ı kullanılır. Bunu ölçecek kadar veri (yem +
-            ikinci bir tartım) olmayan ama yemleme geçmişi olan partilerde, girilmişse{" "}
-            <strong>ortalama FCR</strong> o partinin kendi yem hızıyla birlikte kullanılır. Hiç
-            yemleme kaydı olmayan partiler sabit ağırlıkta kalır. Ölüm oranı, yukarıdaki trend
-            mortalite oranıyla aynı şekilde uygulanır. Planlı hasat, transfer veya yeni stoklamayı
-            hesaba katmaz.
+            Büyüme su sıcaklığına göre hesaplanır (termal büyüme katsayısı, TGC): her partinin
+            katsayısı kendi tartımlarından ve çiftliğin kayıtlı su sıcaklıklarından bulunur, önümüzdeki
+            ayların sıcaklığı çiftliğin kendi aylık ortalamalarından gelir. Kaydı olmayan aylar için
+            ölçülen aylara uydurulan mevsim eğrisi kullanılır, böylece balıklar kışın yavaş, yazın hızlı
+            büyür. Tartımı yetersiz partiler aynı türdeki partilerin ortanca katsayısını kullanır.
+            Çiftlikte sıcaklık kaydı yoksa, partinin stoklamadan bu yana yediği yem ile kazandığı
+            biyokütleden bulunan kendi FCR&apos;ı (veya girilmişse <strong>ortalama FCR</strong>)
+            kullanılır; hiç verisi olmayan partiler sabit kalır. Ölüm oranı yukarıdaki trend ile aynı
+            şekilde uygulanır. Planlı hasat, transfer veya yeni stoklamayı hesaba katmaz.
           </p>
         </div>
       </PanelCard>

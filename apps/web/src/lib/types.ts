@@ -637,6 +637,8 @@ export interface WeightForecastMonth {
   monthsAhead: number;
   totalCount: number;
   totalBiomassKg: number;
+  /** Expected average water temperature over the month; null without temperature readings. */
+  avgTemperatureC: number | null;
   buckets: WeightForecastBucket[];
 }
 
@@ -645,6 +647,8 @@ export interface WeightForecastResult {
   avgFcr: number | null;
   dailyMortalityRatePct: number;
   totalActiveBatches: number;
+  batchesWithOwnTgc: number;
+  batchesWithSharedTgc: number;
   batchesWithOwnFcr: number;
   batchesWithAssumedFcr: number;
   batchesFlat: number;

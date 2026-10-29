@@ -4961,6 +4961,66 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("weight forecast", () => {
+    it("grows a weighed batch by the farm's water temperature (TGC)", async () => {
+      const tenant = await seedTenant(prisma, "tgc");
+      const owner = await prisma.user.findUniqueOrThrow({ where: { authProviderId: tenant.ownerToken } });
+      const entry = new Date(Date.now() - 150 * 86_400_000);
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(tenant.ownerToken))
+        .send({
+          speciesId,
+          lotCode: nextLotCode(),
+          tankId: tenant.tankId,
+          fishCount: 1000,
+          avgWeightG: 50,
+          farmEntryDate: entry.toISOString().slice(0, 10),
+        })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+
+      await prisma.waterQualityReading.createMany({
+        data: Array.from({ length: 150 }, (_, i) => ({
+          companyId: tenant.companyId,
+          tankId: tenant.tankId,
+          temperatureC: 14,
+          occurredAt: new Date(entry.getTime() + i * 86_400_000),
+        })),
+      });
+      // Weighings on a TGC of 2.0 at 14 °C: W^⅓ grows 0.028 a day.
+      await prisma.weightSample.createMany({
+        data: [50, 100, 140].map((days) => {
+          const avgWeightG = (Math.cbrt(50) + 0.002 * 14 * days) ** 3;
+          return {
+            companyId: tenant.companyId,
+            tankId: tenant.tankId,
+            batchId,
+            sampleMethod: "AGGREGATE" as const,
+            sampleSize: 20,
+            totalWeightG: avgWeightG * 20,
+            avgWeightG,
+            occurredAt: new Date(entry.getTime() + days * 86_400_000),
+            createdById: owner.id,
+          };
+        }),
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${tenant.farmId}/weight-forecast`)
+        .set("Authorization", auth(tenant.ownerToken))
+        .expect(200);
+      const forecast = res.body.data;
+      expect(forecast).toMatchObject({ batchesWithOwnTgc: 1, batchesWithSharedTgc: 0, batchesFlat: 0 });
+      // Too few months of readings for a seasonal curve: the recent 14 °C carries on.
+      expect(forecast.months[0].avgTemperatureC).toBe(14);
+      // From the last weighing (day 140) to 30 days from now (day 180): 40 more days at TGC 2.0.
+      const month1 = forecast.months[0];
+      const expected = (Math.cbrt(50) + 0.002 * 14 * 180) ** 3;
+      expect(month1.totalBiomassKg / month1.totalCount * 1000).toBeCloseTo(expected, -1);
+    });
+  });
+
   describe("AI farm assistant", () => {
     const ask = (token: string, content: string) =>
       request(app.getHttpServer())

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { FcrCalculationService } from "../batch-performance/fcr-calculation.service";
 import { SgrCalculationService } from "../batch-performance/sgr-calculation.service";
+import { dailyMeans, degreeDays, fitTgc, growWeight, median, temperatureProfile, type TemperatureProfile } from "./thermal-growth";
 
 function startOfToday(): Date {
   const date = new Date();
@@ -31,6 +32,8 @@ export interface WeightForecastMonth {
   monthsAhead: number;
   totalCount: number;
   totalBiomassKg: number;
+  /** Expected average water temperature over the month, weighted by fish per farm; null without readings. */
+  avgTemperatureC: number | null;
   buckets: WeightForecastBucket[];
 }
 
@@ -39,6 +42,10 @@ export interface WeightForecastResult {
   avgFcr: number | null;
   dailyMortalityRatePct: number;
   totalActiveBatches: number;
+  /** Grown by temperature (TGC) fitted from the batch's own weighings. */
+  batchesWithOwnTgc: number;
+  /** Grown by temperature at the median TGC of comparable batches (same species, else all), lacking their own. */
+  batchesWithSharedTgc: number;
   batchesWithOwnFcr: number;
   batchesWithAssumedFcr: number;
   batchesFlat: number;
@@ -293,6 +300,14 @@ export class FarmStatsService {
   }
 
   /**
+   * Growth is driven by water temperature where the records allow it (see thermal-growth.ts): each
+   * batch's thermal growth coefficient is fitted from its own weighings and the farm's temperature
+   * readings, and the coming months' temperatures come from the farm's own monthly averages (a
+   * fitted seasonal curve for months it has no readings for). So a batch slows down into winter and
+   * speeds up into summer at its own measured pace. A batch without usable weighings borrows the
+   * median coefficient of its species in the forecast, else of all its batches. Only when the farm
+   * has no temperature readings, or no batch can be fitted, does the feed-based method below apply.
+   *
    * Projects the farm's live stock forward month by month, bucketed into gram ranges — the same
    * idea as the Tahmin tab's count-only projection (extrapolate the last 30 days forward), extended
    * with a per-batch weight trajectory. A batch's growth isn't driven by a manually-set target FCR
@@ -330,19 +345,33 @@ export class FarmStatsService {
 
     const tankStates = await client.batchTankState.findMany({
       where: { estimatedCount: { gt: 0 }, tank: { farmSection: { farmId: { in: farmIds } } } },
-      include: { batch: { include: { currentState: true } } },
+      include: {
+        batch: { include: { currentState: true } },
+        tank: { select: { farmSection: { select: { farmId: true } } } },
+      },
     });
 
     // One batch can be split across tanks; roll each batch up to its farm-wide totals before
     // projecting — the projection operates per batch, not per tank allocation.
     const perBatch = new Map<
       string,
-      { count: number; avgWeightG: number; initialCount: number; initialAvgWeightG: number; farmEntryDate: Date }
+      {
+        count: number;
+        avgWeightG: number;
+        initialCount: number;
+        initialAvgWeightG: number;
+        farmEntryDate: Date;
+        speciesId: string;
+        /** Fish per farm, so a batch split across farms takes the temperatures of where most of it is. */
+        countByFarm: Map<string, number>;
+      }
     >();
     for (const state of tankStates) {
+      const farmId = state.tank.farmSection.farmId;
       const existing = perBatch.get(state.batchId);
       if (existing) {
         existing.count += state.estimatedCount;
+        existing.countByFarm.set(farmId, (existing.countByFarm.get(farmId) ?? 0) + state.estimatedCount);
         continue;
       }
       perBatch.set(state.batchId, {
@@ -351,11 +380,16 @@ export class FarmStatsService {
         initialCount: state.batch.initialCount,
         initialAvgWeightG: Number(state.batch.initialAvgWeightG),
         farmEntryDate: state.batch.farmEntryDate,
+        speciesId: state.batch.speciesId,
+        countByFarm: new Map([[farmId, state.estimatedCount]]),
       });
     }
 
     const batchIds = [...perBatch.keys()];
-    const [feedAgg, mortalityAgg] = await Promise.all([
+    // Temperatures back to the oldest stocking (for fitting), and at least a year (for the seasons).
+    const oldestEntry = Math.min(now.getTime(), ...[...perBatch.values()].map((b) => b.farmEntryDate.getTime()));
+    const readingsFrom = new Date(Math.min(oldestEntry, now.getTime() - 365 * 86_400_000));
+    const [feedAgg, mortalityAgg, samples, readings] = await Promise.all([
       client.feedingEvent.groupBy({
         by: ["batchId"],
         where: { batchId: { in: batchIds } },
@@ -365,6 +399,19 @@ export class FarmStatsService {
         where: { tank: { farmSection: { farmId: { in: farmIds } } }, occurredAt: { gte: lookbackCutoff } },
         _sum: { fishCount: true },
       }),
+      client.weightSample.findMany({
+        where: { batchId: { in: batchIds } },
+        select: { batchId: true, avgWeightG: true, occurredAt: true },
+        orderBy: { occurredAt: "asc" },
+      }),
+      client.waterQualityReading.findMany({
+        where: {
+          temperatureC: { not: null },
+          occurredAt: { gte: readingsFrom, lte: now },
+          tank: { farmSection: { farmId: { in: farmIds } } },
+        },
+        select: { occurredAt: true, temperatureC: true, tank: { select: { farmSection: { select: { farmId: true } } } } },
+      }),
     ]);
     const feedByBatch = new Map(feedAgg.map((f) => [f.batchId, Number(f._sum.quantityKg ?? 0)]));
 
@@ -372,11 +419,71 @@ export class FarmStatsService {
     const recentMortality = Number(mortalityAgg._sum.fishCount ?? 0);
     const dailyMortalityRate = totalCount > 0 ? recentMortality / (totalCount * FORECAST_LOOKBACK_DAYS) : 0;
 
+    const readingsByFarm = new Map<string, { at: Date; temperatureC: number }[]>();
+    for (const r of readings) {
+      const farmId = r.tank.farmSection.farmId;
+      const list = readingsByFarm.get(farmId) ?? [];
+      list.push({ at: r.occurredAt, temperatureC: Number(r.temperatureC) });
+      readingsByFarm.set(farmId, list);
+    }
+    const climate = new Map<string, { daily: Map<number, number>; profile: TemperatureProfile }>();
+    for (const [farmId, list] of readingsByFarm) {
+      const daily = dailyMeans(list);
+      const profile = temperatureProfile(daily, now);
+      if (profile) climate.set(farmId, { daily, profile });
+    }
+    const samplesByBatch = new Map<string, { weightG: number; at: Date }[]>();
+    for (const sample of samples) {
+      const list = samplesByBatch.get(sample.batchId) ?? [];
+      list.push({ weightG: Number(sample.avgWeightG), at: sample.occurredAt });
+      samplesByBatch.set(sample.batchId, list);
+    }
+    const mainFarm = (b: { countByFarm: Map<string, number> }) =>
+      [...b.countByFarm].sort((x, y) => y[1] - x[1])[0]![0];
+
+    // Each batch's own coefficient, then the medians that stand in for batches without one.
+    const ownTgc = new Map<string, number>();
+    for (const batchId of batchIds) {
+      const b = perBatch.get(batchId)!;
+      const farmClimate = climate.get(mainFarm(b));
+      if (!farmClimate) continue;
+      const tgc = fitTgc(
+        b.initialAvgWeightG,
+        (samplesByBatch.get(batchId) ?? [])
+          .filter((s) => s.at > b.farmEntryDate)
+          .map((s) => ({ weightG: s.weightG, degreeDays: degreeDays(b.farmEntryDate, s.at, farmClimate.daily, farmClimate.profile) })),
+      );
+      if (tgc !== null) ownTgc.set(batchId, tgc);
+    }
+    const overallTgc = median([...ownTgc.values()]);
+    const speciesTgc = (speciesId: string) =>
+      median([...ownTgc].filter(([id]) => perBatch.get(id)!.speciesId === speciesId).map(([, tgc]) => tgc)) ?? overallTgc;
+
+    const monthDays = Array.from({ length: FORECAST_MONTHS_AHEAD }, (_, i) => (i + 1) * 30);
+    const atDay = (days: number) => new Date(now.getTime() + days * 86_400_000);
+
+    let batchesWithOwnTgc = 0;
+    let batchesWithSharedTgc = 0;
     let batchesWithOwnFcr = 0;
     let batchesWithAssumedFcr = 0;
     let batchesFlat = 0;
     const projected = batchIds.map((batchId) => {
       const b = perBatch.get(batchId)!;
+      const farmClimate = climate.get(mainFarm(b));
+      const tgc = ownTgc.get(batchId) ?? speciesTgc(b.speciesId);
+      if (farmClimate && tgc !== null) {
+        if (ownTgc.has(batchId)) batchesWithOwnTgc += 1;
+        else batchesWithSharedTgc += 1;
+        // Grown from the last weighing (or stocking) through the temperatures since, then the coming months'.
+        const last = samplesByBatch.get(batchId)?.at(-1);
+        const start = last && last.at > b.farmEntryDate ? last : { weightG: b.initialAvgWeightG, at: b.farmEntryDate };
+        const toNow = degreeDays(start.at, now, farmClimate.daily, farmClimate.profile);
+        const weights = monthDays.map((days) =>
+          growWeight(start.weightG, tgc, toNow + degreeDays(now, atDay(days), farmClimate.daily, farmClimate.profile)),
+        );
+        return { count: b.count, weightAt: (monthIndex: number) => weights[monthIndex]! };
+      }
+
       const totalFeedKg = feedByBatch.get(batchId) ?? 0;
       const currentBiomassKg = (b.count * b.avgWeightG) / 1000;
       const initialBiomassKg = (b.initialCount * b.initialAvgWeightG) / 1000;
@@ -395,8 +502,29 @@ export class FarmStatsService {
         batchesFlat += 1;
       }
 
-      return { avgWeightG: b.avgWeightG, count: b.count, dailyGrowthGPerFish };
+      return {
+        count: b.count,
+        weightAt: (monthIndex: number) => b.avgWeightG + dailyGrowthGPerFish * monthDays[monthIndex]!,
+      };
     });
+
+    // Each farm's fish, to weight its temperatures in the month's average.
+    const fishByFarm = new Map<string, number>();
+    for (const b of perBatch.values()) {
+      for (const [farmId, count] of b.countByFarm) fishByFarm.set(farmId, (fishByFarm.get(farmId) ?? 0) + count);
+    }
+    const monthTemperature = (monthIndex: number) => {
+      let weighted = 0;
+      let fish = 0;
+      for (const [farmId, farmClimate] of climate) {
+        const count = fishByFarm.get(farmId) ?? 0;
+        if (count === 0) continue;
+        const from = atDay(monthIndex * 30);
+        weighted += (degreeDays(from, atDay((monthIndex + 1) * 30), farmClimate.daily, farmClimate.profile) / 30) * count;
+        fish += count;
+      }
+      return fish > 0 ? Math.round((weighted / fish) * 10) / 10 : null;
+    };
 
     const months: WeightForecastMonth[] = [];
     for (let monthsAhead = 1; monthsAhead <= FORECAST_MONTHS_AHEAD; monthsAhead++) {
@@ -408,7 +536,7 @@ export class FarmStatsService {
       for (const p of projected) {
         const projectedCount = Math.max(0, Math.round(p.count * (1 - dailyMortalityRate) ** daysAhead));
         if (projectedCount === 0) continue;
-        const projectedAvgWeightG = p.avgWeightG + p.dailyGrowthGPerFish * daysAhead;
+        const projectedAvgWeightG = p.weightAt(monthsAhead - 1);
         const biomassKg = (projectedCount * projectedAvgWeightG) / 1000;
 
         monthTotalCount += projectedCount;
@@ -426,6 +554,7 @@ export class FarmStatsService {
         monthsAhead,
         totalCount: monthTotalCount,
         totalBiomassKg: monthTotalBiomassKg,
+        avgTemperatureC: monthTemperature(monthsAhead - 1),
         buckets: [...buckets.values()].sort((a, b) => a.startG - b.startG),
       });
     }
@@ -435,6 +564,8 @@ export class FarmStatsService {
       avgFcr: avgFcr && avgFcr > 0 ? avgFcr : null,
       dailyMortalityRatePct: dailyMortalityRate * 100,
       totalActiveBatches: batchIds.length,
+      batchesWithOwnTgc,
+      batchesWithSharedTgc,
       batchesWithOwnFcr,
       batchesWithAssumedFcr,
       batchesFlat,

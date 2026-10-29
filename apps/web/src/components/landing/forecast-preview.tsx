@@ -115,7 +115,7 @@ export function ForecastPreview() {
 
       <div className="border-t border-border bg-teal-500/5 px-4 py-2 text-[11px] text-foreground">
         <span className="font-semibold text-teal-600 dark:text-teal-400">{fmt(marketSize)} balık</span> {month} ay sonra
-        hasat boyunda (300 g+) · partilerin kendi büyüme, yem ve ölüm verisinden
+        hasat boyunda (300 g+) · partilerin kendi tartımları, su sıcaklığı ve ölüm verisinden
       </div>
     </div>
   );
