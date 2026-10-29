@@ -1003,3 +1003,13 @@ export interface AnomalyReport {
   batchesWithFcr: number;
   items: Anomaly[];
 }
+
+export interface FarmDailyTrendRow {
+  /** Local calendar day, YYYY-MM-DD. */
+  date: string;
+  feedKg: number;
+  deaths: number;
+  harvestKg: number;
+  avgTemperatureC: number | null;
+  avgOxygenMgL: number | null;
+}

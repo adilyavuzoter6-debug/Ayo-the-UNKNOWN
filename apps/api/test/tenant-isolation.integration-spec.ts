@@ -4824,4 +4824,41 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(days).toBeLessThan(30.1);
     });
   });
+
+  describe("farm daily trend", () => {
+    it("returns one row per day with the day's deaths, and 404 for another company's farm", async () => {
+      const farm = await prisma.farm.create({
+        data: { companyId: companyA.companyId, name: "Trend", code: `TRD-${Date.now()}` },
+      });
+      const section = await prisma.farmSection.create({
+        data: { companyId: companyA.companyId, farmId: farm.id, name: "S" },
+      });
+      const tank = await prisma.tank.create({
+        data: { companyId: companyA.companyId, farmSectionId: section.id, code: `TRD${Date.now()}`, type: "TANK" },
+      });
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ speciesId, lotCode: nextLotCode(), tankId: tank.id, fishCount: 500, avgWeightG: 50, farmEntryDate: "2026-01-01" })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tank.id}/mortality-events`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .send({ batchId: batch.body.data.id, fishCount: 12, reason: "UNKNOWN" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${farm.id}/daily-trend?days=7`)
+        .set("Authorization", auth(companyA.ownerToken))
+        .expect(200);
+      expect(res.body.data).toHaveLength(7);
+      expect(res.body.data.at(-1)).toMatchObject({ deaths: 12, feedKg: 0, avgTemperatureC: null });
+      expect(res.body.data.slice(0, -1).every((r: { deaths: number }) => r.deaths === 0)).toBe(true);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${farm.id}/daily-trend`)
+        .set("Authorization", auth(companyB.ownerToken))
+        .expect(404);
+    });
+  });
 });

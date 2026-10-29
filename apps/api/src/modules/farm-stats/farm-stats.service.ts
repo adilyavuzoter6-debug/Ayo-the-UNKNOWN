@@ -216,6 +216,83 @@ export class FarmStatsService {
   }
 
   /**
+   * The farm's last `days` days, one row per local calendar day: feed given, fish lost, fish
+   * harvested and the day's average water temperature and oxygen — the dashboard's trend chart.
+   * Days with nothing recorded come back as zeros (and null water values), so the chart keeps its
+   * gaps visible instead of joining across them.
+   */
+  async getDailyTrend(companyId: string, farmId: string, days: number) {
+    const client = this.tenantPrisma.forTenant(companyId);
+    const farm = await client.farm.findFirst({ where: { id: farmId, deletedAt: null } });
+    if (!farm) {
+      throw new NotFoundException("Farm not found.");
+    }
+    const span = Math.min(Math.max(Math.round(days) || 30, 7), 90);
+    const timeZone = farm.timezone ?? "Europe/Istanbul";
+    const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    const since = new Date(Date.now() - (span + 1) * 86_400_000);
+    const inFarm = { tank: { farmSection: { farmId } } };
+
+    const [feeding, mortality, water, harvests] = await Promise.all([
+      client.feedingEvent.findMany({
+        where: { ...inFarm, occurredAt: { gte: since } },
+        select: { occurredAt: true, quantityKg: true },
+      }),
+      client.mortalityEvent.findMany({
+        where: { ...inFarm, occurredAt: { gte: since } },
+        select: { occurredAt: true, fishCount: true },
+      }),
+      client.waterQualityReading.findMany({
+        where: { ...inFarm, occurredAt: { gte: since } },
+        select: { occurredAt: true, temperatureC: true, dissolvedOxygenMgL: true },
+      }),
+      client.harvestRecord.findMany({
+        where: { ...inFarm, type: "ACTUAL", deletedAt: null, harvestedAt: { gte: since } },
+        select: { harvestedAt: true, biomassKg: true },
+      }),
+    ]);
+
+    const rows = new Map<
+      string,
+      { date: string; feedKg: number; deaths: number; harvestKg: number; temps: number[]; oxygen: number[] }
+    >();
+    for (let i = span - 1; i >= 0; i--) {
+      const date = dayOf.format(new Date(Date.now() - i * 86_400_000));
+      rows.set(date, { date, feedKg: 0, deaths: 0, harvestKg: 0, temps: [], oxygen: [] });
+    }
+    const row = (at: Date) => rows.get(dayOf.format(at));
+    for (const f of feeding) {
+      const r = row(f.occurredAt);
+      if (r) r.feedKg += Number(f.quantityKg);
+    }
+    for (const m of mortality) {
+      const r = row(m.occurredAt);
+      if (r) r.deaths += m.fishCount;
+    }
+    for (const h of harvests) {
+      const r = h.harvestedAt ? row(h.harvestedAt) : undefined;
+      if (r) r.harvestKg += Number(h.biomassKg ?? 0);
+    }
+    for (const w of water) {
+      const r = row(w.occurredAt);
+      if (!r) continue;
+      if (w.temperatureC !== null) r.temps.push(Number(w.temperatureC));
+      if (w.dissolvedOxygenMgL !== null) r.oxygen.push(Number(w.dissolvedOxygenMgL));
+    }
+    const avg = (values: number[]) =>
+      values.length > 0 ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null;
+
+    return [...rows.values()].map((r) => ({
+      date: r.date,
+      feedKg: Math.round(r.feedKg * 10) / 10,
+      deaths: r.deaths,
+      harvestKg: Math.round(r.harvestKg),
+      avgTemperatureC: avg(r.temps),
+      avgOxygenMgL: avg(r.oxygen),
+    }));
+  }
+
+  /**
    * Projects the farm's live stock forward month by month, bucketed into gram ranges — the same
    * idea as the Tahmin tab's count-only projection (extrapolate the last 30 days forward), extended
    * with a per-batch weight trajectory. A batch's growth isn't driven by a manually-set target FCR

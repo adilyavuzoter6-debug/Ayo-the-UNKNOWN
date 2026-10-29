@@ -69,3 +69,20 @@ export class FarmWeightForecastController {
     );
   }
 }
+
+@ApiTags("farm-stats")
+@ApiBearerAuth()
+@Controller({ path: "farms/:farmId/daily-trend", version: "1" })
+export class FarmDailyTrendController {
+  constructor(private readonly farmStatsService: FarmStatsService) {}
+
+  @Get()
+  @RequirePermission(Permission.FISH_BATCH_READ)
+  get(
+    @Param("farmId") farmId: string,
+    @Query("days") days: string | undefined,
+    @CurrentTenant() tenant: TenantContext,
+  ) {
+    return this.farmStatsService.getDailyTrend(tenant.companyId, farmId, Number(days) || 30);
+  }
+}

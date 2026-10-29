@@ -6,6 +6,7 @@ import {
   FarmDashboardKpisController,
   FarmOverviewController,
   FarmWeightForecastController,
+  FarmDailyTrendController,
 } from "./farm-stats.controller";
 
 @Module({
@@ -16,6 +17,7 @@ import {
     FarmDashboardKpisController,
     FarmOverviewController,
     FarmWeightForecastController,
+    FarmDailyTrendController,
   ],
 })
 export class FarmStatsModule {}

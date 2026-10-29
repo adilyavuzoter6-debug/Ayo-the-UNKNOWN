@@ -16,11 +16,14 @@ import {
 } from "@/components/ui/select";
 import { AlertRow } from "@/components/alerts/alert-row";
 import { AnomaliesPanel } from "@/components/reports/anomalies-panel";
+import { DashboardHero } from "@/components/dashboard/dashboard-hero";
+import { FarmTrendPanel } from "@/components/dashboard/farm-trend-panel";
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmDashboardKpis } from "@/hooks/use-dashboard-kpis";
 import { useFarmAlerts, useResolveAlert } from "@/hooks/use-alerts";
 import { useAuditLogs } from "@/hooks/use-audit-logs";
 import { ApiError } from "@/lib/api-error";
+import { auditActionLabel, auditEntityLabel } from "@/lib/audit-labels";
 import { toast } from "sonner";
 
 function fmt(n: number, digits = 0) {
@@ -80,7 +83,8 @@ function ActivityPanel() {
             <div key={entry.id} className="flex items-start gap-2 border-b border-border px-4.5 py-2.5 last:border-b-0">
               <div className="flex-1">
                 <div className="text-[11.5px] leading-snug text-foreground">
-                  <span className="font-medium">{entry.action}</span> · {entry.entityType}
+                  <span className="font-medium">{auditEntityLabel(entry.entityType)}</span> ·{" "}
+                  {auditActionLabel(entry.action).toLocaleLowerCase("tr")}
                 </div>
                 <div className="mt-0.5 text-[10px] text-muted-foreground/80">
                   {new Date(entry.occurredAt).toLocaleString("tr")}
@@ -109,6 +113,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-5">
+      {farms && farms.length > 0 ? <DashboardHero farmName={selectedFarm?.name} kpis={kpis} /> : null}
+
       <div className="flex flex-wrap items-center gap-2">
         <Select value={farmId} onValueChange={(v) => setSelectedFarmId(v ?? "")}>
           <SelectTrigger className="w-48">
@@ -230,6 +236,8 @@ export default function DashboardPage() {
               href="/production"
             />
           </div>
+
+          <FarmTrendPanel farmId={farmId} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <AlertsPanel farmId={farmId} />
