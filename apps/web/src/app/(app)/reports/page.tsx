@@ -16,6 +16,8 @@ import {
 import { useAuditLogs } from "@/hooks/use-audit-logs";
 import { ApiError } from "@/lib/api-error";
 import { InspectionReportSection } from "@/components/reports/inspection-report-section";
+import { FarmComparisonSection } from "@/components/reports/farm-comparison-section";
+import { AnomaliesPanel } from "@/components/reports/anomalies-panel";
 
 const ACTION_LABEL: Record<string, string> = {
   CREATE: "Oluşturuldu",
@@ -46,8 +48,13 @@ export default function ReportsPage() {
       <div className="print:hidden">
         <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Raporlar</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Denetim raporu ve şirketinizdeki tüm değişikliklerin kaydı.
+          Çiftliklerin karşılaştırması, anormal partiler, denetim raporu ve şirketinizdeki tüm değişikliklerin kaydı.
         </p>
+      </div>
+
+      <div className="space-y-6 print:hidden">
+        <AnomaliesPanel />
+        <FarmComparisonSection />
       </div>
 
       <InspectionReportSection />

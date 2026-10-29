@@ -900,3 +900,106 @@ export interface ColdStorageSummary {
   pitKg: number;
   entries: ColdStorageEntryRow[];
 }
+
+export interface FarmComparisonRow {
+  farmId: string;
+  farmName: string;
+  farmCode: string;
+  fishCount: number;
+  biomassKg: number;
+  avgWeightG: number | null;
+  activeBatches: number;
+  feedKg: number;
+  /** Realized FCR since stocking, over the farm's batches with enough growth on record. */
+  fcr: number | null;
+  fcrBatchCount: number;
+  mortalityCount: number;
+  mortalityPct: number | null;
+  harvestCount: number;
+  harvestKg: number;
+  waterReadings: number;
+  avgTemperatureC: number | null;
+  avgOxygenMgL: number | null;
+  minOxygenMgL: number | null;
+  alertCount: number;
+  waterAlertCount: number;
+  costs: { expensesTry: number; revenueTry: number; periodResultTry: number } | null;
+}
+
+export interface FarmComparison {
+  periodStart: string;
+  periodEnd: string;
+  canSeeCosts: boolean;
+  farms: FarmComparisonRow[];
+}
+
+interface RecordPlace {
+  farmName: string;
+  sectionName: string;
+  tankCode: string;
+}
+
+interface CappedRows<T> {
+  rows: T[];
+  truncated: boolean;
+}
+
+export interface ReportRecords {
+  periodStart: string;
+  periodEnd: string;
+  feeding: CappedRows<RecordPlace & { occurredAt: string; lotCode: string; feedProduct: string; quantityKg: number }>;
+  mortality: CappedRows<
+    RecordPlace & {
+      occurredAt: string;
+      lotCode: string;
+      fishCount: number;
+      estimatedBiomassKg: number | null;
+      reason: MortalityReason;
+    }
+  >;
+  waterQuality: CappedRows<
+    RecordPlace & {
+      occurredAt: string;
+      temperatureC: number | null;
+      dissolvedOxygenMgL: number | null;
+      ph: number | null;
+      ammoniaMgL: number | null;
+      nitriteMgL: number | null;
+    }
+  >;
+  harvests: CappedRows<
+    RecordPlace & {
+      harvestedAt: string | null;
+      lotCode: string;
+      fishCount: number | null;
+      biomassKg: number | null;
+      avgWeightG: number | null;
+      destination: string | null;
+      saleRevenueTry: number | null;
+    }
+  >;
+}
+
+export type AnomalyKind = "FCR_HIGH" | "FCR_LOW" | "MORTALITY_RISK";
+export type AnomalySeverity = "HIGH" | "MEDIUM" | "LOW";
+
+export interface Anomaly {
+  batchId: string;
+  kind: AnomalyKind;
+  severity: AnomalySeverity;
+  /** FCR, or the last 7 days' mortality as % of the stock. */
+  value: number;
+  reference: number | null;
+  reasons: string[];
+  lotCode: string;
+  speciesName: string;
+  farms: { id: string; name: string }[];
+  tankCodes: string[];
+}
+
+export interface AnomalyReport {
+  generatedAt: string;
+  batchesChecked: number;
+  batchesWithFcr: number;
+  items: Anomaly[];
+}

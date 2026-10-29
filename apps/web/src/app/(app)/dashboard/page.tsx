@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AlertRow } from "@/components/alerts/alert-row";
+import { AnomaliesPanel } from "@/components/reports/anomalies-panel";
 import { useFarms } from "@/hooks/use-farms";
 import { useFarmDashboardKpis } from "@/hooks/use-dashboard-kpis";
 import { useFarmAlerts, useResolveAlert } from "@/hooks/use-alerts";
@@ -234,6 +235,9 @@ export default function DashboardPage() {
             <AlertsPanel farmId={farmId} />
             <ActivityPanel />
           </div>
+
+          {/* Company-wide, unlike the panels above: an outlier batch matters whichever farm is selected. */}
+          <AnomaliesPanel limit={3} />
         </>
       )}
     </div>

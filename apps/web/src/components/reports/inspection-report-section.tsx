@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ClipboardList, Printer } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, Printer } from "lucide-react";
+import { toast } from "sonner";
 import { PanelCard } from "@/components/shared/panel-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,15 @@ import {
 } from "@/components/ui/table";
 import { useFarms } from "@/hooks/use-farms";
 import { useInspectionReport } from "@/hooks/use-inspection-report";
-import type { MortalityReason, TreatmentType } from "@/lib/types";
+import {
+  downloadExcel,
+  EXCEL_DATE,
+  EXCEL_DECIMAL,
+  EXCEL_INT,
+  excelDate,
+  type ExcelSheet,
+} from "@/lib/excel";
+import type { InspectionReport, MinMaxAvg, MortalityReason, TreatmentType } from "@/lib/types";
 
 const REASON_LABEL: Record<MortalityReason, string> = {
   UNKNOWN: "Bilinmiyor",
@@ -81,6 +90,84 @@ function buildWeightDistribution(
   return [...buckets.values()].sort((a, b) => a.startG - b.startG);
 }
 
+/** The report as a workbook: a summary tab plus one tab per table on the page. */
+function inspectionSheets(report: InspectionReport): ExcelSheet<unknown>[] {
+  const period = `${new Date(report.periodStart).toLocaleDateString("tr")} – ${new Date(report.periodEnd).toLocaleDateString("tr")}`;
+  const water: [string, MinMaxAvg | null][] = [
+    ["Sıcaklık (°C)", report.waterQuality.temperatureC],
+    ["Çözünmüş O₂ (mg/L)", report.waterQuality.dissolvedOxygenMgL],
+    ["pH", report.waterQuality.ph],
+  ];
+  return [
+    {
+      name: "Özet",
+      rows: [
+        ["Çiftlik", `${report.farm.name} (${report.farm.code})`],
+        ["Dönem", period],
+        ["Tank sayısı", report.tankCount],
+        ["Toplam ölüm (adet)", report.mortality.total],
+        ["Toplam yem (kg)", report.totalFeedKg],
+        ["Su kalitesi ölçümü", report.waterQuality.readingCount],
+      ] as [string, string | number][],
+      columns: [
+        { header: "Bilgi", value: (r) => r[0], width: 22 },
+        { header: "Değer", value: (r) => r[1], width: 30 },
+      ],
+    } satisfies ExcelSheet<[string, string | number]>,
+    {
+      name: "Aktif partiler",
+      rows: report.activeBatches,
+      columns: [
+        { header: "Tank", value: (b) => b.tankCode },
+        { header: "Parti", value: (b) => b.lotCode, width: 16 },
+        { header: "Tür", value: (b) => b.speciesName, width: 16 },
+        { header: "Adet", value: (b) => b.estimatedCount, format: EXCEL_INT },
+        { header: "Ort. ağırlık (g)", value: (b) => b.avgWeightG, format: EXCEL_DECIMAL },
+      ],
+    } satisfies ExcelSheet<InspectionReport["activeBatches"][number]>,
+    {
+      name: "Ölüm nedenleri",
+      rows: Object.entries(report.mortality.byReason),
+      columns: [
+        { header: "Neden", value: ([reason]) => REASON_LABEL[reason as MortalityReason] ?? reason, width: 22 },
+        { header: "Adet", value: ([, count]) => count, format: EXCEL_INT },
+      ],
+    } satisfies ExcelSheet<[string, number]>,
+    {
+      name: "Tedaviler",
+      rows: report.treatments,
+      columns: [
+        { header: "Ürün", value: (t) => t.productName, width: 22 },
+        { header: "Tür", value: (t) => TREATMENT_TYPE_LABEL[t.type] ?? t.type, width: 14 },
+        { header: "Başlangıç", value: (t) => excelDate(t.startedAt), format: EXCEL_DATE },
+        { header: "Bitiş", value: (t) => excelDate(t.endedAt), format: EXCEL_DATE },
+        { header: "Arınma süresi (gün)", value: (t) => t.withdrawalPeriodDays, format: EXCEL_INT },
+      ],
+    } satisfies ExcelSheet<InspectionReport["treatments"][number]>,
+    {
+      name: "Su kalitesi",
+      rows: water,
+      columns: [
+        { header: "Ölçüm", value: ([label]) => label, width: 20 },
+        { header: "En düşük", value: ([, s]) => s?.min ?? null, format: EXCEL_DECIMAL },
+        { header: "Ortalama", value: ([, s]) => s?.avg ?? null, format: EXCEL_DECIMAL },
+        { header: "En yüksek", value: ([, s]) => s?.max ?? null, format: EXCEL_DECIMAL },
+        { header: "Ölçüm sayısı", value: ([, s]) => s?.count ?? 0, format: EXCEL_INT },
+      ],
+    } satisfies ExcelSheet<[string, MinMaxAvg | null]>,
+    {
+      name: "Hasat",
+      rows: report.harvestRecords,
+      columns: [
+        { header: "Tarih", value: (h) => excelDate(h.harvestedAt), format: EXCEL_DATE },
+        { header: "Adet", value: (h) => h.fishCount, format: EXCEL_INT },
+        { header: "Biyokütle (kg)", value: (h) => h.biomassKg, format: EXCEL_DECIMAL },
+        { header: "Gideceği yer", value: (h) => h.destination, width: 20 },
+      ],
+    } satisfies ExcelSheet<InspectionReport["harvestRecords"][number]>,
+  ] as ExcelSheet<unknown>[];
+}
+
 export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: string } = {}) {
   const { data: farms } = useFarms();
   const [selectedFarmId, setSelectedFarmId] = React.useState("");
@@ -130,9 +217,25 @@ export function InspectionReportSection({ farmId: lockedFarmId }: { farmId?: str
             <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
           </div>
         </div>
-        <Button variant="outline" size="sm" disabled={!report} onClick={() => window.print()}>
-          <Printer className="size-4" /> Yazdır / PDF
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!report}
+            onClick={() =>
+              report &&
+              downloadExcel(
+                `denetim-raporu-${report.farm.code}-${periodStart}-${periodEnd}`,
+                inspectionSheets(report),
+              ).catch(() => toast.error("Excel dosyası hazırlanırken bir sorun oluştu."))
+            }
+          >
+            <FileSpreadsheet className="size-4" /> Excel
+          </Button>
+          <Button variant="outline" size="sm" disabled={!report} onClick={() => window.print()}>
+            <Printer className="size-4" /> Yazdır / PDF
+          </Button>
+        </div>
       </div>
 
       {!farmId ? (
