@@ -83,6 +83,11 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @aquai/api run prisma:generate
 
+      # .env.test is gitignored; the example already points at this job's Postgres service and
+      # carries the fake Clerk values the suite needs (e.g. the webhook signing secret).
+      - name: Create .env.test
+        run: cp apps/api/.env.test.example apps/api/.env.test
+
       - name: Apply migrations
         run: pnpm --filter @aquai/api exec prisma migrate deploy
 

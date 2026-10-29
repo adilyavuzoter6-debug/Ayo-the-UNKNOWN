@@ -15,9 +15,6 @@ function loadEnvFile(path: string): void {
   try {
     contents = readFileSync(path, "utf-8");
   } catch {
-    // CI has no .env.test (it's gitignored) and passes DATABASE_URL etc. in the environment.
-    // Without either, refuse to run rather than fall back to .env's database.
-    if (process.env.DATABASE_URL !== undefined) return;
     throw new Error(
       `${path} not found. Copy .env.test.example to .env.test and point it at a scratch ` +
         "database before running `pnpm test:integration`.",
