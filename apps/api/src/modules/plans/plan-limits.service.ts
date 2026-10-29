@@ -3,8 +3,8 @@ import {
   ApiErrorCode,
   PLAN_LABEL,
   PLAN_LIMITS,
+  PlanFeature,
   planHasFeature,
-  type PlanFeature,
   type PlanTier,
 } from "@aquai/types";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -31,7 +31,13 @@ export class PlanLimitsService {
   }
 
   async hasFeature(companyId: string, feature: PlanFeature): Promise<boolean> {
-    return planHasFeature(await this.planOf(companyId), feature);
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { planTier: true, demoKind: true },
+    });
+    // A demo has every feature except e-mail: nobody should get mail about sample farms.
+    if (company.demoKind !== null && feature === PlanFeature.EMAIL_ALERTS) return false;
+    return planHasFeature(company.planTier, feature);
   }
 
   /** Refuses one more farm or tank when the plan's limit is already reached. */

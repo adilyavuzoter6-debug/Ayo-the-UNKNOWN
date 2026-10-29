@@ -2,11 +2,13 @@ import { INestApplication, ValidationPipe, VersioningType } from "@nestjs/common
 import { Test } from "@nestjs/testing";
 import { AppModule } from "../../src/app.module";
 import { TOKEN_VERIFIER } from "../../src/modules/auth/token-verifier";
+import { DEMO_ACCOUNTS } from "../../src/modules/demo/demo-accounts";
+import { FakeDemoAccounts } from "./fake-demo-accounts";
 import { FakeTokenVerifier } from "./fake-token-verifier";
 
 /**
  * Boots the real AppModule (real guard chain, real Prisma against the test database — see
- * .env.test.example) with only the token verifier swapped for a fake one. Mirrors the
+ * .env.test.example) with only the token verifier and the demo-account provider swapped for fakes. Mirrors the
  * versioning/prefix/pipe setup in src/main.ts, since tests drive the app via `app.init()` +
  * supertest rather than `app.listen()`.
  */
@@ -14,6 +16,8 @@ export async function createTestApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(TOKEN_VERIFIER)
     .useClass(FakeTokenVerifier)
+    .overrideProvider(DEMO_ACCOUNTS)
+    .useClass(FakeDemoAccounts)
     .compile();
 
   const app = moduleRef.createNestApplication({ rawBody: true });

@@ -40,6 +40,7 @@ import { ColdStorageModule } from "./modules/cold-storage/cold-storage.module";
 import { InspectionModule } from "./modules/inspection/inspection.module";
 import { ReportsModule } from "./modules/reports/reports.module";
 import { PlansModule } from "./modules/plans/plans.module";
+import { DemoModule } from "./modules/demo/demo.module";
 import { PlatformAdminModule } from "./modules/platform-admin/platform-admin.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
@@ -78,6 +79,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     ColdStorageModule,
     InspectionModule,
     ReportsModule,
+    DemoModule,
     PlatformAdminModule,
   ],
   controllers: [AppController],

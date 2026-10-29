@@ -58,7 +58,7 @@ export class TenantContextGuard implements CanActivate {
     const membership = requestedCompanyId
       ? await this.prisma.companyMembership.findFirst({
           where: { userId: authUser.id, companyId: requestedCompanyId, status: "ACTIVE" },
-          include: { company: { select: { planTier: true, trialEndsAt: true } } },
+          include: { company: { select: { planTier: true, trialEndsAt: true, demoKind: true } } },
         })
       : await this.uniqueActiveMembership(authUser.id);
 
@@ -92,6 +92,7 @@ export class TenantContextGuard implements CanActivate {
       role: membership.role,
       farmScopeIds: farmScopes.map((s) => s.farmId),
       planTier: membership.company.planTier,
+      isDemo: membership.company.demoKind !== null,
     };
 
     return true;
@@ -100,7 +101,7 @@ export class TenantContextGuard implements CanActivate {
   private async uniqueActiveMembership(userId: string) {
     const memberships = await this.prisma.companyMembership.findMany({
       where: { userId, status: "ACTIVE" },
-      include: { company: { select: { planTier: true, trialEndsAt: true } } },
+      include: { company: { select: { planTier: true, trialEndsAt: true, demoKind: true } } },
       take: 2,
     });
     return memberships.length === 1 ? memberships[0] : undefined;

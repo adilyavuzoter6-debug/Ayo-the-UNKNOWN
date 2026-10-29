@@ -40,6 +40,10 @@ module.exports = [
       // Reads only the requesting company's own plan (Company is the tenant); its farm and tank
       // counts go through TenantPrismaService.
       "**/modules/plans/plan-limits.service.ts",
+      // Demo copies: whole-company SQL copy/delete keyed by the company id, and the cleanup that
+      // finds expired demo companies across tenants.
+      "**/modules/demo/demo-clone.service.ts",
+      "**/modules/demo/demo.service.ts",
       "**/modules/webhooks/clerk-webhooks.service.ts",
       // Cross-tenant by definition (the platform-admin console reads every company); gated by
       // PlatformAdminGuard instead of the tenant-scoped permission chain; its only write is a

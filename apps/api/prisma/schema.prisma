@@ -31,6 +31,7 @@ model Company {
   // pending — Stripe doesn't support payouts to Turkey); once billing lands, the gate reads this
   // the same way it'll read a real subscription's current period end.
   trialEndsAt DateTime?
+  demoKind    DemoKind?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   deletedAt   DateTime?
@@ -42,6 +43,8 @@ model Company {
   idempotencyRecords IdempotencyRecord[]
 
   @@map("companies")
+
+  @@index([demoKind, createdAt])
 }
 
 /// STARTER/STANDARD/PROFESSIONAL are the 3 public self-serve tiers (pricing page); ENTERPRISE
@@ -52,6 +55,13 @@ enum PlanTier {
   STANDARD
   PROFESSIONAL
   ENTERPRISE
+}
+
+/// Demo companies: the TEMPLATE holds the sample farm data; each "try the demo" visitor gets a
+/// VISITOR copy of it, removed after a day (DemoService).
+enum DemoKind {
+  TEMPLATE
+  VISITOR
 }
 
 enum CompanyStatus {

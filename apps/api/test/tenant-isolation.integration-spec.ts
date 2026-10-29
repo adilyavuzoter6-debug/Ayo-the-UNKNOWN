@@ -5,6 +5,7 @@ import { Webhook } from "svix";
 import { Permission, ROLE_PERMISSIONS, type Role } from "@aquai/types";
 import { createTestApp } from "./support/test-app";
 import { INVALID_TOKEN } from "./support/fake-token-verifier";
+import { FakeDemoAccounts } from "./support/fake-demo-accounts";
 import {
   resetDatabase,
   seedFeedCatalog,
@@ -4859,6 +4860,104 @@ describe("Tenant isolation & authorization (integration)", () => {
         .get(`/api/v1/farms/${farm.id}/daily-trend`)
         .set("Authorization", auth(companyB.ownerToken))
         .expect(404);
+    });
+  });
+
+  describe("live demo", () => {
+    const DAY = 86_400_000;
+    const startDemo = () => request(app.getHttpServer()).post("/api/v1/demo");
+
+    it("opens a private, date-shifted copy of the template for each visitor, blocks invitations, and removes it after a day", async () => {
+      // No template yet: the demo isn't available.
+      const none = await startDemo();
+      expect(none.status).toBe(503);
+
+      // A small template: the fixture farm and tank, a batch, a death and a water reading.
+      const tpl = await seedTenant(prisma, "demo-tpl");
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(tpl.ownerToken))
+        .send({ speciesId, lotCode: "DEMO-LOT-1", tankId: tpl.tankId, fishCount: 1000, avgWeightG: 80, farmEntryDate: "2026-01-01" })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tpl.tankId}/mortality-events`)
+        .set("Authorization", auth(tpl.ownerToken))
+        .send({ batchId: batch.body.data.id, fishCount: 7, reason: "UNKNOWN" })
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${tpl.tankId}/water-quality-readings`)
+        .set("Authorization", auth(tpl.ownerToken))
+        .send({ temperatureC: 14, dissolvedOxygenMgL: 9 })
+        .expect(201);
+      // Made three days ago: a copy's dates move forward by that much.
+      await prisma.company.update({
+        where: { id: tpl.companyId },
+        data: { demoKind: "TEMPLATE", createdAt: new Date(Date.now() - 3 * DAY) },
+      });
+      const templateDeath = await prisma.mortalityEvent.findFirstOrThrow({ where: { companyId: tpl.companyId } });
+
+      const first = await startDemo().expect(201);
+      const visitor = first.body.data.ticket as string;
+      const farms = await request(app.getHttpServer()).get("/api/v1/farms").set("Authorization", auth(visitor)).expect(200);
+      expect(farms.body.data).toHaveLength(1);
+      expect(farms.body.data[0].name).toBe("Main Farm DEMO-TPL");
+      expect(farms.body.data[0].id).not.toBe(tpl.farmId);
+      const demoCompanyId = farms.body.data[0].companyId as string;
+      const demoCompany = await prisma.company.findUniqueOrThrow({ where: { id: demoCompanyId } });
+      expect(demoCompany).toMatchObject({ demoKind: "VISITOR", planTier: "ENTERPRISE" });
+
+      const batches = await request(app.getHttpServer()).get("/api/v1/fish-batches").set("Authorization", auth(visitor)).expect(200);
+      expect(batches.body.data.map((b: { lotCode: string }) => b.lotCode)).toEqual(["DEMO-LOT-1"]);
+      const copiedBatchId = batches.body.data[0].id as string;
+      expect(copiedBatchId).not.toBe(batch.body.data.id);
+
+      // References point inside the copy, and dates have moved forward by the template's age.
+      const copiedDeath = await prisma.mortalityEvent.findFirstOrThrow({ where: { companyId: demoCompanyId } });
+      expect(copiedDeath.batchId).toBe(copiedBatchId);
+      expect(copiedDeath.tankId).not.toBe(tpl.tankId);
+      const shiftDays = (copiedDeath.occurredAt.getTime() - templateDeath.occurredAt.getTime()) / DAY;
+      expect(shiftDays).toBeGreaterThan(2.99);
+      expect(shiftDays).toBeLessThan(3.01);
+      const state = await prisma.batchTankState.findFirstOrThrow({ where: { batchId: copiedBatchId } });
+      expect(state).toMatchObject({ tankId: copiedDeath.tankId, estimatedCount: 993 });
+      const copiedTank = await prisma.tank.findUniqueOrThrow({ where: { id: copiedDeath.tankId } });
+      const templateTank = await prisma.tank.findUniqueOrThrow({ where: { id: tpl.tankId } });
+      expect(copiedTank.qrToken).not.toBe(templateTank.qrToken);
+      // The template's own records are untouched.
+      expect(await prisma.mortalityEvent.count({ where: { companyId: tpl.companyId } })).toBe(1);
+
+      // The visitor can change things, but not e-mail invitations from a demo.
+      await request(app.getHttpServer())
+        .post(`/api/v1/tanks/${copiedDeath.tankId}/mortality-events`)
+        .set("Authorization", auth(visitor))
+        .send({ batchId: copiedBatchId, fishCount: 3, reason: "UNKNOWN" })
+        .expect(201);
+      const invite = await request(app.getHttpServer())
+        .post("/api/v1/users/invite")
+        .set("Authorization", auth(visitor))
+        .send({ email: "someone@example.com", role: "WORKER" });
+      expect(invite.status).toBe(403);
+      expect(invite.body.error.message).toContain("Demo hesabında");
+
+      // A second visitor gets a separate copy and never sees the first one's.
+      const second = (await startDemo().expect(201)).body.data.ticket as string;
+      const otherFarms = await request(app.getHttpServer()).get("/api/v1/farms").set("Authorization", auth(second)).expect(200);
+      expect(otherFarms.body.data[0].companyId).not.toBe(demoCompanyId);
+      await request(app.getHttpServer())
+        .get(`/api/v1/fish-batches/${copiedBatchId}`)
+        .set("Authorization", auth(second))
+        .expect(404);
+
+      // After a day the first demo, its rows and its account go when the next one opens.
+      await prisma.company.update({ where: { id: demoCompanyId }, data: { createdAt: new Date(Date.now() - DAY - 60_000) } });
+      await startDemo().expect(201);
+      expect(await prisma.company.findUnique({ where: { id: demoCompanyId } })).toBeNull();
+      expect(await prisma.farm.count({ where: { companyId: demoCompanyId } })).toBe(0);
+      expect(await prisma.batchTankState.count({ where: { batchId: copiedBatchId } })).toBe(0);
+      expect(await prisma.user.findUnique({ where: { authProviderId: visitor } })).toBeNull();
+      expect(FakeDemoAccounts.removed).toContain(visitor);
+      // The template survives every cleanup.
+      expect(await prisma.farm.count({ where: { companyId: tpl.companyId } })).toBe(1);
     });
   });
 });

@@ -11,7 +11,11 @@
  *
  *   DATABASE_URL=postgresql://…localhost…/db \
  *   npx ts-node --transpile-only scripts/seed-demo.ts --owner-auth-id <clerk user id> \
- *     [--owner-email demo@…] [--owner-name "Demo Kullanıcı"] [--days 210] [--allow-remote]
+ *     [--owner-email demo@…] [--owner-name "Demo Kullanıcı"] [--days 210] [--as-template] [--allow-remote]
+ *
+ * --as-template marks the company as the live demo's TEMPLATE (copied for each visitor, see
+ * DemoService); use an owner id that no real account signs in with, e.g. "demo-template-owner",
+ * then move it to production with scripts/copy-demo-template.ts.
  *
  * DATABASE_URL must be given explicitly (never taken from .env), and a non-local database needs
  * --allow-remote. The owner may not already own a company (one company per account).
@@ -216,7 +220,12 @@ async function main() {
   const request = (await import("supertest")).default;
   const prisma = new PrismaClient();
   const app = await createTestApp();
-  const server = app.getHttpServer();
+  // Listen once on a fixed loopback address: handing supertest the bare server makes it listen on
+  // a fresh random port for every request, and across thousands of requests one of those ports can
+  // already belong to something else on the machine.
+  await app.listen(0, "127.0.0.1");
+  const address = app.getHttpServer().address() as { port: number };
+  const server = `http://127.0.0.1:${address.port}`;
   let companyId: string | undefined;
   let calls = 0;
 
@@ -575,6 +584,11 @@ async function main() {
   }
   for (const b of live.values()) await api("post", `/fish-batches/${b.id}/biomass/recalculate`);
 
+  if (args.includes("--as-template")) {
+    // Marked last, and its creation time set to now: visitors' copies move dates forward by the
+    // template's age, so this is the moment the records are "as of".
+    await prisma.company.update({ where: { id: companyId }, data: { demoKind: "TEMPLATE", createdAt: new Date() } });
+  }
   console.log(
     `Done: company ${companyId}, ${tanks.length} tanks, ${live.size} live batches, ${calls} requests in ${Math.round((Date.now() - started) / 1000)} s.`,
   );

@@ -31,6 +31,7 @@ describe("PermissionsGuard", () => {
       role: "FARM_MANAGER",
       farmScopeIds: [],
       planTier: "TRIAL",
+      isDemo: false,
     };
     expect(guard.canActivate(makeContext(tenant))).toBe(true);
   });
@@ -46,6 +47,7 @@ describe("PermissionsGuard", () => {
       role: "WORKER",
       farmScopeIds: [],
       planTier: "TRIAL",
+      isDemo: false,
     };
     expect(() => guard.canActivate(makeContext(tenant))).toThrow(ForbiddenException);
   });

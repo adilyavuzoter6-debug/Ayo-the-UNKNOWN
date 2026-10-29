@@ -6,7 +6,7 @@ import type { TenantContext } from "../types/request-context";
 
 function makeContext(planTier: PlanTier | undefined): ExecutionContext {
   const tenant: TenantContext | undefined = planTier
-    ? { companyId: "c1", membershipId: "m1", role: "COMPANY_OWNER", farmScopeIds: [], planTier }
+    ? { companyId: "c1", membershipId: "m1", role: "COMPANY_OWNER", farmScopeIds: [], planTier, isDemo: false }
     : undefined;
   const request = { tenant };
   return {

@@ -21,4 +21,6 @@ export interface TenantContext {
   farmScopeIds: string[];
   /** The company's subscription plan, for PlanGuard and plan limits. */
   planTier: PlanTier;
+  /** A visitor's demo copy (DemoService): routes marked @NotInDemo are refused. */
+  isDemo: boolean;
 }

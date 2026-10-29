@@ -4,6 +4,7 @@ import { Permission } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
+import { NotInDemo } from "../../common/decorators/not-in-demo.decorator";
 import { SkipTenantContext } from "../../common/decorators/skip-tenant-context.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { AcceptInvitationDto } from "./dto/accept-invitation.dto";
@@ -18,6 +19,7 @@ export class UsersController {
   constructor(private readonly membersService: MembersService) {}
 
   @Post("invite")
+  @NotInDemo()
   @RequirePermission(Permission.USER_INVITE)
   invite(
     @Body() dto: InviteUserDto,
