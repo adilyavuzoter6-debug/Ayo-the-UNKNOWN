@@ -18,6 +18,8 @@ export const ASSISTANT_MODEL = Symbol("ASSISTANT_MODEL");
 /** Model round trips per question: enough to look up several farms and batches, bounded for cost and quota. */
 const MAX_ROUND_TRIPS = 6;
 const UNCONFIGURED = "Yapay zeka asistanı henüz yapılandırılmadı.";
+/** One character over and over ("!!!!…"): gpt-oss occasionally degenerates into this instead of answering. */
+const DEGENERATE = /([^\s\-=_.*])\1{39,}/;
 const TOO_BROAD =
   "Bu soru için çok fazla veriye bakmam gerekti ve yanıtı tamamlayamadım. Soruyu daha dar sormayı deneyin (örneğin tek bir çiftlik ya da parti).";
 
@@ -55,16 +57,23 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
     }));
 
     const tokens = { prompt: 0, completion: 0 };
+    let retried = false;
     for (let trip = 0; trip < MAX_ROUND_TRIPS; trip++) {
       const { message, usage } = await this.complete(conversation, functions);
       tokens.prompt += usage?.prompt_tokens ?? 0;
       tokens.completion += usage?.completion_tokens ?? 0;
       const calls = message.tool_calls ?? [];
       if (calls.length === 0) {
-        // Logged so the provider's free allowance can be judged against real questions.
-        this.logger.log(`Answered in ${trip + 1} round trips, ${tokens.prompt} prompt + ${tokens.completion} completion tokens.`);
         // Some open models put their reasoning in <think> tags in the answer itself.
         const text = (message.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+        if (DEGENERATE.test(text)) {
+          this.logger.warn(`Model returned a degenerate answer (${text.length} chars)${retried ? "" : "; asking again"}.`);
+          if (retried) return "Bu soruya şu an düzgün bir yanıt oluşturamadım. Lütfen tekrar sorun.";
+          retried = true;
+          continue;
+        }
+        // Logged so the provider's free allowance can be judged against real questions.
+        this.logger.log(`Answered in ${trip + 1} round trips, ${tokens.prompt} prompt + ${tokens.completion} completion tokens.`);
         return text || TOO_BROAD;
       }
       conversation.push({ role: "assistant", content: message.content ?? "", tool_calls: calls });
@@ -101,8 +110,9 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
           tools: functions,
           tool_choice: "auto",
           // max_tokens rather than max_completion_tokens: every compatible server reads it, and Workers AI
-          // would otherwise cap the reply at its default of 256 tokens.
-          max_tokens: 4096,
+          // would otherwise cap the reply at its default of 256 tokens. A long answer takes about 800;
+          // the cap also bounds what a degenerate answer wastes before it's retried.
+          max_tokens: 2048,
           ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
         }),
         signal: AbortSignal.timeout(90_000),

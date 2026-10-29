@@ -4969,10 +4969,11 @@ describe("Tenant isolation & authorization (integration)", () => {
         .send({ messages: [{ role: "user", content }] });
 
     it("answers from the asker's own company only, and offers tools by role", async () => {
+      // By name: the reply has record ids taken out before it reaches the member.
       const farms = await ask(companyA.ownerToken, "tool:list_farms").expect(201);
-      const listed = JSON.parse(farms.body.data.reply) as { id: string }[];
-      expect(listed.map((f) => f.id)).toContain(companyA.farmId);
-      expect(listed.map((f) => f.id)).not.toContain(companyB.farmId);
+      const listed = JSON.parse(farms.body.data.reply) as { name: string }[];
+      expect(listed.map((f) => f.name)).toContain("Main Farm A");
+      expect(listed.map((f) => f.name)).not.toContain("Main Farm B");
       expect(farms.body.data.remainingToday).toBeGreaterThan(0);
 
       // Another company's farm or batch is invisible to the tools.
@@ -4984,12 +4985,25 @@ describe("Tenant isolation & authorization (integration)", () => {
         expect(JSON.parse(crossBatch.body.data.reply).error).toContain("bulunamadı");
       }
 
+      // Without a farm the forecast covers the whole company; another company's farm stays invisible.
+      const forecast = await ask(companyA.ownerToken, `tool:weight_forecast {"monthsAhead":3}`).expect(201);
+      expect(JSON.parse(forecast.body.data.reply)).toMatchObject({ monthsAhead: 3 });
+      expect(JSON.parse(forecast.body.data.reply).error).toBeUndefined();
+      const crossForecast = await ask(
+        companyA.ownerToken,
+        `tool:weight_forecast {"farmId":"${companyB.farmId}","monthsAhead":3}`,
+      ).expect(201);
+      expect(JSON.parse(crossForecast.body.data.reply).error).toContain("bulunamadı");
+
+      // Tool names come back under the labels a member would know them by.
       const ownerTools = (await ask(companyA.ownerToken, "tools?").expect(201)).body.data.reply as string;
-      expect(ownerTools.split(",")).toEqual(expect.arrayContaining(["list_farms", "anomalies", "compare_farms", "open_alerts"]));
+      expect(ownerTools.split(",")).toEqual(
+        expect.arrayContaining(["çiftlik listesi", "anomali tespiti", "çiftlik karşılaştırması", "açık uyarılar"]),
+      );
       // A worker can't open reports, so the assistant doesn't compare farms for them either.
       const workerTools = (await ask(roleTokens.WORKER, "tools?").expect(201)).body.data.reply as string;
-      expect(workerTools.split(",")).toContain("list_farms");
-      expect(workerTools.split(",")).not.toContain("compare_farms");
+      expect(workerTools.split(",")).toContain("çiftlik listesi");
+      expect(workerTools.split(",")).not.toContain("çiftlik karşılaştırması");
     });
 
     it("is a Professional feature and validates the conversation", async () => {

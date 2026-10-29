@@ -65,7 +65,7 @@ describe("OpenAICompatibleAssistantModel", () => {
     expect(url).toBe("https://llm.example/v1/chat/completions");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer test-key");
     const first = JSON.parse(init.body as string);
-    expect(first).toMatchObject({ model: "gpt-oss-120b", tool_choice: "auto", reasoning_effort: "low", max_tokens: 4096 });
+    expect(first).toMatchObject({ model: "gpt-oss-120b", tool_choice: "auto", reasoning_effort: "low", max_tokens: 2048 });
     expect(first.messages[0]).toEqual({ role: "system", content: "talimat\n\nbağlam" });
     expect(first.tools[0].function.name).toBe("farm_kpis");
 
@@ -93,6 +93,18 @@ describe("OpenAICompatibleAssistantModel", () => {
     await new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [farms] });
     const second = JSON.parse((fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string);
     expect(second.messages.at(-1).content).toBe('{"seen":{"farmId":"f2"}}');
+  });
+
+  it("asks again once when the model degenerates into one repeated character", async () => {
+    const garbage = reply({ content: "!".repeat(3000) });
+    fetchMock.mockResolvedValueOnce(garbage).mockResolvedValueOnce(reply({ content: "Tamam." }));
+    const ask = () =>
+      new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [] });
+    expect(await ask()).toBe("Tamam.");
+
+    fetchMock.mockResolvedValueOnce(reply({ content: "!".repeat(3000) })).mockResolvedValueOnce(reply({ content: "?".repeat(80) }));
+    expect(await ask()).toContain("tekrar sorun");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("explains a full quota and a missing key or address", async () => {

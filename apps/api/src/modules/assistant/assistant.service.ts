@@ -12,7 +12,8 @@ const INSTRUCTIONS = `Sen Piscatio'nun yapay zeka çiftlik asistanısın. Piscat
 
 Nasıl çalışırsın:
 - Her sayıyı araçlardan al; hiçbir rakamı tahmin etme ya da uydurma. Bir araç veri döndürmezse ya da hata verirse bunu açıkça söyle.
-- Çiftlik kimliğine ihtiyaç duyan araçlardan önce list_farms ile çiftlikleri al. Soru belirli bir çiftliği söylemiyorsa ilgili tüm çiftliklere bak.
+- Çiftlik kimliğine ihtiyaç duyan araçlardan önce list_farms ile çiftlikleri al. Soru belirli bir çiftliği söylemiyorsa aracı her çiftlik için çağır ve yanıtı çiftlik çiftlik ver; tek çiftliğe bakıp diğerlerini kullanıcıya bırakma.
+- Araçları yalnızca sen görürsün; kullanıcı onları göremez ve çalıştıramaz. Yanıtında araç adı (list_farms, weight_forecast gibi), kimlik (id) ya da alan adı yazma; çiftlikleri adıyla, partileri parti koduyla, tankları koduyla an. Ek bir bakış faydalı olacaksa kullanıcıdan bir şey çalıştırmasını isteme; kendin bak ya da "İsterseniz … için de bakabilirim" diye teklif et.
 - Yorum yaparken hangi verilere baktığını kısaca belirt. FCR (yem / ağırlık artışı), SGR (%/gün) ve ölüm oranı gibi terimleri gerektiğinde bir cümleyle açıkla.
 - Büyüme tahmini bir projeksiyondur: partilerin kayıtlı büyüme hızı ve son ölüm oranı aynı sürerse ne olacağını gösterir; hasat ve transferleri hesaba katmaz. Kesinlik iddia etme.
 - Kayıt ekleyemez, değiştiremez ya da silemezsin. Kullanıcı bir işlem isterse bunu uygulamanın hangi sayfasından yapabileceğini söyle (Yemleme, Sağlık & Ölüm, Su Kalitesi, Hasat, Transferler, Maliyetler, Raporlar).
@@ -22,7 +23,36 @@ Nasıl çalışırsın:
 Yanıt biçimi:
 - Türkçe yaz; sade ve kısa ol, önce doğrudan yanıtı ver.
 - Gerekirse "- " ile başlayan maddeler ve **kalın** vurgu kullan; tablo ve başlık kullanma.
-- Sayıları Türkçe biçimde yaz (184.250 balık, 42,6 t, %2,4).`;
+- Sayıları Türkçe biçimde yaz: binlikleri boşlukla değil noktayla, ondalığı virgülle ayır (184.250 balık, 27.232 kg, FCR 1,46, %2,4).
+- İngilizce ya da yabancı terim kullanma: batch değil parti, cage değil kafes, feed değil yem, biyomassa değil biyokütle.`;
+
+/** The tools as the member knows them, for when a model names one in its answer anyway. */
+const TOOL_LABELS: Record<string, string> = {
+  list_farms: "çiftlik listesi",
+  farm_kpis: "çiftlik göstergeleri",
+  farm_daily_trend: "günlük eğilim",
+  weight_forecast: "büyüme tahmini",
+  anomalies: "anomali tespiti",
+  compare_farms: "çiftlik karşılaştırması",
+  batch_details: "parti ayrıntıları",
+  open_alerts: "açık uyarılar",
+};
+const TOOL_NAME = new RegExp(`\`?\\b(${Object.keys(TOOL_LABELS).join("|")})\\b\`?`, "g");
+/** A record id (cuid, with a demo copy's "-d…" suffix), and the brackets it usually sits in. */
+const RECORD_ID = /\s*\(?\bc(?=[a-z0-9]*\d)[a-z0-9]{24}(?:-d[0-9a-f]+)?\b\)?/g;
+
+/**
+ * Fixes what open models get wrong however they're instructed, so the member never sees it:
+ * thousands grouped with a narrow no-break space (27 232 kg) instead of the Turkish dot (27.232 kg),
+ * which is safe to replace because that space only ever sits inside a number; and internal tool
+ * names and record ids, which mean nothing to the member.
+ */
+function tidyReply(text: string) {
+  return text
+    .replace(/(\d)[\u202F\u00A0](?=\d{3}(?!\d))/g, "$1.")
+    .replace(RECORD_ID, "")
+    .replace(TOOL_NAME, (_, name: string) => TOOL_LABELS[name]!);
+}
 
 /**
  * The AI farm assistant: answers a member's questions about their company's data with a language model
@@ -72,6 +102,6 @@ export class AssistantService {
       messages,
       tools: this.tools.forTenant(tenant),
     });
-    return { reply, remainingToday: limit - used - 1 };
+    return { reply: tidyReply(reply), remainingToday: limit - used - 1 };
   }
 }

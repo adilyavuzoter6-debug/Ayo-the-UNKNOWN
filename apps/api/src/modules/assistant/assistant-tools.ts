@@ -126,21 +126,21 @@ export class AssistantTools {
         tool({
           name: "weight_forecast",
           description:
-            "Projects a farm's live fish forward month by month: how many fish and how much biomass in each weight range (grams). Each batch grows at its own recorded rate (feed and weight gain since stocking) and the farm's recent mortality continues. It is a projection from records, not a certainty, and it ignores future harvests and transfers.",
+            "Projects live fish forward month by month: how many fish and how much biomass in each weight range (grams), for one farm or, without farmId, all farms together. Each batch grows at its own recorded rate (feed and weight gain since stocking) and recent mortality continues. It is a projection from records, not a certainty, and it ignores future harvests and transfers.",
           inputSchema: {
             type: "object",
             properties: {
-              farmId: { type: "string", description: "Farm id from list_farms" },
+              farmId: { type: "string", description: "Farm id from list_farms; leave out for the whole company" },
               monthsAhead: { type: "integer", minimum: 1, maximum: 12, description: "Which month ahead to report" },
               bucketWidthG: { type: "integer", minimum: 10, maximum: 500, description: "Width of each weight range in grams (default 50)" },
             },
-            required: ["farmId", "monthsAhead"],
+            required: ["monthsAhead"],
             additionalProperties: false,
           },
-          run: ({ farmId, monthsAhead, bucketWidthG }: { farmId: string; monthsAhead: number; bucketWidthG?: number }) =>
+          run: ({ farmId, monthsAhead, bucketWidthG }: { farmId?: string; monthsAhead: number; bucketWidthG?: number }) =>
             safely(async () => {
-              await farmGuard(farmId);
-              const forecast = await this.farmStats.getWeightForecast(tenant.companyId, [farmId], bucketWidthG ?? 50, null);
+              const farmIds = farmId ? [(await farmGuard(farmId)).id] : (await visibleFarms()).map((f) => f.id);
+              const forecast = await this.farmStats.getWeightForecast(tenant.companyId, farmIds, bucketWidthG ?? 50, null);
               const month = forecast.months.find((m) => m.monthsAhead === monthsAhead);
               return {
                 monthsAhead,
