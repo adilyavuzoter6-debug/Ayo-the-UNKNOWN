@@ -1,0 +1,66 @@
+{
+  "name": "@aquai/desktop",
+  "productName": "Piscatio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Piscatio masaüstü uygulaması",
+  "author": "Piscatio Technologies",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "dist": "electron-builder",
+    "test": "node --test src/"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.piscatiotechnologies.desktop",
+    "productName": "Piscatio",
+    "copyright": "Piscatio Technologies",
+    "directories": {
+      "buildResources": "resources",
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "!src/**/*.test.js"
+    ],
+    "artifactName": "Piscatio-${os}-${arch}.${ext}",
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "Piscatio"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Piscatio",
+      "uninstallDisplayName": "Piscatio"
+    },
+    "publish": null
+  }
+}

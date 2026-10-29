@@ -1,3 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # The Electron shell installs on its own (npm, apps/desktop/package-lock.json) so the API and
+  # web deploys never download Electron.
+  - "!apps/desktop"

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Piscatio — Çevrimdışı</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f4f7fa; --card: #ffffff; --fg: #0f1f3d; --muted: #5b6b84; --accent: #0e7490; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0b1220; --card: #111a2e; --fg: #e6edf7; --muted: #93a3bd; --accent: #22b8cf; } }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+      .card { max-width: 420px; margin: 16px; padding: 32px; background: var(--card); border-radius: 14px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); text-align: center; }
+      h1 { margin: 0 0 8px; font-size: 18px; }
+      p { margin: 0 0 20px; color: var(--muted); }
+      a, button { display: inline-block; margin: 4px; padding: 9px 16px; border-radius: 8px; border: 0; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+      button { background: var(--accent); color: #fff; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Bu sayfa çevrimdışı açılamıyor</h1>
+      <p>İnternet bağlantısı yok ve bu sayfa daha önce bu bilgisayarda açılmamış. Daha önce açtığınız sayfalar çevrimdışı da çalışır.</p>
+      <button type="button" onclick="location.reload()">Tekrar dene</button>
+      <a href="/dashboard">Genel Bakış'a dön</a>
+    </div>
+  </body>
+</html>
