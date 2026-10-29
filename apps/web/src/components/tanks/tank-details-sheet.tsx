@@ -408,7 +408,7 @@ function StockQuickEditSection({ farmId, tank }: { farmId: string; tank: Tank })
           />
           {currentFcr !== null ? (
             <p className="text-[11px] text-muted-foreground">
-              FCR {currentFcr}'a göre tahmini büyüyor
+              FCR {currentFcr}&apos;a göre tahmini büyüyor
             </p>
           ) : null}
         </div>
