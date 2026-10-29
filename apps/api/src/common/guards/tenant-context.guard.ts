@@ -91,6 +91,7 @@ export class TenantContextGuard implements CanActivate {
       membershipId: membership.id,
       role: membership.role,
       farmScopeIds: farmScopes.map((s) => s.farmId),
+      planTier: membership.company.planTier,
     };
 
     return true;

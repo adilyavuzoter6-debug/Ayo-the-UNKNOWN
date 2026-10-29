@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { PlanLimitsService } from "../plans/plan-limits.service";
 import { naturalSortByCode } from "../../common/utils/natural-sort";
 import type { CreateTankDto } from "./dto/create-tank.dto";
 import type { UpdateTankDto } from "./dto/update-tank.dto";
@@ -10,6 +11,7 @@ export class TanksService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   private async assertSectionInTenant(companyId: string, farmSectionId: string) {
@@ -29,6 +31,7 @@ export class TanksService {
     dto: CreateTankDto,
   ) {
     await this.assertSectionInTenant(companyId, farmSectionId);
+    await this.planLimits.assertCanAdd(companyId, "tank");
 
     const tank = await this.tenantPrisma.forTenant(companyId).tank.create({
       data: {

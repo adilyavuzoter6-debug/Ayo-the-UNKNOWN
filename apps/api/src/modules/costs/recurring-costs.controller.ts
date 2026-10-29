@@ -1,15 +1,17 @@
 import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { Permission } from "@aquai/types";
+import { Permission, PlanFeature } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
+import { RequirePlanFeature } from "../../common/decorators/require-plan-feature.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { CreateRecurringCostDto } from "./dto/create-recurring-cost.dto";
 import { RecurringCostsService } from "./recurring-costs.service";
 
 @ApiTags("costs")
 @ApiBearerAuth()
+@RequirePlanFeature(PlanFeature.COST_TRACKING)
 @Controller({ path: "farms/:farmId/recurring-costs", version: "1" })
 export class RecurringCostsController {
   constructor(private readonly recurringCosts: RecurringCostsService) {}

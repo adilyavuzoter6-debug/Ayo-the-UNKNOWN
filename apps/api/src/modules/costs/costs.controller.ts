@@ -1,10 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { Permission } from "@aquai/types";
+import { Permission, PlanFeature } from "@aquai/types";
 import { parsePeriodEnd } from "../../common/utils/period-end";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
+import { RequirePlanFeature } from "../../common/decorators/require-plan-feature.decorator";
 import type { AuthenticatedUser, TenantContext } from "../../common/types/request-context";
 import { CreateCostEntryDto } from "./dto/create-cost-entry.dto";
 import { UpdateCostEntryDto } from "./dto/update-cost-entry.dto";
@@ -12,6 +13,7 @@ import { CostsService } from "./costs.service";
 
 @ApiTags("costs")
 @ApiBearerAuth()
+@RequirePlanFeature(PlanFeature.COST_TRACKING)
 @Controller({ path: "farms/:farmId/cost-entries", version: "1" })
 export class CostsController {
   constructor(private readonly costsService: CostsService) {}
@@ -63,6 +65,7 @@ export class CostsController {
 
 @ApiTags("costs")
 @ApiBearerAuth()
+@RequirePlanFeature(PlanFeature.COST_TRACKING)
 @Controller({ path: "farms/:farmId/cost-summary", version: "1" })
 export class CostSummaryController {
   constructor(private readonly costsService: CostsService) {}

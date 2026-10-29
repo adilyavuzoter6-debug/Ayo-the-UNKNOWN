@@ -1,10 +1,11 @@
-import { Controller, Get, Param, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { SkipTenantContext } from "../../common/decorators/skip-tenant-context.decorator";
 import type { AuthenticatedUser } from "../../common/types/request-context";
 import { PlatformAdminGuard } from "./platform-admin.guard";
 import { PlatformAdminService } from "./platform-admin.service";
+import { UpdateCompanyPlanDto } from "./dto/update-company-plan.dto";
 
 /**
  * @SkipTenantContext on every route: these span all tenants, so there is no single company to
@@ -35,5 +36,17 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   getCompany(@Param("id") id: string) {
     return this.platformAdminService.getCompanyDetail(id);
+  }
+
+  /** Until online payment exists, a plan is set here once the customer has paid. */
+  @Patch("companies/:id/plan")
+  @SkipTenantContext()
+  @UseGuards(PlatformAdminGuard)
+  updatePlan(
+    @Param("id") id: string,
+    @Body() dto: UpdateCompanyPlanDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.platformAdminService.updatePlan(id, user.id, dto);
   }
 }

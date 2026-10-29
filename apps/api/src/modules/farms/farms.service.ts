@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { PlanLimitsService } from "../plans/plan-limits.service";
 import type { CreateFarmDto } from "./dto/create-farm.dto";
 import type { UpdateFarmDto } from "./dto/update-farm.dto";
 
@@ -9,9 +10,11 @@ export class FarmsService {
   constructor(
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   async create(companyId: string, userId: string, dto: CreateFarmDto) {
+    await this.planLimits.assertCanAdd(companyId, "farm");
     const farm = await this.tenantPrisma.forTenant(companyId).farm.create({
       data: {
         companyId,

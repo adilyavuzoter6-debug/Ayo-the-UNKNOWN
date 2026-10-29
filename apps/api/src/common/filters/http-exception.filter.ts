@@ -67,9 +67,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const isHttpException = exception instanceof HttpException;
     const status = isHttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    const code = STATUS_TO_CODE[status] ?? ApiErrorCode.INTERNAL_ERROR;
-
     const exceptionResponse = isHttpException ? exception.getResponse() : undefined;
+    // An exception may name a more specific code than its status (e.g. PLAN_UPGRADE_REQUIRED on a 403).
+    const ownCode =
+      exceptionResponse && typeof exceptionResponse === "object" && "code" in exceptionResponse
+        ? (exceptionResponse as { code: unknown }).code
+        : undefined;
+    const code = Object.values(ApiErrorCode).includes(ownCode as ApiErrorCode)
+      ? (ownCode as ApiErrorCode)
+      : (STATUS_TO_CODE[status] ?? ApiErrorCode.INTERNAL_ERROR);
+
     const message = this.extractMessage(exceptionResponse, exception);
     const details = this.extractDetails(exceptionResponse);
 

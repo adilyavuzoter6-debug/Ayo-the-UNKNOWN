@@ -1,14 +1,16 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
-import { Permission } from "@aquai/types";
+import { Permission, PlanFeature } from "@aquai/types";
 import { CurrentTenant } from "../../common/decorators/current-tenant.decorator";
 import { RequirePermission } from "../../common/decorators/require-permission.decorator";
+import { RequirePlanFeature } from "../../common/decorators/require-plan-feature.decorator";
 import type { TenantContext } from "../../common/types/request-context";
 import { CostForecastService } from "./cost-forecast.service";
 import { CostForecastQueryDto } from "./dto/cost-forecast-query.dto";
 
 @ApiTags("costs")
 @ApiBearerAuth()
+@RequirePlanFeature(PlanFeature.COST_TRACKING)
 @Controller({ path: "farms/:farmId/cost-forecast", version: "1" })
 export class CostForecastController {
   constructor(private readonly forecast: CostForecastService) {}

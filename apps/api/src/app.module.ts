@@ -9,6 +9,7 @@ import { ResponseEnvelopeInterceptor } from "./common/interceptors/response-enve
 import { IdempotencyInterceptor } from "./common/interceptors/idempotency.interceptor";
 import { TenantContextGuard } from "./common/guards/tenant-context.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
+import { PlanGuard } from "./common/guards/plan.guard";
 import { AuthModule } from "./modules/auth/auth.module";
 import { ClerkAuthGuard } from "./modules/auth/guards/clerk-auth.guard";
 import { CompaniesModule } from "./modules/companies/companies.module";
@@ -38,6 +39,7 @@ import { SuppliesModule } from "./modules/supplies/supplies.module";
 import { ColdStorageModule } from "./modules/cold-storage/cold-storage.module";
 import { InspectionModule } from "./modules/inspection/inspection.module";
 import { ReportsModule } from "./modules/reports/reports.module";
+import { PlansModule } from "./modules/plans/plans.module";
 import { PlatformAdminModule } from "./modules/platform-admin/platform-admin.module";
 import { AuditModule } from "./modules/audit/audit.module";
 
@@ -46,6 +48,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
+    PlansModule,
     AuditModule,
     AuthModule,
     UsersModule,
@@ -88,6 +91,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     //                              modules/auth/token-verifier.ts), resolve request.authUser
     //   3. TenantContextGuard    — resolve request.tenant from authUser + X-Company-Id header
     //   4. PermissionsGuard      — check the route's @RequirePermission() against tenant.role
+    //   5. PlanGuard             — check the route's @RequirePlanFeature() against tenant.planTier
     //
     // Integration tests fake auth by overriding the TOKEN_VERIFIER provider (a plain DI token),
     // not by swapping ClerkAuthGuard itself — overriding a guard bound through the APP_GUARD
@@ -102,6 +106,7 @@ import { AuditModule } from "./modules/audit/audit.module";
     { provide: APP_GUARD, useExisting: ClerkAuthGuard },
     { provide: APP_GUARD, useClass: TenantContextGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: PlanGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
     // After the envelope interceptor, so it stores and replays the bare handler result.

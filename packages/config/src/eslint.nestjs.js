@@ -37,9 +37,13 @@ module.exports = [
       "**/prisma/**",
       "**/modules/users/users.service.ts",
       "**/modules/companies/companies.service.ts",
+      // Reads only the requesting company's own plan (Company is the tenant); its farm and tank
+      // counts go through TenantPrismaService.
+      "**/modules/plans/plan-limits.service.ts",
       "**/modules/webhooks/clerk-webhooks.service.ts",
       // Cross-tenant by definition (the platform-admin console reads every company); gated by
-      // PlatformAdminGuard instead of the tenant-scoped permission chain, and read-only.
+      // PlatformAdminGuard instead of the tenant-scoped permission chain; its only write is a
+      // company's plan.
       "**/modules/platform-admin/platform-admin.service.ts",
       "**/modules/platform-admin/platform-admin.guard.ts",
       // health/db runs a bare `SELECT 1` with no companyId involved at all — there is no tenant

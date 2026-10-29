@@ -4685,4 +4685,143 @@ describe("Tenant isolation & authorization (integration)", () => {
       expect(other.body.data.items.map((a: { batchId: string }) => a.batchId)).not.toContain(batchId);
     });
   });
+
+  describe("plan entitlements", () => {
+    async function tenantOn(suffix: string, planTier: "STARTER" | "STANDARD" | "PROFESSIONAL") {
+      const tenant = await seedTenant(prisma, suffix);
+      await prisma.company.update({ where: { id: tenant.companyId }, data: { planTier, trialEndsAt: null } });
+      return tenant;
+    }
+    const period = "periodStart=2026-01-01&periodEnd=2026-02-01";
+
+    it("Starter: cost tracking, inspection report and advanced reports answer PLAN_UPGRADE_REQUIRED", async () => {
+      const t = await tenantOn("plan-starter", "STARTER");
+      for (const path of [
+        `/api/v1/farms/${t.farmId}/cost-entries`,
+        `/api/v1/farms/${t.farmId}/cost-summary?${period}`,
+        `/api/v1/farms/${t.farmId}/recurring-costs`,
+        `/api/v1/farms/${t.farmId}/cost-scenarios`,
+        `/api/v1/farms/${t.farmId}/inspection-report?${period}`,
+        `/api/v1/reports/farm-comparison?${period}`,
+        "/api/v1/reports/anomalies",
+      ]) {
+        const res = await request(app.getHttpServer()).get(path).set("Authorization", auth(t.ownerToken));
+        expect({ path, status: res.status, code: res.body.error?.code }).toEqual({
+          path,
+          status: 403,
+          code: "PLAN_UPGRADE_REQUIRED",
+        });
+      }
+      const inspection = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${t.farmId}/inspection-report?${period}`)
+        .set("Authorization", auth(t.ownerToken));
+      expect(inspection.body.error.message).toBe("Denetim raporu Standart ve üzeri planlarda kullanılabilir.");
+      // Everything else keeps working.
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${t.farmId}/stock-summary`)
+        .set("Authorization", auth(t.ownerToken))
+        .expect(200);
+    });
+
+    it("Starter: one farm and five tanks at most", async () => {
+      const t = await tenantOn("plan-limits", "STARTER");
+      const farm = await request(app.getHttpServer())
+        .post("/api/v1/farms")
+        .set("Authorization", auth(t.ownerToken))
+        .send({ name: "İkinci Çiftlik", code: "SECOND" });
+      expect(farm.status).toBe(403);
+      expect(farm.body.error.code).toBe("PLAN_UPGRADE_REQUIRED");
+
+      // The fixture already has one tank; four more fit, the sixth doesn't.
+      for (const code of ["B1", "B2", "B3", "B4"]) {
+        await request(app.getHttpServer())
+          .post(`/api/v1/farm-sections/${t.sectionId}/tanks`)
+          .set("Authorization", auth(t.ownerToken))
+          .send({ code, type: "TANK" })
+          .expect(201);
+      }
+      const sixth = await request(app.getHttpServer())
+        .post(`/api/v1/farm-sections/${t.sectionId}/tanks`)
+        .set("Authorization", auth(t.ownerToken))
+        .send({ code: "B5", type: "TANK" });
+      expect(sixth.status).toBe(403);
+      expect(sixth.body.error).toMatchObject({
+        code: "PLAN_UPGRADE_REQUIRED",
+        message: "Başlangıç planı en fazla 5 tank içerir. Daha fazlası için Standart veya üzeri bir plana geçin.",
+      });
+    });
+
+    it("Standard: costs and the inspection report open, advanced reports stay locked; Professional opens them", async () => {
+      const standard = await tenantOn("plan-standard", "STANDARD");
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${standard.farmId}/cost-entries`)
+        .set("Authorization", auth(standard.ownerToken))
+        .expect(200);
+      await request(app.getHttpServer())
+        .get(`/api/v1/farms/${standard.farmId}/inspection-report?${period}`)
+        .set("Authorization", auth(standard.ownerToken))
+        .expect(200);
+      const locked = await request(app.getHttpServer())
+        .get("/api/v1/reports/anomalies")
+        .set("Authorization", auth(standard.ownerToken));
+      expect(locked.status).toBe(403);
+      expect(locked.body.error.code).toBe("PLAN_UPGRADE_REQUIRED");
+      await request(app.getHttpServer())
+        .post("/api/v1/farms")
+        .set("Authorization", auth(standard.ownerToken))
+        .send({ name: "İkinci Çiftlik", code: "SECOND" })
+        .expect(201);
+
+      const pro = await tenantOn("plan-pro", "PROFESSIONAL");
+      await request(app.getHttpServer())
+        .get("/api/v1/reports/anomalies")
+        .set("Authorization", auth(pro.ownerToken))
+        .expect(200);
+    });
+
+    it("a role without the permission gets the plain 403, not an upgrade prompt", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/farms/${companyA.farmId}/cost-entries`)
+        .set("Authorization", auth(roleTokens.WORKER));
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe("FORBIDDEN");
+    });
+
+    it("only a platform admin sets a plan; it's recorded, and a trial without a date gets 30 days", async () => {
+      const t = await seedTenant(prisma, "plan-admin");
+      const path = `/api/v1/admin/companies/${t.companyId}/plan`;
+
+      await request(app.getHttpServer())
+        .patch(path)
+        .set("Authorization", auth(t.ownerToken))
+        .send({ planTier: "ENTERPRISE" })
+        .expect(403);
+      await request(app.getHttpServer())
+        .patch(path)
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .send({ planTier: "GOLD" })
+        .expect(400);
+
+      const paid = await request(app.getHttpServer())
+        .patch(path)
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .send({ planTier: "STANDARD" })
+        .expect(200);
+      expect(paid.body.data).toMatchObject({ planTier: "STANDARD", trialEndsAt: null });
+      const log = await prisma.auditLog.findFirst({
+        where: { companyId: t.companyId, entityType: "CompanyPlan" },
+        orderBy: { occurredAt: "desc" },
+      });
+      expect(log?.newValue).toMatchObject({ planTier: "STANDARD" });
+
+      const trial = await request(app.getHttpServer())
+        .patch(path)
+        .set("Authorization", auth(roleTokens.PLATFORM_ADMIN))
+        .send({ planTier: "TRIAL" })
+        .expect(200);
+      const days = (new Date(trial.body.data.trialEndsAt).getTime() - Date.now()) / 86_400_000;
+      expect(days).toBeGreaterThan(29.9);
+      expect(days).toBeLessThan(30.1);
+    });
+  });
 });

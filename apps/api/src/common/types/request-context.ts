@@ -1,4 +1,4 @@
-import type { Role } from "@aquai/types";
+import type { PlanTier, Role } from "@aquai/types";
 
 /** Attached to the request by ClerkAuthGuard after JWT verification. */
 export interface AuthenticatedUser {
@@ -19,4 +19,6 @@ export interface TenantContext {
   role: Role;
   /** Farm ids this membership is scoped to. Empty array = company-wide role (no restriction). */
   farmScopeIds: string[];
+  /** The company's subscription plan, for PlanGuard and plan limits. */
+  planTier: PlanTier;
 }

@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { Alert, AlertStatus, WaterQualityReading } from "@prisma/client";
-import { Permission, ROLE_PERMISSIONS } from "@aquai/types";
+import { Permission, PlanFeature, ROLE_PERMISSIONS } from "@aquai/types";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { PlanLimitsService } from "../plans/plan-limits.service";
 import { EmailService } from "../notifications/email.service";
 
 const BIOMASS_ALERT_THRESHOLD_RATIO = 0.9;
@@ -38,6 +39,7 @@ export class AlertsService {
     private readonly tenantPrisma: TenantPrismaService,
     private readonly auditService: AuditService,
     private readonly emailService: EmailService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   private async assertFarmInTenant(companyId: string, farmId: string) {
@@ -58,6 +60,8 @@ export class AlertsService {
    */
   private async notifyMembersByEmail(companyId: string, alert: Alert): Promise<void> {
     try {
+      // Alerts are raised on every plan; e-mailing them is a Standard-and-up feature.
+      if (!(await this.planLimits.hasFeature(companyId, PlanFeature.EMAIL_ALERTS))) return;
       const memberships = await this.tenantPrisma.forTenant(companyId).companyMembership.findMany({
         where: { status: "ACTIVE" },
         include: { user: true },

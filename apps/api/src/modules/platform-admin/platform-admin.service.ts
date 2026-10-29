@@ -1,18 +1,26 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { naturalSortByCode } from "../../common/utils/natural-sort";
+import { AuditService } from "../audit/audit.service";
+import type { UpdateCompanyPlanDto } from "./dto/update-company-plan.dto";
+
+/** Length of a trial an admin starts or restarts without naming an end date. */
+const TRIAL_DAYS = 30;
 
 /**
  * Cross-tenant read models for the platform-admin console — the deliberate exception to
  * TenantPrismaService (see packages/config/src/eslint.nestjs.js for the matching lint
  * exemption). Every route that reaches this service is behind PlatformAdminGuard.
  *
- * Read-only by design: nothing here writes, so an admin session can never mutate a customer's
- * production records.
+ * Read-only towards customers' production records: the one write is a company's plan
+ * (updatePlan), which is how a plan is granted until online payment exists.
  */
 @Injectable()
 export class PlatformAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   /** Lets the client decide whether to show the console at all; the console's routes are guarded independently. */
   async isPlatformAdmin(userId: string): Promise<boolean> {
@@ -98,6 +106,42 @@ export class PlatformAdminService {
         harvestedFishCount: harvested.fishCount,
       };
     });
+  }
+
+  /**
+   * Sets a company's plan, the one write this console makes. A trial gets an end date (30 days
+   * from now unless one is given); a paid plan clears it, since it doesn't run out on its own.
+   * Recorded in the company's audit log under the admin's user id.
+   */
+  async updatePlan(companyId: string, adminUserId: string, dto: UpdateCompanyPlanDto) {
+    const existing = await this.prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { planTier: true, trialEndsAt: true },
+    });
+    if (!existing) {
+      throw new NotFoundException("Company not found.");
+    }
+    const trialEndsAt =
+      dto.planTier === "TRIAL"
+        ? dto.trialEndsAt
+          ? new Date(dto.trialEndsAt)
+          : new Date(Date.now() + TRIAL_DAYS * 86_400_000)
+        : null;
+    const company = await this.prisma.company.update({
+      where: { id: companyId },
+      data: { planTier: dto.planTier, trialEndsAt },
+      select: { id: true, planTier: true, trialEndsAt: true },
+    });
+    await this.auditService.record({
+      companyId,
+      userId: adminUserId,
+      action: "UPDATE",
+      entityType: "CompanyPlan",
+      entityId: companyId,
+      previousValue: { planTier: existing.planTier, trialEndsAt: existing.trialEndsAt?.toISOString() ?? null },
+      newValue: { planTier: company.planTier, trialEndsAt: company.trialEndsAt?.toISOString() ?? null },
+    });
+    return company;
   }
 
   /** Drill-down for one tenant: every batch it is holding, at what count and what average weight. */

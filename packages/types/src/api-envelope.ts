@@ -34,5 +34,7 @@ export enum ApiErrorCode {
   VALIDATION_FAILED = "VALIDATION_FAILED",
   CONFLICT = "CONFLICT",
   RATE_LIMITED = "RATE_LIMITED",
+  /** The company's plan doesn't include the feature, or its farm/tank limit is reached. */
+  PLAN_UPGRADE_REQUIRED = "PLAN_UPGRADE_REQUIRED",
   INTERNAL_ERROR = "INTERNAL_ERROR",
 }
