@@ -16,6 +16,7 @@ import {
   FileSpreadsheet,
   Activity,
   PlayCircle,
+  Sparkles,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/shared/logo";
@@ -25,6 +26,14 @@ import { DesktopDownload } from "@/components/landing/desktop-download";
 import { cn } from "@/lib/utils";
 
 const HIGHLIGHTS = [
+  {
+    icon: Sparkles,
+    title: "Yapay zeka çiftlik asistanı",
+    description:
+      "\"Bu hafta hangi partide sorun var?\" diye sorun; asistan kayıtlarınıza bakıp stok, FCR, ölüm ve su kalitesini yorumlasın.",
+    href: "/demo",
+    linkLabel: "Demoda sorun",
+  },
   {
     icon: WifiOff,
     title: "Bağlantı koptuğunda da çalışır",
@@ -162,7 +171,7 @@ export default async function RootPage() {
         </section>
 
         <section className="border-t border-border py-16">
-          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 md:grid-cols-3 md:px-6">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 md:grid-cols-2 md:px-6 lg:grid-cols-4">
             {HIGHLIGHTS.map((h) => (
               <div key={h.title} className="rounded-xl border border-border bg-card p-6 ring-1 ring-foreground/5">
                 <div className="mb-4 flex size-10 items-center justify-center rounded-lg bg-navy-900">

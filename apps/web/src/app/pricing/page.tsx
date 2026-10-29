@@ -50,6 +50,7 @@ const TIERS = [
       "Standart'taki her şey",
       "Çiftlik karşılaştırması ve Excel'e aktarma",
       "Anomali tespiti: FCR sapması ve ölüm riski",
+      "Yapay zeka çiftlik asistanı",
       "Öncelikli destek",
       "Özel entegrasyon desteği",
     ],

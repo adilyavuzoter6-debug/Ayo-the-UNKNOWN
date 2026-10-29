@@ -22,6 +22,11 @@ const BENEFITS: Record<PlanFeature, string[]> = {
     "Tüm kayıtları sekme sekme Excel'e aktarın",
     "FCR'ı sapan ve ölümü artan partiler otomatik işaretlensin",
   ],
+  [PlanFeature.AI_ASSISTANT]: [
+    "Verilerinize Türkçe soru sorun: \"Bu hafta hangi partide sorun var?\"",
+    "Stok, FCR, ölüm, su kalitesi ve büyüme tahminini sizin için yorumlasın",
+    "Çiftliklerinizi karşılaştırsın, nedenleri açıklasın",
+  ],
 };
 
 /**

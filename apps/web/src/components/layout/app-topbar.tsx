@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { AppSidebarContent } from "@/components/layout/app-sidebar";
 import { CompanySwitcher } from "@/components/layout/company-switcher";
 import { OfflineStatus } from "@/components/layout/offline-status";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { resolveNavTitle } from "@/lib/nav-items";
 import { useCompanyAlerts } from "@/hooks/use-alerts";
 import { SUPPORT_EMAIL } from "@/lib/contact";
@@ -62,6 +63,8 @@ export function AppTopbar() {
       </div>
 
       <OfflineStatus />
+
+      <AssistantPanel />
 
       <button
         type="button"
