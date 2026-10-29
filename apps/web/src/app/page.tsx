@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import {
@@ -93,9 +92,9 @@ const FEATURES = [
 
 export default async function RootPage() {
   const { userId } = await auth();
-  if (userId) {
-    redirect("/dashboard");
-  }
+  // Signed-in customers see the site too (they reach the app from the desktop app, the installed
+  // web app or "Uygulamaya git"); the page just offers them the way in instead of a sign-up.
+  const signedIn = !!userId;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -110,12 +109,20 @@ export default async function RootPage() {
             >
               Fiyatlandırma
             </Link>
-            <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
-              Giriş Yap
-            </Link>
-            <Link href="/sign-up" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
-              Ücretsiz Başla
-            </Link>
+            {signedIn ? (
+              <Link href="/dashboard" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
+                Uygulamaya git <ArrowRight className="size-3.5" />
+              </Link>
+            ) : (
+              <>
+                <Link href="/sign-in" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+                  Giriş Yap
+                </Link>
+                <Link href="/sign-up" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
+                  Ücretsiz Başla
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -132,10 +139,10 @@ export default async function RootPage() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href="/sign-up"
+              href={signedIn ? "/dashboard" : "/sign-up"}
               className={cn(buttonVariants({ variant: "default", size: "lg" }), "px-6")}
             >
-              Ücretsiz Başla <ArrowRight className="size-4" />
+              {signedIn ? "Uygulamaya git" : "Ücretsiz Başla"} <ArrowRight className="size-4" />
             </Link>
             <Link
               href="/demo"
