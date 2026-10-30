@@ -49,6 +49,7 @@ describe("OpenAICompatibleAssistantModel", () => {
       .mockResolvedValueOnce(
         reply({
           content: null,
+          reasoning_content: "Önce çiftliğin göstergelerine bakmalıyım.",
           tool_calls: [{ id: "call_1", type: "function", function: { name: "farm_kpis", arguments: '{"farmId":"f1"}' } }],
         }),
       )
@@ -71,6 +72,8 @@ describe("OpenAICompatibleAssistantModel", () => {
 
     const second = JSON.parse((fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string);
     expect(second.messages.at(-1)).toEqual({ role: "tool", tool_call_id: "call_1", content: '{"seen":{"farmId":"f1"}}' });
+    // The model's own plan goes back with its tool call.
+    expect(second.messages.at(-2)).toMatchObject({ role: "assistant", reasoning_content: "Önce çiftliğin göstergelerine bakmalıyım." });
   });
 
   it("answers a bad tool input as an error the model can read", async () => {
@@ -93,6 +96,18 @@ describe("OpenAICompatibleAssistantModel", () => {
     await new OpenAICompatibleAssistantModel().answer({ system: ["s"], messages: [{ role: "user", content: "q" }], tools: [farms] });
     const second = JSON.parse((fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string);
     expect(second.messages.at(-1).content).toBe('{"seen":{"farmId":"f2"}}');
+  });
+
+  it("asks again when the model's own message format leaks into the answer", async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply({ content: "analysis need 6 months.<|end|><|start|>assistant to=functions.weight_forecast" }))
+      .mockResolvedValueOnce(reply({ content: "Tamam." }));
+    const answer = await new OpenAICompatibleAssistantModel().answer({
+      system: ["s"],
+      messages: [{ role: "user", content: "q" }],
+      tools: [],
+    });
+    expect(answer).toBe("Tamam.");
   });
 
   it("asks again once when the model degenerates into one repeated character", async () => {

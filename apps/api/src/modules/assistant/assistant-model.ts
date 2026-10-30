@@ -18,8 +18,12 @@ export const ASSISTANT_MODEL = Symbol("ASSISTANT_MODEL");
 /** Model round trips per question: enough to look up several farms and batches, bounded for cost and quota. */
 const MAX_ROUND_TRIPS = 6;
 const UNCONFIGURED = "Yapay zeka asistanı henüz yapılandırılmadı.";
-/** One character over and over ("!!!!…"): gpt-oss occasionally degenerates into this instead of answering. */
-const DEGENERATE = /([^\s\-=_.*])\1{39,}/;
+/**
+ * Output that isn't an answer, which gpt-oss on Workers AI occasionally produces instead of one: a
+ * character over and over ("!!!!…"), or its own message format leaking out (<|end|><|start|>…)
+ * when it loses track of it mid tool call.
+ */
+const BROKEN = /([^\s\-=_.*])\1{39,}|<\|(?:start|end|channel|message|call|return|constrain)\|>/;
 const TOO_BROAD =
   "Bu soru için çok fazla veriye bakmam gerekti ve yanıtı tamamlayamadım. Soruyu daha dar sormayı deneyin (örneğin tek bir çiftlik ya da parti).";
 
@@ -56,28 +60,43 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
       function: { name: t.name, description: t.description, parameters: t.inputSchema },
     }));
 
-    const tokens = { prompt: 0, completion: 0 };
+    const spent = { prompt: 0, completion: 0, neurons: 0 };
+    const called: string[] = [];
     let retried = false;
     for (let trip = 0; trip < MAX_ROUND_TRIPS; trip++) {
       const { message, usage } = await this.complete(conversation, functions);
-      tokens.prompt += usage?.prompt_tokens ?? 0;
-      tokens.completion += usage?.completion_tokens ?? 0;
+      spent.prompt += usage?.prompt_tokens ?? 0;
+      spent.completion += usage?.completion_tokens ?? 0;
+      spent.neurons += usage?.neurons ?? 0;
       const calls = message.tool_calls ?? [];
       if (calls.length === 0) {
         // Some open models put their reasoning in <think> tags in the answer itself.
         const text = (message.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-        if (DEGENERATE.test(text)) {
-          this.logger.warn(`Model returned a degenerate answer (${text.length} chars)${retried ? "" : "; asking again"}.`);
+        if (BROKEN.test(text)) {
+          this.logger.warn(`Model returned a broken answer (${text.length} chars)${retried ? "" : "; asking again"}.`);
           if (retried) return "Bu soruya şu an düzgün bir yanıt oluşturamadım. Lütfen tekrar sorun.";
           retried = true;
           continue;
         }
-        // Logged so the provider's free allowance can be judged against real questions.
-        this.logger.log(`Answered in ${trip + 1} round trips, ${tokens.prompt} prompt + ${tokens.completion} completion tokens.`);
+        // Logged so the provider's free allowance can be judged against real questions (Workers AI
+        // reports what a call cost in neurons, its unit for the daily allowance).
+        this.logger.log(
+          `Answered in ${trip + 1} round trips, ${spent.prompt} prompt + ${spent.completion} completion tokens` +
+            (spent.neurons > 0 ? `, ${Math.round(spent.neurons)} neurons.` : "."),
+        );
         return text || TOO_BROAD;
       }
-      conversation.push({ role: "assistant", content: message.content ?? "", tool_calls: calls });
+      // The model's reasoning goes back with its tool calls: gpt-oss is built to read its own plan
+      // when it continues after a tool result, until it gives the final answer. Sent under the name
+      // the provider used for it.
+      const reasoning = message.reasoning_content
+        ? { reasoning_content: message.reasoning_content }
+        : message.reasoning
+          ? { reasoning: message.reasoning }
+          : {};
+      conversation.push({ role: "assistant", content: message.content ?? "", tool_calls: calls, ...reasoning });
       for (const call of calls) {
+        called.push(call.function.name);
         // Arguments are a JSON string in the OpenAI format; some compatible servers send the object.
         let args: unknown = call.function.arguments;
         try {
@@ -92,6 +111,9 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
         conversation.push({ role: "tool", tool_call_id: call.id, content: result });
       }
     }
+    this.logger.warn(
+      `Gave up after ${MAX_ROUND_TRIPS} round trips (tools: ${called.join(", ")}), ${Math.round(spent.neurons)} neurons.`,
+    );
     return TOO_BROAD;
   }
 
@@ -137,10 +159,12 @@ export class OpenAICompatibleAssistantModel implements AssistantModel {
       choices?: {
         message?: {
           content?: string | null;
+          reasoning_content?: string | null;
+          reasoning?: string | null;
           tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string | object } }[];
         };
       }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: { prompt_tokens?: number; completion_tokens?: number; neurons?: number };
     };
     return { message: body.choices?.[0]?.message ?? {}, usage: body.usage };
   }
