@@ -171,6 +171,8 @@ model Farm {
   /// warehouse) — Supplies balances/consumption pool across every farm linked this way, directly
   /// or as the target of another farm's link. Unrelated to any other farm by default.
   sharesDepotWithFarmId String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId              String?
 
   company    Company               @relation(fields: [companyId], references: [id])
   sections   FarmSection[]
@@ -188,6 +190,7 @@ model Farm {
 
   @@unique([companyId, code])
   @@index([companyId])
+  @@index([importId])
   @@map("farms")
 }
 
@@ -204,11 +207,14 @@ model FarmSection {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId  String?
 
   farm  Farm   @relation(fields: [farmId], references: [id])
   tanks Tank[]
 
   @@index([companyId, farmId])
+  @@index([importId])
   @@map("farm_sections")
 }
 
@@ -225,6 +231,8 @@ model Tank {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   deletedAt     DateTime?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId      String?
 
   farmSection          FarmSection           @relation(fields: [farmSectionId], references: [id])
   alerts               Alert[]
@@ -239,6 +247,7 @@ model Tank {
 
   @@unique([companyId, farmSectionId, code])
   @@index([companyId])
+  @@index([importId])
   @@map("tanks")
 }
 
@@ -322,6 +331,8 @@ model FishBatch {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   deletedAt         DateTime?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId          String?
 
   species          FishSpecies        @relation(fields: [speciesId], references: [id])
   movements        BatchMovement[]
@@ -337,6 +348,7 @@ model FishBatch {
 
   @@unique([companyId, lotCode])
   @@index([companyId, status])
+  @@index([importId])
   @@map("fish_batches")
 }
 
@@ -368,12 +380,15 @@ model BatchMovement {
   /// If set, this row is a correction of an earlier mistaken entry; the original row is
   /// left untouched (append-only correction, not an edit).
   reversalOfId        String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId            String?
 
   batch FishBatch @relation(fields: [batchId], references: [id])
 
   @@index([companyId, batchId])
   @@index([companyId, toTankId])
   @@index([companyId, fromTankId])
+  @@index([importId])
   @@map("batch_movements")
 }
 
@@ -619,12 +634,15 @@ model HarvestRecord {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   deletedAt       DateTime?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId        String?
 
   batch FishBatch @relation(fields: [batchId], references: [id])
   tank  Tank      @relation(fields: [tankId], references: [id])
 
   @@index([companyId, batchId])
   @@index([companyId, tankId])
+  @@index([importId])
   @@map("harvest_records")
 }
 
@@ -667,6 +685,8 @@ model Treatment {
   /// The SupplyMovement (kind CONSUMED) this dose deducted from medicineItem's stock. Reversed
   /// (soft-deleted) if the treatment is corrected or removed, so the stock balance stays accurate.
   stockMovementId      String?       @unique
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId             String?
 
   batch         FishBatch       @relation(fields: [batchId], references: [id])
   tank          Tank            @relation(fields: [tankId], references: [id])
@@ -675,6 +695,7 @@ model Treatment {
 
   @@index([companyId, batchId])
   @@index([companyId, tankId])
+  @@index([importId])
   @@map("treatments")
 }
 

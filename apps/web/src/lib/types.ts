@@ -690,7 +690,17 @@ export interface InspectionReport {
   totalFeedKg: number;
 }
 
-export type ImportKind = "feeding" | "mortality" | "weighing" | "water";
+export type ImportKind =
+  | "farm"
+  | "tank"
+  | "batch"
+  | "feeding"
+  | "mortality"
+  | "weighing"
+  | "water"
+  | "harvest"
+  | "transfer"
+  | "treatment";
 
 /** A checked Excel file: what it would write, what it leaves out and the rows it can't read. */
 export interface ImportPreview {
@@ -700,7 +710,15 @@ export interface ImportPreview {
   errorCount: number;
   errors: { sheet: string; row: number; message: string }[];
   ignoredSheets: string[];
-  batches: { lotCode: string; deaths: number; weighings: number; liveNow: number; liveAfter: number }[];
+  batches: {
+    lotCode: string;
+    isNew: boolean;
+    deaths: number;
+    harvested: number;
+    weighings: number;
+    liveNow: number;
+    liveAfter: number;
+  }[];
 }
 
 export interface DataImport {

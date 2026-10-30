@@ -24,14 +24,20 @@ import { useCommitImport, useImports, usePreviewImport, useUndoImport } from "@/
 import { useApiClient } from "@/lib/api-client";
 import { ApiError } from "@/lib/api-error";
 import { downloadImportTemplate } from "@/lib/import-template";
-import type { DataImport, FeedProduct, Farm, ImportKind, ImportPreview, Tank } from "@/lib/types";
+import type { DataImport, FeedProduct, Farm, FishSpecies, ImportKind, ImportPreview, Tank } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const KIND_LABEL: Record<ImportKind, string> = {
+  farm: "Çiftlik",
+  tank: "Tank",
+  batch: "Parti",
   feeding: "Yemleme",
   mortality: "Ölüm",
   weighing: "Tartım",
   water: "Su kalitesi",
+  harvest: "Hasat",
+  transfer: "Transfer",
+  treatment: "Tedavi",
 };
 const KINDS = Object.keys(KIND_LABEL) as ImportKind[];
 const MAX_FILE_MB = 8;
@@ -99,16 +105,16 @@ export default function ImportPage() {
         </Link>
         <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Veri aktarma</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Excel&apos;de tuttuğunuz geçmiş yemleme, ölüm, tartım ve su kalitesi kayıtlarını uygulamaya aktarın; panolar, tahminler
-          ve raporlar ilk günden geçmişinizle çalışsın.
+          Excel&apos;de tuttuğunuz çiftlik, tank ve partilerinizi; geçmiş yemleme, ölüm, tartım, su kalitesi, hasat, transfer ve
+          tedavi kayıtlarınızı uygulamaya aktarın. Panolar, tahminler ve raporlar ilk günden geçmişinizle çalışsın.
         </p>
       </div>
 
       <PanelCard title="1. Şablonu indirin">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4.5 py-4 text-sm">
           <p className="max-w-md text-muted-foreground">
-            Her kayıt türü için bir sekme, nasıl doldurulacağı ve çiftlik, tank ve yem kodlarınız içinde. Kendi dosyanızı da
-            kullanabilirsiniz; sekme ve sütun adları şablondakiyle aynı olsun yeter.
+            Çiftlik, tank ve partiler ile her kayıt türü için bir sekme; nasıl doldurulacağı ve kodlarınız içinde. Kendi
+            dosyanızı da kullanabilirsiniz; sekme ve sütun adları şablondakiyle aynı olsun yeter.
           </p>
           <TemplateButton />
         </div>
@@ -167,7 +173,11 @@ function TemplateButton() {
   async function download() {
     setBusy(true);
     try {
-      const [farms, feeds] = await Promise.all([api.get<Farm[]>("/farms"), api.get<FeedProduct[]>("/feed-products")]);
+      const [farms, feeds, species] = await Promise.all([
+        api.get<Farm[]>("/farms"),
+        api.get<FeedProduct[]>("/feed-products"),
+        api.get<FishSpecies[]>("/fish-species"),
+      ]);
       const tanks = (
         await Promise.all(
           farms.map(async (farm) =>
@@ -175,7 +185,7 @@ function TemplateButton() {
           ),
         )
       ).flat();
-      await downloadImportTemplate({ tanks, feeds: feeds.map((f) => f.name) });
+      await downloadImportTemplate({ tanks, feeds: feeds.map((f) => f.name), species: species.map((s) => s.name) });
     } catch (error) {
       toast.error(errorText(error, "Şablon hazırlanamadı."));
     } finally {
@@ -195,7 +205,7 @@ function PreviewResult({ preview, total }: { preview: ImportPreview; total: numb
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {KINDS.map((kind) => (
+        {KINDS.filter((kind) => preview.counts[kind] > 0).map((kind) => (
           <div key={kind} className="rounded-lg border border-border px-3 py-2.5">
             <div className="text-[11px] text-muted-foreground">{KIND_LABEL[kind]}</div>
             <div className="font-mono text-lg font-semibold text-foreground">{fmt(preview.counts[kind])}</div>
@@ -266,6 +276,7 @@ function PreviewResult({ preview, total }: { preview: ImportPreview; total: numb
                 <TableRow>
                   <TableHead>Parti</TableHead>
                   <TableHead className="text-right">Ölüm</TableHead>
+                  <TableHead className="text-right">Hasat</TableHead>
                   <TableHead className="text-right">Tartım</TableHead>
                   <TableHead className="text-right">Şu an canlı</TableHead>
                   <TableHead className="text-right">Aktarım sonrası</TableHead>
@@ -274,8 +285,16 @@ function PreviewResult({ preview, total }: { preview: ImportPreview; total: numb
               <TableBody>
                 {preview.batches.map((b) => (
                   <TableRow key={b.lotCode}>
-                    <TableCell className="font-mono text-xs">{b.lotCode}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {b.lotCode}
+                      {b.isNew ? (
+                        <Badge variant="secondary" className="ml-1.5 font-sans text-[10px]">
+                          Yeni
+                        </Badge>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-right font-mono">{fmt(b.deaths)}</TableCell>
+                    <TableCell className="text-right font-mono">{fmt(b.harvested)}</TableCell>
                     <TableCell className="text-right font-mono">{fmt(b.weighings)}</TableCell>
                     <TableCell className="text-right font-mono">{fmt(b.liveNow)}</TableCell>
                     <TableCell className={cn("text-right font-mono font-medium", b.liveAfter < 0 && "text-destructive")}>

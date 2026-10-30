@@ -1,11 +1,17 @@
 /**
- * The Excel template for importing history: an instructions tab, one tab per record kind with the
- * headers the importer reads, and the company's own farm and tank codes and feed names to copy
+ * The Excel template for importing a farm: an instructions tab, one tab per kind with the headers
+ * the importer reads (structure first, then history), and the company's own codes and names to copy
  * from. Built in the browser like the exports (lib/excel.ts), so it always matches the importer.
  */
 
 const SHEETS = [
-  { name: "Yemleme", headers: ["Tarih", "Çiftlik kodu", "Tank kodu", "Parti kodu", "Yem", "Miktar (kg)", "Not"] },
+  { name: "Çiftlikler", headers: ["Çiftlik adı", "Çiftlik kodu"] },
+  { name: "Tanklar", headers: ["Çiftlik kodu", "Bölüm", "Tank kodu", "Tür", "Hacim (m³)", "Maks. biyokütle (kg)"] },
+  {
+    name: "Partiler",
+    headers: ["Parti kodu", "Tür", "Çiftlik kodu", "Tank kodu", "Stoklama tarihi", "İlk adet", "İlk ortalama ağırlık (g)", "Hedef FCR", "Tedarikçi", "Not"],
+  },
+  { name: "Yemleme", headers: ["Tarih", "Çiftlik kodu", "Tank kodu", "Parti kodu", "Yem", "Miktar (kg)", "Birim fiyat (₺/kg)", "Not"] },
   { name: "Ölüm", headers: ["Tarih", "Çiftlik kodu", "Tank kodu", "Parti kodu", "Adet", "Sebep", "Not"] },
   { name: "Tartım", headers: ["Tarih", "Çiftlik kodu", "Tank kodu", "Parti kodu", "Örnek adedi", "Ortalama ağırlık (g)", "Not"] },
   {
@@ -25,40 +31,67 @@ const SHEETS = [
       "Not",
     ],
   },
+  {
+    name: "Hasat",
+    headers: [
+      "Tarih",
+      "Çiftlik kodu",
+      "Tank kodu",
+      "Parti kodu",
+      "Adet",
+      "Toplam ağırlık (kg)",
+      "Ortalama ağırlık (g)",
+      "Tam hasat",
+      "Satış fiyatı (₺/kg)",
+      "Müşteri",
+      "Not",
+    ],
+  },
+  {
+    name: "Transfer",
+    headers: ["Tarih", "Kaynak çiftlik kodu", "Kaynak tank kodu", "Parti kodu", "Hedef çiftlik kodu", "Hedef tank kodu", "Adet", "Not"],
+  },
+  {
+    name: "Tedavi",
+    headers: ["Başlangıç tarihi", "Bitiş tarihi", "Çiftlik kodu", "Tank kodu", "Parti kodu", "Tür", "Ürün", "Doz", "Arınma süresi (gün)", "Not"],
+  },
 ];
 
 const INSTRUCTIONS: [string, string][] = [
-  ["Nasıl çalışır", "Her sekme bir kayıt türüdür: Yemleme, Ölüm, Tartım, Su kalitesi. Kullanmadığınız sekmeleri boş bırakın. Yüklediğiniz dosya önce kontrol edilir ve hiçbir şey yazılmadan sorunlu satırları görürsünüz."],
-  ["Önce uygulamada", "Çiftliklerinizi, tanklarınızı ve partilerinizi oluşturun. Partiyi stoklama tarihindeki İLK adet ve ağırlıkla açın: geçmiş ölümler içe aktarılınca güncel adet kendiliğinden hesaplanır."],
-  ["Yem", "Kullandığınız yemler Stoklar sayfasında yem ürünü olarak tanımlı olmalı; adı uygulamadaki gibi yazın (büyük/küçük harf fark etmez). İçe aktarılan yemlemeler bugünkü yem stoğunuzu değiştirmez."],
-  ["Tarih", "15.03.2026 biçiminde yazın; Excel tarih hücresi de olur. Gelecek tarih ve partinin stoklama tarihinden önceki tarih kabul edilmez."],
-  ["Saat", "Yalnızca Su kalitesi sekmesinde, isteğe bağlı: 08:30 gibi."],
-  ["Tank kodu", "Zorunlu. Kodlarınız 'Kodlarınız' sekmesinde."],
-  ["Çiftlik kodu", "Aynı tank kodu birden fazla çiftlikte varsa doldurun; yoksa boş bırakabilirsiniz."],
-  ["Parti kodu", "Tankta şu an tek parti varsa boş bırakabilirsiniz. Tankta birden fazla parti olduysa ya da parti başka tanka taşındıysa doldurun."],
+  ["Nasıl çalışır", "Her sekme bir kayıt türüdür. Kullanmadığınız sekmeleri boş bırakın. Yüklediğiniz dosya önce kontrol edilir ve hiçbir şey yazılmadan sorunlu satırları görürsünüz; hatalı satır kalmadan hiçbir kayıt yazılmaz."],
+  ["Sıra", "Önce yapı (Çiftlikler, Tanklar, Partiler), sonra geçmiş kayıtlar. Aynı dosyada yeni açtığınız tank ve partilere kayıt girebilirsiniz. Uygulamada zaten olan çiftlik, tank ve parti kodları atlanır."],
+  ["Çiftlikler", "Çiftlik kodu kısa olmalı (harf, rakam, - ve _; en fazla 20 karakter), ör. MRK. Planınızın çiftlik sayısı sınırı geçerlidir."],
+  ["Tanklar", "Tür: Tank, Havuz, Kafes ya da Kanal (boşsa Tank). Bölüm boşsa çiftliğin tek bölümü kullanılır, yoksa 'Genel' adında açılır."],
+  ["Partiler", "Partiyi stoklama tarihindeki İLK adet ve ağırlıkla girin; ölüm, hasat ve transferler içe aktarılınca güncel adet kendiliğinden hesaplanır. Tür, uygulamadaki balık türü adıyla aynı olmalı ('Kodlarınız' sekmesinde)."],
+  ["Yem", "Yemler Stoklar sayfasında yem ürünü olarak tanımlı olmalı; adı uygulamadaki gibi yazın. Birim fiyat isteğe bağlı; girerseniz maliyet raporlarına yansır. İçe aktarılan yemlemeler bugünkü yem stoğunuzu değiştirmez."],
+  ["Hasat", "Adet zorunlu. Toplam ağırlık ya da ortalama ağırlık girin; ikisi de boşsa o tarihteki son tartım kullanılır. Tam hasat: Evet/Hayır. Satış fiyatı TL/kg."],
+  ["Transfer", "Balığı kaynak tanktan hedef tanka taşır; parti kodu, kaynak tankta tek parti varsa boş bırakılabilir."],
+  ["Tedavi", "Tür: İlaç ya da Aşı (boşsa İlaç). Ürün zorunlu; arınma süresi gün olarak."],
+  ["Tarih", "15.03.2026 biçiminde yazın; Excel tarih hücresi de olur. Gelecek tarih ve partinin stoklama tarihinden önceki tarih kabul edilmez. Saat yalnızca Su kalitesi sekmesinde: 08:30."],
+  ["Kodlar", "Tank kodu zorunlu. Çiftlik kodu, aynı tank kodu birden fazla çiftlikte varsa gerekir. Parti kodu, tankta şu an tek parti varsa boş bırakılabilir."],
   ["Sayılar", "Ondalık için virgül kullanabilirsiniz: 12,5. Binlik ayırıcı olarak nokta: 1.250."],
   ["Ölüm sebebi", "İsteğe bağlı: Bilinmiyor, Hastalık, Oksijen yetersizliği, Sıcaklık, Transfer stresi, Fiziksel hasar, Yırtıcı, Yemle ilişkili, Diğer."],
-  ["Su kalitesi", "Her satırda en az bir ölçüm olmalı. Geçmiş ölçümler uyarı ya da e-posta oluşturmaz."],
-  ["Tekrar yükleme", "Aynı dosyayı ikinci kez yüklemek kayıtları çoğaltmaz: uygulamada zaten olan satırlar atlanır."],
-  ["Geri alma", "Bir içe aktarımı Ayarlar → Veri aktarma sayfasından tek seferde geri alabilirsiniz."],
+  ["Geçmiş", "Geçmiş kayıtlar uyarı ya da e-posta oluşturmaz. Aynı dosyayı ikinci kez yüklemek kayıtları çoğaltmaz."],
+  ["Geri alma", "Bir içe aktarımı Ayarlar → Veri aktarma sayfasından tek seferde geri alabilirsiniz; oluşturduğu çiftlik, tank ve partiler de silinir."],
 ];
 
 export async function downloadImportTemplate(codes: {
   tanks: { farmName: string; farmCode: string; tankCode: string }[];
   feeds: string[];
+  species: string[];
 }): Promise<void> {
   const { default: writeXlsxFile } = await import("write-excel-file/browser");
   const bold = (value: string) => ({ value, fontWeight: "bold" as const });
-  const text = (value: string) => ({ value, type: String, wrap: true });
-  const rows = Math.max(codes.tanks.length, codes.feeds.length);
+  const text = (value: string | undefined) => (value ? { value, type: String, wrap: true } : null);
+  const rows = Math.max(codes.tanks.length, codes.feeds.length, codes.species.length);
 
   await writeXlsxFile(
     [
       {
         sheet: "Nasıl doldurulur",
-        columns: [{ width: 18 }, { width: 100 }],
+        columns: [{ width: 16 }, { width: 110 }],
         data: [
-          [bold("Piscatio · geçmiş kayıtları içe aktarma şablonu"), null],
+          [bold("Piscatio · çiftlik ve geçmiş kayıtları içe aktarma şablonu"), null],
           [null, null],
           ...INSTRUCTIONS.map(([title, body]) => [bold(title), text(body)]),
         ],
@@ -71,19 +104,12 @@ export async function downloadImportTemplate(codes: {
       })),
       {
         sheet: "Kodlarınız",
-        columns: [{ width: 24 }, { width: 14 }, { width: 12 }, { width: 4 }, { width: 28 }],
+        columns: [{ width: 24 }, { width: 14 }, { width: 12 }, { width: 4 }, { width: 28 }, { width: 4 }, { width: 28 }],
         data: [
-          [bold("Çiftlik"), bold("Çiftlik kodu"), bold("Tank kodu"), null, bold("Yem ürünleri")],
+          [bold("Çiftlik"), bold("Çiftlik kodu"), bold("Tank kodu"), null, bold("Yem ürünleri"), null, bold("Balık türleri")],
           ...Array.from({ length: rows }, (_, i) => {
             const tank = codes.tanks[i];
-            const feed = codes.feeds[i];
-            return [
-              tank ? text(tank.farmName) : null,
-              tank ? text(tank.farmCode) : null,
-              tank ? text(tank.tankCode) : null,
-              null,
-              feed ? text(feed) : null,
-            ];
+            return [text(tank?.farmName), text(tank?.farmCode), text(tank?.tankCode), null, text(codes.feeds[i]), null, text(codes.species[i])];
           }),
         ],
       },

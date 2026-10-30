@@ -81,4 +81,57 @@ describe("import sheets", () => {
       expect.stringMatching(/^Su kalitesi:4 En az bir ölçüm/),
     ]);
   });
+
+  it("reads structure sheets and harvests, transfers and treatments, with their own words for types", () => {
+    const result = readImportWorkbook([
+      { sheet: "Çiftlikler", data: [["Çiftlik adı", "Çiftlik kodu"], ["Yeni Tesis", "YNI"]] },
+      {
+        sheet: "Tanklar",
+        data: [
+          ["Çiftlik kodu", "Bölüm", "Tank kodu", "Tür", "Hacim (m³)"],
+          ["YNI", "Kuzey", "K-1", "Kafes", "1.200"],
+          ["YNI", null, "K-2", "denizaltı", null],
+        ],
+      },
+      {
+        sheet: "Partiler",
+        data: [
+          ["Parti kodu", "Tür", "Tank kodu", "Stoklama tarihi", "İlk adet", "İlk ortalama ağırlık (g)"],
+          ["YN-01", "Gökkuşağı alabalığı", "K-1", "01.04.2026", "10.000", "35,5"],
+        ],
+      },
+      {
+        sheet: "Hasat",
+        data: [
+          ["Tarih", "Tank kodu", "Adet", "Toplam ağırlık (kg)", "Tam hasat", "Satış fiyatı (₺/kg)"],
+          ["10.09.2026", "K-1", 500, "160", "Evet", 145],
+          ["11.09.2026", "K-1", 100, null, "belki", null],
+        ],
+      },
+      { sheet: "Transfer", data: [["Tarih", "Kaynak tank kodu", "Hedef tank kodu", "Adet"], ["01.06.2026", "K-1", "K-2", 3000]] },
+      {
+        sheet: "Tedavi",
+        data: [
+          ["Başlangıç tarihi", "Tank kodu", "Tür", "Ürün", "Arınma süresi (gün)", "Bitiş tarihi"],
+          ["05.07.2026", "K-2", "Aşı", "ERM aşısı", null, "06.07.2026"],
+        ],
+      },
+      { sheet: "Yemleme", data: [["Tarih", "Tank kodu", "Yem", "Miktar (kg)", "Birim fiyat (₺/kg)"], ["02.04.2026", "K-1", "Alabalık 2 mm", 12, "38,5"]] },
+    ]);
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({ kind: "farm", farmCode: "YNI", farmName: "Yeni Tesis" }),
+      expect.objectContaining({ kind: "tank", farmCode: "YNI", sectionName: "Kuzey", tankCode: "K-1", tankType: "CAGE", volumeM3: 1200 }),
+      expect.objectContaining({ kind: "batch", lotCode: "YN-01", speciesName: "Gökkuşağı alabalığı", fishCount: 10000, avgWeightG: 35.5 }),
+      expect.objectContaining({ kind: "harvest", fishCount: 500, biomassKg: 160, full: true, unitPriceTry: 145 }),
+      expect.objectContaining({ kind: "transfer", tankCode: "K-1", toTankCode: "K-2", fishCount: 3000 }),
+      expect.objectContaining({ kind: "treatment", treatmentType: "VACCINATION", productName: "ERM aşısı", endDate: { year: 2026, month: 7, day: 6 } }),
+      expect.objectContaining({ kind: "feeding", quantityKg: 12, unitPriceTry: 38.5 }),
+    ]);
+    expect(result.errors.map((e) => `${e.sheet}:${e.row} ${e.message}`)).toEqual([
+      expect.stringMatching(/^Tanklar:3 "Tür" tanınmadı; şunlardan biri olmalı: Tank, Havuz, Kafes, Kanal/),
+      expect.stringMatching(/^Hasat:3 "Tam hasat" Evet ya da Hayır olmalı/),
+    ]);
+  });
 });
+

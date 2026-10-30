@@ -1,15 +1,26 @@
-import type { MortalityReason } from "@prisma/client";
+import type { MortalityReason, TankType, TreatmentType } from "@prisma/client";
 
 /**
- * Turns the sheets of an uploaded workbook into typed rows, one kind per sheet: feeding, mortality,
- * weighings and water quality. Pure: it knows nothing of tanks or batches (ImportsService resolves
- * those); it only reads cells. Built for the files farms actually keep, so it is forgiving about
- * how things are written — sheet and column names in any case and with or without Turkish
- * letters, dates as Excel dates or "15.03.2026", numbers as "1.250,5" — and strict about what
- * they mean: a row it can't read is reported with its sheet and row number, never guessed at.
+ * Turns the sheets of an uploaded workbook into typed rows, one kind per sheet: the farm's structure
+ * (farms, tanks, batches) and its history (feeding, mortality, weighings, water quality, harvests,
+ * transfers, treatments). Pure: it knows nothing of what the company already has (ImportsService
+ * resolves that); it only reads cells. Built for the files farms actually keep, so it is forgiving
+ * about how things are written — sheet and column names in any case and with or without Turkish
+ * letters, dates as Excel dates or "15.03.2026", numbers as "1.250,5" — and strict about what they
+ * mean: a row it can't read is reported with its sheet and row number, never guessed at.
  */
 
-export type ImportKind = "feeding" | "mortality" | "weighing" | "water";
+export type ImportKind =
+  | "farm"
+  | "tank"
+  | "batch"
+  | "feeding"
+  | "mortality"
+  | "weighing"
+  | "water"
+  | "harvest"
+  | "transfer"
+  | "treatment";
 
 /** A calendar day, with a time of day where the sheet gives one (water readings). */
 export interface SheetDate {
@@ -26,6 +37,23 @@ interface Located {
   row: number;
 }
 
+export interface FarmRow extends Located {
+  kind: "farm";
+  farmCode: string;
+  farmName: string;
+}
+
+export interface TankRow extends Located {
+  kind: "tank";
+  farmCode: string;
+  sectionName?: string;
+  tankCode: string;
+  tankType: TankType;
+  volumeM3?: number;
+  maxBiomassKg?: number;
+}
+
+/** A record that happened in a tank on a day. */
 interface Placed extends Located {
   date: SheetDate;
   farmCode?: string;
@@ -33,11 +61,22 @@ interface Placed extends Located {
   notes?: string;
 }
 
+export interface BatchRow extends Placed {
+  kind: "batch";
+  lotCode: string;
+  speciesName: string;
+  fishCount: number;
+  avgWeightG: number;
+  targetFcr?: number;
+  supplier?: string;
+}
+
 export interface FeedingRow extends Placed {
   kind: "feeding";
   lotCode?: string;
   feedName: string;
   quantityKg: number;
+  unitPriceTry?: number;
 }
 
 export interface MortalityRow extends Placed {
@@ -70,7 +109,48 @@ export interface WaterRow extends Placed {
   metrics: Partial<Record<WaterMetric, number>>;
 }
 
-export type ImportRow = FeedingRow | MortalityRow | WeighingRow | WaterRow;
+export interface HarvestRow extends Placed {
+  kind: "harvest";
+  lotCode?: string;
+  fishCount: number;
+  biomassKg?: number;
+  avgWeightG?: number;
+  /** The tank was emptied (a full harvest), not partly fished. */
+  full: boolean;
+  unitPriceTry?: number;
+  customer?: string;
+}
+
+/** Placed in the source tank; the destination is toTankCode. */
+export interface TransferRow extends Placed {
+  kind: "transfer";
+  lotCode?: string;
+  toFarmCode?: string;
+  toTankCode: string;
+  fishCount: number;
+}
+
+export interface TreatmentRow extends Placed {
+  kind: "treatment";
+  lotCode?: string;
+  treatmentType: TreatmentType;
+  productName: string;
+  dosage?: string;
+  withdrawalDays?: number;
+  endDate?: SheetDate;
+}
+
+export type ImportRow =
+  | FarmRow
+  | TankRow
+  | BatchRow
+  | FeedingRow
+  | MortalityRow
+  | WeighingRow
+  | WaterRow
+  | HarvestRow
+  | TransferRow
+  | TreatmentRow;
 
 export interface RowError extends Located {
   message: string;
@@ -79,7 +159,7 @@ export interface RowError extends Located {
 export interface ReadResult {
   rows: ImportRow[];
   errors: RowError[];
-  /** Sheets that matched no kind (an instructions tab, say); reported, not read. */
+  /** Sheets that matched no kind; reported, not read. */
   ignoredSheets: string[];
 }
 
@@ -93,7 +173,8 @@ export function normalize(text: string): string {
     .replace(/ü/g, "u")
     .replace(/ö/g, "o")
     .replace(/ç/g, "c")
-    .normalize("NFD")
+    // NFKD also turns "m³" into "m3"; the ₺ sign has no letters and drops out.
+    .normalize("NFKD")
     .replace(/[^a-z0-9]/g, "");
 }
 
@@ -101,41 +182,88 @@ export function normalize(text: string): string {
 const HELPER_SHEETS = ["nasildoldurulur", "kodlariniz", "aciklama", "aciklamalar"];
 
 const SHEET_NAMES: Record<ImportKind, string[]> = {
+  farm: ["ciftlikler", "ciftlik"],
+  tank: ["tanklar", "tank", "kafesler", "havuzlar", "birimler"],
+  batch: ["partiler", "parti", "stoklama", "stoklamalar"],
   feeding: ["yemleme", "yem", "yemlemeler"],
   mortality: ["olum", "olumler", "mortalite"],
   weighing: ["tartim", "tartimlar", "agirlik", "ornekleme"],
   water: ["sukalitesi", "su", "suolcumleri", "suolcumu"],
+  harvest: ["hasat", "hasatlar"],
+  transfer: ["transfer", "transferler", "aktarma", "tasima"],
+  treatment: ["tedavi", "tedaviler", "ilac", "asilama", "asi"],
 };
 
 type Field =
   | "date"
   | "time"
+  | "endDate"
   | "farmCode"
+  | "farmName"
+  | "sectionName"
   | "tankCode"
+  | "tankType"
+  | "volumeM3"
+  | "maxBiomassKg"
+  | "toFarmCode"
+  | "toTankCode"
   | "lotCode"
+  | "speciesName"
+  | "targetFcr"
+  | "supplier"
   | "notes"
   | "feedName"
   | "quantityKg"
+  | "unitPriceTry"
   | "fishCount"
   | "reason"
   | "sampleSize"
   | "avgWeightG"
+  | "biomassKg"
+  | "full"
+  | "customer"
+  | "treatmentType"
+  | "productName"
+  | "dosage"
+  | "withdrawalDays"
   | WaterMetric;
 
-/** Column names each field answers to, normalized. The template's own header comes first. */
+/**
+ * Column names each field answers to, normalized; the template's own header comes first. A name
+ * may serve two fields that never share a sheet ("Tür" is a tank's type, a batch's species).
+ */
 const COLUMNS: Record<Field, string[]> = {
-  date: ["tarih"],
+  date: ["tarih", "stoklamatarihi", "giristarihi", "baslangictarihi", "baslangic"],
   time: ["saat"],
-  farmCode: ["ciftlikkodu", "ciftlik"],
-  tankCode: ["tankkodu", "tank", "kafeskodu", "kafes", "havuzkodu", "havuz"],
+  endDate: ["bitistarihi", "bitis"],
+  farmCode: ["ciftlikkodu", "ciftlik", "kaynakciftlikkodu", "kaynakciftlik"],
+  farmName: ["ciftlikadi", "ad", "adi"],
+  sectionName: ["bolum", "bolumadi"],
+  tankCode: ["tankkodu", "tank", "kafeskodu", "kafes", "havuzkodu", "havuz", "kaynaktankkodu", "kaynaktank", "nereden"],
+  tankType: ["tur", "tip", "tanktipi", "tanktur"],
+  volumeM3: ["hacimm3", "hacim"],
+  maxBiomassKg: ["maksbiyokutlekg", "maksimumbiyokutlekg", "maksbiyokutle", "kapasitekg", "kapasite"],
+  toFarmCode: ["hedefciftlikkodu", "hedefciftlik"],
+  toTankCode: ["hedeftankkodu", "hedeftank", "nereye"],
   lotCode: ["partikodu", "parti", "lotkodu", "lot"],
+  speciesName: ["tur", "balikturu", "cins"],
+  targetFcr: ["hedeffcr"],
+  supplier: ["tedarikci", "kuluckahane"],
   notes: ["not", "notlar", "aciklama"],
   feedName: ["yem", "yemadi", "yemurunu", "urun"],
   quantityKg: ["miktarkg", "miktar", "yemkg", "kg"],
-  fishCount: ["adet", "oluadedi", "olumadedi", "olusayisi"],
+  unitPriceTry: ["birimfiyatkg", "birimfiyattlkg", "birimfiyat", "fiyatkg", "fiyattlkg", "fiyat", "satisfiyatikg", "satisfiyatitlkg", "satisfiyati"],
+  fishCount: ["adet", "ilkadet", "stoklananadet", "oluadedi", "olumadedi", "olusayisi", "balikadedi"],
   reason: ["sebep", "neden", "olumsebebi"],
   sampleSize: ["ornekadedi", "ornek", "tartilanbalik", "tartilanadet"],
-  avgWeightG: ["ortalamaagirlikg", "ortalamaagirlik", "ortagirlikg", "agirlikg", "gram"],
+  avgWeightG: ["ortalamaagirlikg", "ortalamaagirlik", "ilkortalamaagirlikg", "ilkortalamaagirlik", "ortagirlikg", "agirlikg", "gram"],
+  biomassKg: ["toplamagirlikkg", "toplamagirlik", "biyokutlekg", "biyokutle", "kg"],
+  full: ["tamhasat", "tam"],
+  customer: ["musteri", "alici"],
+  treatmentType: ["tur", "tip", "tedavituru"],
+  productName: ["urun", "urunadi", "ilac", "ilacadi", "asi"],
+  dosage: ["doz", "dozaj"],
+  withdrawalDays: ["arinmasuresigun", "arinmasuresi", "arinma", "beklemesuresi"],
   temperatureC: ["sicaklikc", "sicaklik", "susicakligi"],
   dissolvedOxygenMgL: ["cozunmusoksijenmgl", "cozunmusoksijen", "oksijenmgl", "oksijen"],
   ph: ["ph"],
@@ -145,27 +273,61 @@ const COLUMNS: Record<Field, string[]> = {
   salinityPpt: ["tuzlulukppt", "tuzluluk"],
 };
 
-const SHARED: Field[] = ["date", "farmCode", "tankCode", "notes"];
+const PLACED: Field[] = ["date", "farmCode", "tankCode", "notes"];
 const FIELDS: Record<ImportKind, { fields: Field[]; required: Field[] }> = {
-  feeding: { fields: [...SHARED, "lotCode", "feedName", "quantityKg"], required: ["date", "tankCode", "feedName", "quantityKg"] },
-  mortality: { fields: [...SHARED, "lotCode", "fishCount", "reason"], required: ["date", "tankCode", "fishCount"] },
-  weighing: { fields: [...SHARED, "lotCode", "sampleSize", "avgWeightG"], required: ["date", "tankCode", "sampleSize", "avgWeightG"] },
-  water: { fields: [...SHARED, "time", ...WATER_METRICS], required: ["date", "tankCode"] },
+  farm: { fields: ["farmCode", "farmName"], required: ["farmCode", "farmName"] },
+  tank: { fields: ["farmCode", "sectionName", "tankCode", "tankType", "volumeM3", "maxBiomassKg"], required: ["farmCode", "tankCode"] },
+  batch: {
+    fields: [...PLACED, "lotCode", "speciesName", "fishCount", "avgWeightG", "targetFcr", "supplier"],
+    required: ["date", "tankCode", "lotCode", "speciesName", "fishCount", "avgWeightG"],
+  },
+  feeding: { fields: [...PLACED, "lotCode", "feedName", "quantityKg", "unitPriceTry"], required: ["date", "tankCode", "feedName", "quantityKg"] },
+  mortality: { fields: [...PLACED, "lotCode", "fishCount", "reason"], required: ["date", "tankCode", "fishCount"] },
+  weighing: { fields: [...PLACED, "lotCode", "sampleSize", "avgWeightG"], required: ["date", "tankCode", "sampleSize", "avgWeightG"] },
+  water: { fields: [...PLACED, "time", ...WATER_METRICS], required: ["date", "tankCode"] },
+  harvest: {
+    fields: [...PLACED, "lotCode", "fishCount", "biomassKg", "avgWeightG", "full", "unitPriceTry", "customer"],
+    required: ["date", "tankCode", "fishCount"],
+  },
+  transfer: { fields: [...PLACED, "lotCode", "toFarmCode", "toTankCode", "fishCount"], required: ["date", "tankCode", "toTankCode", "fishCount"] },
+  treatment: {
+    fields: [...PLACED, "lotCode", "treatmentType", "productName", "dosage", "withdrawalDays", "endDate"],
+    required: ["date", "tankCode", "productName"],
+  },
 };
 
 const FIELD_LABEL: Record<Field, string> = {
   date: "Tarih",
   time: "Saat",
+  endDate: "Bitiş tarihi",
   farmCode: "Çiftlik kodu",
+  farmName: "Çiftlik adı",
+  sectionName: "Bölüm",
   tankCode: "Tank kodu",
+  tankType: "Tür",
+  volumeM3: "Hacim (m³)",
+  maxBiomassKg: "Maks. biyokütle (kg)",
+  toFarmCode: "Hedef çiftlik kodu",
+  toTankCode: "Hedef tank kodu",
   lotCode: "Parti kodu",
+  speciesName: "Tür",
+  targetFcr: "Hedef FCR",
+  supplier: "Tedarikçi",
   notes: "Not",
   feedName: "Yem",
   quantityKg: "Miktar (kg)",
+  unitPriceTry: "Birim fiyat (₺/kg)",
   fishCount: "Adet",
   reason: "Sebep",
   sampleSize: "Örnek adedi",
   avgWeightG: "Ortalama ağırlık (g)",
+  biomassKg: "Toplam ağırlık (kg)",
+  full: "Tam hasat",
+  customer: "Müşteri",
+  treatmentType: "Tür",
+  productName: "Ürün",
+  dosage: "Doz",
+  withdrawalDays: "Arınma süresi (gün)",
   temperatureC: "Sıcaklık (°C)",
   dissolvedOxygenMgL: "Çözünmüş oksijen (mg/L)",
   ph: "pH",
@@ -202,6 +364,21 @@ const REASONS: Record<string, MortalityReason> = {
   diger: "OTHER",
 };
 const REASON_HINT = "Bilinmiyor, Hastalık, Oksijen yetersizliği, Sıcaklık, Transfer stresi, Fiziksel hasar, Yırtıcı, Yemle ilişkili, Diğer";
+
+const TANK_TYPES: Record<string, TankType> = {
+  tank: "TANK",
+  beton: "TANK",
+  havuz: "POND",
+  gol: "POND",
+  kafes: "CAGE",
+  agkafes: "CAGE",
+  kanal: "RACEWAY",
+  raceway: "RACEWAY",
+  akintihavuzu: "RACEWAY",
+};
+const TREATMENT_TYPES: Record<string, TreatmentType> = { ilac: "MEDICATION", ilactedavisi: "MEDICATION", asi: "VACCINATION", asilama: "VACCINATION" };
+const YES = ["evet", "e", "x", "var", "tam", "1", "true"];
+const NO = ["hayir", "h", "yok", "kismi", "0", "false"];
 
 export function readImportWorkbook(sheets: { sheet: string; data: unknown[][] }[]): ReadResult {
   const result: ReadResult = { rows: [], errors: [], ignoredSheets: [] };
@@ -244,66 +421,194 @@ function readSheet(kind: ImportKind, sheet: string, data: unknown[][], result: R
     const cells = data[index]!;
     if (!cells.some((cell) => !isEmpty(cell))) continue;
     const at = { sheet, row: index + 1 };
-    const cell = (field: Field) => {
+    const problems: string[] = [];
+    const read = new CellReader((field) => {
       const column = columnOf.get(field);
       return column === undefined ? null : (cells[column] ?? null);
-    };
-    const problems: string[] = [];
-
-    const date = readDate(cell("date"));
-    if (!date) problems.push(`"Tarih" okunamadı (örnek: 15.03.2026).`);
-    if (kind === "water" && !isEmpty(cell("time"))) {
-      const time = readTime(cell("time"));
-      if (time && date) Object.assign(date, time);
-      else if (!time) problems.push(`"Saat" okunamadı (örnek: 08:30).`);
-    }
-    const tankCode = text(cell("tankCode"));
-    if (!tankCode) problems.push(`"Tank kodu" boş.`);
-    const base = {
-      ...at,
-      date: date!,
-      tankCode: tankCode!,
-      farmCode: text(cell("farmCode")),
-      notes: text(cell("notes")),
-    };
-
-    let row: ImportRow | null = null;
-    if (kind === "feeding") {
-      const feedName = text(cell("feedName"));
-      if (!feedName) problems.push(`"Yem" boş.`);
-      const quantityKg = positive(cell("quantityKg"), "Miktar (kg)", problems, 20_000);
-      row = { kind, ...base, lotCode: text(cell("lotCode")), feedName: feedName!, quantityKg: quantityKg! };
-    } else if (kind === "mortality") {
-      const fishCount = wholeNumber(cell("fishCount"), "Adet", problems);
-      let reason: MortalityReason = "UNKNOWN";
-      if (!isEmpty(cell("reason"))) {
-        const known = REASONS[normalize(String(cell("reason")))];
-        if (known) reason = known;
-        else problems.push(`"Sebep" tanınmadı; şunlardan biri olmalı: ${REASON_HINT}.`);
-      }
-      row = { kind, ...base, lotCode: text(cell("lotCode")), fishCount: fishCount!, reason };
-    } else if (kind === "weighing") {
-      const sampleSize = wholeNumber(cell("sampleSize"), "Örnek adedi", problems);
-      const avgWeightG = positive(cell("avgWeightG"), "Ortalama ağırlık (g)", problems, 30_000);
-      row = { kind, ...base, lotCode: text(cell("lotCode")), sampleSize: sampleSize!, avgWeightG: avgWeightG! };
-    } else {
-      const metrics: Partial<Record<WaterMetric, number>> = {};
-      for (const metric of WATER_METRICS) {
-        if (isEmpty(cell(metric))) continue;
-        const value = readNumber(cell(metric));
-        const [min, max] = WATER_RANGE[metric];
-        if (value === null) problems.push(`"${FIELD_LABEL[metric]}" sayı değil.`);
-        else if (value < min || value > max) problems.push(`"${FIELD_LABEL[metric]}" ${min}–${max} aralığında olmalı.`);
-        else metrics[metric] = value;
-      }
-      if (Object.keys(metrics).length === 0 && problems.length === 0) {
-        problems.push("En az bir ölçüm (sıcaklık, oksijen, pH…) girilmeli.");
-      }
-      row = { kind, ...base, metrics };
-    }
-
+    }, problems);
+    const row = build(kind, at, read);
     if (problems.length > 0) result.errors.push({ ...at, message: problems.join(" ") });
     else result.rows.push(row);
+  }
+}
+
+/** Reads one row's cells as typed values, collecting what's wrong instead of throwing. */
+class CellReader {
+  constructor(
+    readonly cell: (field: Field) => unknown,
+    private readonly problems: string[],
+  ) {}
+
+  empty(field: Field) {
+    return isEmpty(this.cell(field));
+  }
+
+  text(field: Field, required = false): string {
+    const value = text(this.cell(field));
+    if (required && !value) this.problems.push(`"${FIELD_LABEL[field]}" boş.`);
+    return value ?? "";
+  }
+
+  optionalText(field: Field): string | undefined {
+    return text(this.cell(field));
+  }
+
+  date(field: Field = "date"): SheetDate {
+    const value = readDate(this.cell(field));
+    if (!value) this.problems.push(`"${FIELD_LABEL[field]}" okunamadı (örnek: 15.03.2026).`);
+    return value!;
+  }
+
+  optionalDate(field: Field): SheetDate | undefined {
+    return this.empty(field) ? undefined : this.date(field);
+  }
+
+  /** A number in (0, max]; with `whole`, an integer of at least 1. */
+  number(field: Field, max: number, whole = false): number {
+    const value = readNumber(this.cell(field));
+    const label = FIELD_LABEL[field];
+    if (value === null) this.problems.push(`"${label}" sayı değil.`);
+    else if (whole && (!Number.isInteger(value) || value < 1 || value > max)) {
+      this.problems.push(`"${label}" 1 ile ${max.toLocaleString("tr")} arasında bir tam sayı olmalı.`);
+    } else if (!whole && (value <= 0 || value > max)) {
+      this.problems.push(`"${label}" 0'dan büyük ve en fazla ${max.toLocaleString("tr")} olmalı.`);
+    } else return value;
+    return 0;
+  }
+
+  optionalNumber(field: Field, max: number, whole = false): number | undefined {
+    return this.empty(field) ? undefined : this.number(field, max, whole);
+  }
+
+  /** A value from a fixed list of words, or the default when the cell is empty. */
+  choice<T>(field: Field, options: Record<string, T>, fallback: T, hint: string): T {
+    if (this.empty(field)) return fallback;
+    const value = options[normalize(String(this.cell(field)))];
+    if (value === undefined) this.problems.push(`"${FIELD_LABEL[field]}" tanınmadı; şunlardan biri olmalı: ${hint}.`);
+    return value ?? fallback;
+  }
+
+  yesNo(field: Field): boolean {
+    if (this.empty(field)) return false;
+    const value = normalize(String(this.cell(field)));
+    if (YES.includes(value)) return true;
+    if (!NO.includes(value)) this.problems.push(`"${FIELD_LABEL[field]}" Evet ya da Hayır olmalı.`);
+    return false;
+  }
+
+  problem(message: string) {
+    this.problems.push(message);
+  }
+}
+
+function build(kind: ImportKind, at: Located, read: CellReader): ImportRow {
+  if (kind === "farm") {
+    return { kind, ...at, farmCode: read.text("farmCode", true), farmName: read.text("farmName", true) };
+  }
+  if (kind === "tank") {
+    return {
+      kind,
+      ...at,
+      farmCode: read.text("farmCode", true),
+      sectionName: read.optionalText("sectionName"),
+      tankCode: read.text("tankCode", true),
+      tankType: read.choice("tankType", TANK_TYPES, "TANK", "Tank, Havuz, Kafes, Kanal"),
+      volumeM3: read.optionalNumber("volumeM3", 1_000_000),
+      maxBiomassKg: read.optionalNumber("maxBiomassKg", 10_000_000),
+    };
+  }
+
+  const placed = {
+    ...at,
+    date: read.date(),
+    tankCode: read.text("tankCode", true),
+    farmCode: read.optionalText("farmCode"),
+    notes: read.optionalText("notes"),
+  };
+  const lotCode = read.optionalText("lotCode");
+  switch (kind) {
+    case "batch":
+      return {
+        kind,
+        ...placed,
+        lotCode: read.text("lotCode", true),
+        speciesName: read.text("speciesName", true),
+        fishCount: read.number("fishCount", 100_000_000, true),
+        avgWeightG: read.number("avgWeightG", 30_000),
+        targetFcr: read.optionalNumber("targetFcr", 10),
+        supplier: read.optionalText("supplier"),
+      };
+    case "feeding":
+      return {
+        kind,
+        ...placed,
+        lotCode,
+        feedName: read.text("feedName", true),
+        quantityKg: read.number("quantityKg", 20_000),
+        unitPriceTry: read.optionalNumber("unitPriceTry", 100_000),
+      };
+    case "mortality":
+      return {
+        kind,
+        ...placed,
+        lotCode,
+        fishCount: read.number("fishCount", 10_000_000, true),
+        reason: read.choice("reason", REASONS, "UNKNOWN" as MortalityReason, REASON_HINT),
+      };
+    case "weighing":
+      return { kind, ...placed, lotCode, sampleSize: read.number("sampleSize", 100_000, true), avgWeightG: read.number("avgWeightG", 30_000) };
+    case "water": {
+      if (!read.empty("time")) {
+        const time = readTime(read.cell("time"));
+        if (time && placed.date) Object.assign(placed.date, time);
+        else if (!time) read.problem(`"Saat" okunamadı (örnek: 08:30).`);
+      }
+      const metrics: Partial<Record<WaterMetric, number>> = {};
+      for (const metric of WATER_METRICS) {
+        if (read.empty(metric)) continue;
+        const value = readNumber(read.cell(metric));
+        const [min, max] = WATER_RANGE[metric];
+        if (value === null) read.problem(`"${FIELD_LABEL[metric]}" sayı değil.`);
+        else if (value < min || value > max) read.problem(`"${FIELD_LABEL[metric]}" ${min}–${max} aralığında olmalı.`);
+        else metrics[metric] = value;
+      }
+      if (Object.keys(metrics).length === 0 && WATER_METRICS.every((m) => read.empty(m))) {
+        read.problem("En az bir ölçüm (sıcaklık, oksijen, pH…) girilmeli.");
+      }
+      return { kind, ...placed, metrics };
+    }
+    case "harvest":
+      return {
+        kind,
+        ...placed,
+        lotCode,
+        fishCount: read.number("fishCount", 100_000_000, true),
+        biomassKg: read.optionalNumber("biomassKg", 10_000_000),
+        avgWeightG: read.optionalNumber("avgWeightG", 30_000),
+        full: read.yesNo("full"),
+        unitPriceTry: read.optionalNumber("unitPriceTry", 100_000),
+        customer: read.optionalText("customer"),
+      };
+    case "transfer":
+      return {
+        kind,
+        ...placed,
+        lotCode,
+        toFarmCode: read.optionalText("toFarmCode"),
+        toTankCode: read.text("toTankCode", true),
+        fishCount: read.number("fishCount", 100_000_000, true),
+      };
+    case "treatment":
+      return {
+        kind,
+        ...placed,
+        lotCode,
+        treatmentType: read.choice("treatmentType", TREATMENT_TYPES, "MEDICATION" as TreatmentType, "İlaç, Aşı"),
+        productName: read.text("productName", true),
+        dosage: read.optionalText("dosage"),
+        withdrawalDays: read.optionalNumber("withdrawalDays", 1000, true),
+        endDate: read.optionalDate("endDate"),
+      };
   }
 }
 
@@ -328,29 +633,12 @@ export function readNumber(cell: unknown): number | null {
   return Number(s);
 }
 
-function positive(cell: unknown, label: string, problems: string[], max: number): number | undefined {
-  const value = readNumber(cell);
-  if (value === null) problems.push(`"${label}" sayı değil.`);
-  else if (value <= 0 || value > max) problems.push(`"${label}" 0'dan büyük ve en fazla ${max.toLocaleString("tr")} olmalı.`);
-  else return value;
-  return undefined;
-}
-
-function wholeNumber(cell: unknown, label: string, problems: string[]): number | undefined {
-  const value = readNumber(cell);
-  if (value === null || !Number.isInteger(value) || value < 1 || value > 10_000_000) {
-    problems.push(`"${label}" 1 veya daha büyük bir tam sayı olmalı.`);
-    return undefined;
-  }
-  return value;
-}
-
 /** Excel stores days since 1899-12-30; dates read from cells come back as UTC midnight. */
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
 
 export function readDate(cell: unknown): SheetDate | null {
-  if (cell instanceof Date && !Number.isNaN(cell.getTime())) return fromUtc(cell, true);
-  if (typeof cell === "number" && cell > 0 && cell < 100_000) return fromUtc(new Date(EXCEL_EPOCH + cell * 86_400_000), true);
+  if (cell instanceof Date && !Number.isNaN(cell.getTime())) return fromUtc(cell);
+  if (typeof cell === "number" && cell > 0 && cell < 100_000) return fromUtc(new Date(EXCEL_EPOCH + cell * 86_400_000));
   if (typeof cell !== "string") return null;
   const s = cell.trim();
   let m = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2})[:.](\d{2}))?$/.exec(s);
@@ -372,9 +660,9 @@ function readTime(cell: unknown): { hour: number; minute: number } | null {
   return { hour: +m[1]!, minute: +m[2]! };
 }
 
-function fromUtc(date: Date, withTime: boolean): SheetDate | null {
+function fromUtc(date: Date): SheetDate | null {
   const result: SheetDate = { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
-  if (withTime && (date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0)) {
+  if (date.getUTCHours() !== 0 || date.getUTCMinutes() !== 0) {
     result.hour = date.getUTCHours();
     result.minute = date.getUTCMinutes();
   }

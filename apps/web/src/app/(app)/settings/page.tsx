@@ -57,7 +57,7 @@ export default function SettingsPage() {
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-foreground">Excel&apos;den veri aktarma</span>
           <span className="block text-xs text-muted-foreground">
-            Geçmiş yemleme, ölüm, tartım ve su kalitesi kayıtlarınızı tek dosyayla aktarın.
+            Çiftlik, tank ve partilerinizi ve geçmiş kayıtlarınızı tek dosyayla aktarın.
           </span>
         </span>
         <ChevronRight className="size-4 text-muted-foreground" />

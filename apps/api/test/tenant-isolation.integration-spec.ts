@@ -5100,6 +5100,112 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("Excel import of a farm from scratch", () => {
+    type Cell = string | number | Date | null;
+    const workbook = async (sheets: { sheet: string; rows: Cell[][] }[]) => {
+      const { default: writeXlsxFile } = await import("write-excel-file/node");
+      return (await writeXlsxFile(
+        sheets.map(({ sheet, rows }) => ({
+          sheet,
+          data: rows.map((row) =>
+            row.map((value) =>
+              value === null
+                ? null
+                : value instanceof Date
+                  ? { value, type: Date, format: "dd.mm.yyyy" }
+                  : typeof value === "number"
+                    ? { value, type: Number }
+                    : { value, type: String },
+            ),
+          ),
+        })),
+      ).toBuffer()) as Buffer;
+    };
+    const daysAgo = (n: number) => {
+      const d = new Date(Date.now() - n * 86_400_000);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    };
+    const upload = (path: string, token: string, buffer: Buffer) =>
+      request(app.getHttpServer()).post(`/api/v1/imports${path}`).set("Authorization", auth(token)).attach("file", buffer, "ciftlik.xlsx");
+
+    it("creates farms, tanks and batches, moves and harvests fish, and undoes all of it", async () => {
+      const tenant = await seedTenant(prisma, "scratch");
+      await prisma.feedProduct.create({ data: { companyId: tenant.companyId, name: "Alabalık 2 mm" } });
+      await prisma.warehouse.create({ data: { companyId: tenant.companyId, farmId: tenant.farmId, name: "Depo" } });
+      const species = await prisma.fishSpecies.findUniqueOrThrow({ where: { id: speciesId } });
+      const lot = nextLotCode();
+
+      const file = await workbook([
+        { sheet: "Çiftlikler", rows: [["Çiftlik adı", "Çiftlik kodu"], ["Yeni Tesis", "yeni1"]] },
+        {
+          sheet: "Tanklar",
+          rows: [
+            ["Çiftlik kodu", "Tank kodu", "Tür", "Hacim (m³)"],
+            ["YENI1", "Y-1", "Kafes", 900],
+            ["YENI1", "Y-2", "Havuz", null],
+          ],
+        },
+        {
+          sheet: "Partiler",
+          rows: [
+            ["Parti kodu", "Tür", "Çiftlik kodu", "Tank kodu", "Stoklama tarihi", "İlk adet", "İlk ortalama ağırlık (g)"],
+            [lot, species.name, "YENI1", "Y-1", daysAgo(90), 1000, 40],
+          ],
+        },
+        { sheet: "Transfer", rows: [["Tarih", "Kaynak tank kodu", "Hedef tank kodu", "Adet"], [daysAgo(60), "Y-1", "Y-2", 300]] },
+        // After the transfer the batch is in both tanks; each row names its tank, and that tank has one batch.
+        { sheet: "Ölüm", rows: [["Tarih", "Tank kodu", "Adet"], [daysAgo(50), "Y-1", 20]] },
+        { sheet: "Yemleme", rows: [["Tarih", "Tank kodu", "Yem", "Miktar (kg)", "Birim fiyat (₺/kg)"], [daysAgo(55), "Y-2", "Alabalık 2 mm", 10, "30"]] },
+        {
+          sheet: "Hasat",
+          rows: [["Tarih", "Tank kodu", "Adet", "Toplam ağırlık (kg)", "Satış fiyatı (₺/kg)", "Müşteri"], [daysAgo(10), "Y-2", 100, 25, 150, "Ege Gıda"]],
+        },
+        { sheet: "Tedavi", rows: [["Başlangıç tarihi", "Tank kodu", "Ürün", "Arınma süresi (gün)"], [daysAgo(40), "Y-1", "Oksitetrasiklin", 21]] },
+      ]);
+
+      const preview = await upload("/preview", tenant.ownerToken, file).expect(201);
+      expect(preview.body.data).toMatchObject({
+        counts: { farm: 1, tank: 2, batch: 1, transfer: 1, mortality: 1, feeding: 1, harvest: 1, treatment: 1 },
+        errorCount: 0,
+        batches: [{ lotCode: lot, isNew: true, deaths: 20, harvested: 100, liveNow: 0, liveAfter: 880 }],
+      });
+
+      const committed = await upload("", tenant.ownerToken, file).expect(201);
+      const importId = committed.body.data.id as string;
+      const farm = await prisma.farm.findFirstOrThrow({ where: { companyId: tenant.companyId, code: "YENI1" } });
+      expect(farm.importId).toBe(importId);
+      const batch = await prisma.fishBatch.findFirstOrThrow({ where: { lotCode: lot }, include: { currentState: true, tankStates: { include: { tank: true } } } });
+      expect(batch.currentState?.estimatedCount).toBe(880);
+      expect(Object.fromEntries(batch.tankStates.map((s) => [s.tank.code, s.estimatedCount]))).toEqual({ "Y-1": 680, "Y-2": 200 });
+      const harvest = await prisma.harvestRecord.findFirstOrThrow({ where: { importId } });
+      expect(Number(harvest.saleRevenueTry)).toBe(3750);
+      expect(Number(harvest.avgWeightG)).toBe(250);
+      expect(harvest.customer).toBe("Ege Gıda");
+      expect(Number((await prisma.feedInventoryBatch.findFirstOrThrow({ where: { importId } })).unitCostPerKg)).toBe(30);
+      expect(await prisma.treatment.count({ where: { importId, withdrawalPeriodDays: 21 } })).toBe(1);
+
+      // The same file again: the farm, tanks and batch exist, every record is skipped.
+      const again = await upload("/preview", tenant.ownerToken, file).expect(201);
+      expect(again.body.data).toMatchObject({ errorCount: 0, skipped: 9 });
+
+      await request(app.getHttpServer()).delete(`/api/v1/imports/${importId}`).set("Authorization", auth(tenant.ownerToken)).expect(200);
+      expect(await prisma.farm.count({ where: { importId } })).toBe(0);
+      expect(await prisma.tank.count({ where: { importId } })).toBe(0);
+      expect(await prisma.fishBatch.count({ where: { lotCode: lot } })).toBe(0);
+      expect(await prisma.batchMovement.count({ where: { importId } })).toBe(0);
+    });
+
+    it("keeps to the plan's farm and tank limits", async () => {
+      const tenant = await seedTenant(prisma, "starter-imp");
+      await prisma.company.update({ where: { id: tenant.companyId }, data: { planTier: "STARTER", trialEndsAt: null } });
+      const file = await workbook([{ sheet: "Çiftlikler", rows: [["Çiftlik adı", "Çiftlik kodu"], ["İkinci", "IKI"]] }]);
+      const preview = await upload("/preview", tenant.ownerToken, file).expect(201);
+      expect(preview.body.data.errors).toEqual([
+        { sheet: "Çiftlikler", row: 2, message: "Başlangıç planı en fazla 1 çiftliğe izin veriyor; planınızı yükseltin." },
+      ]);
+    });
+  });
+
   describe("weight forecast", () => {
     it("grows a weighed batch by the farm's water temperature (TGC)", async () => {
       const tenant = await seedTenant(prisma, "tgc");
