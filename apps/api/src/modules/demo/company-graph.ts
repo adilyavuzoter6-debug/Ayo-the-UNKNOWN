@@ -16,6 +16,7 @@ const NOT_COPIED = new Set([
   "AuditLog",
   "IdempotencyRecord",
   "AssistantFeedback",
+  "DataImport",
 ]);
 
 export interface ModelPlan {

@@ -6,6 +6,7 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   await prisma.auditLog.deleteMany();
   await prisma.alert.deleteMany();
   await prisma.assistantFeedback.deleteMany();
+  await prisma.dataImport.deleteMany();
   await prisma.feedingEvent.deleteMany();
   await prisma.waterQualityReading.deleteMany();
   await prisma.harvestRecord.deleteMany();

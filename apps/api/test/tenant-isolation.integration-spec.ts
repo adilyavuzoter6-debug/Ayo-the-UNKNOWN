@@ -4961,6 +4961,131 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("Excel import of history", () => {
+    type Cell = string | number | Date | null;
+    const workbook = async (sheets: { sheet: string; rows: Cell[][] }[]) => {
+      const { default: writeXlsxFile } = await import("write-excel-file/node");
+      return (await writeXlsxFile(
+        sheets.map(({ sheet, rows }) => ({
+          sheet,
+          data: rows.map((row) =>
+            row.map((value) =>
+              value === null
+                ? null
+                : value instanceof Date
+                  ? { value, type: Date, format: "dd.mm.yyyy" }
+                  : typeof value === "number"
+                    ? { value, type: Number }
+                    : { value, type: String },
+            ),
+          ),
+        })),
+      ).toBuffer()) as Buffer;
+    };
+    const daysAgo = (n: number) => {
+      const d = new Date(Date.now() - n * 86_400_000);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    };
+
+    it("checks a file, writes it without alerts or stock changes, skips it the second time, and undoes it", async () => {
+      const tenant = await seedTenant(prisma, "imp");
+      const farm = await prisma.farm.findUniqueOrThrow({ where: { id: tenant.farmId } });
+      await prisma.feedProduct.create({ data: { companyId: tenant.companyId, name: "Alabalık 3 mm" } });
+      await prisma.warehouse.create({ data: { companyId: tenant.companyId, farmId: tenant.farmId, name: "Depo" } });
+      const lotCode = nextLotCode();
+      const batch = await request(app.getHttpServer())
+        .post("/api/v1/fish-batches")
+        .set("Authorization", auth(tenant.ownerToken))
+        .send({ speciesId, lotCode, tankId: tenant.tankId, fishCount: 1000, avgWeightG: 50, farmEntryDate: daysAgo(60).toISOString().slice(0, 10) })
+        .expect(201);
+      const batchId = batch.body.data.id as string;
+
+      const file = await workbook([
+        { sheet: "Nasıl doldurulur", rows: [["Bu sayfa okunmaz."]] },
+        {
+          sheet: "Yemleme",
+          rows: [
+            ["Tarih", "Tank kodu", "Yem", "Miktar (kg)"],
+            // Two equal feedings on one day are two feedings, not a duplicate.
+            [daysAgo(30), tenant.tankCode, "alabalık 3 MM", "12,5"],
+            [daysAgo(30), tenant.tankCode, "Alabalık 3 mm", 12.5],
+            [daysAgo(29), tenant.tankCode, "Alabalık 3 mm", 14],
+          ],
+        },
+        {
+          sheet: "Ölüm",
+          rows: [
+            ["Tarih", "Çiftlik kodu", "Tank kodu", "Parti kodu", "Adet", "Sebep"],
+            [daysAgo(25), farm.code, tenant.tankCode, lotCode, 30, "Hastalık"],
+            [daysAgo(20), farm.code, tenant.tankCode, lotCode, 20, null],
+          ],
+        },
+        { sheet: "Tartım", rows: [["Tarih", "Tank kodu", "Örnek adedi", "Ortalama ağırlık (g)"], [daysAgo(10), tenant.tankCode, 30, 95]] },
+        {
+          sheet: "Su kalitesi",
+          // 3 mg/L oxygen would raise a critical alert if it were recorded today.
+          rows: [["Tarih", "Saat", "Tank kodu", "Sıcaklık (°C)", "Çözünmüş oksijen (mg/L)"], [daysAgo(5), "08:30", tenant.tankCode, 14, 3]],
+        },
+      ]);
+      const upload = (path: string, token: string, buffer: Buffer, name = "Geçmiş kayıtlar.xlsx") =>
+        request(app.getHttpServer()).post(`/api/v1/imports${path}`).set("Authorization", auth(token)).attach("file", buffer, name);
+
+      const preview = await upload("/preview", tenant.ownerToken, file).expect(201);
+      expect(preview.body.data).toMatchObject({
+        fileName: "Geçmiş kayıtlar.xlsx",
+        counts: { feeding: 3, mortality: 2, weighing: 1, water: 1 },
+        skipped: 0,
+        errorCount: 0,
+        ignoredSheets: [],
+        batches: [{ lotCode, deaths: 50, weighings: 1, liveNow: 1000, liveAfter: 950 }],
+      });
+      expect(await prisma.feedingEvent.count({ where: { batchId } })).toBe(0);
+
+      const committed = await upload("", tenant.ownerToken, file).expect(201);
+      const importId = committed.body.data.id as string;
+      expect(await prisma.feedingEvent.count({ where: { batchId, importId } })).toBe(3);
+      const state = await prisma.batchCurrentState.findUniqueOrThrow({ where: { batchId } });
+      expect(state.estimatedCount).toBe(950);
+      expect(Number(state.estimatedAvgWeightG)).toBe(95);
+      const death = await prisma.mortalityEvent.findFirstOrThrow({ where: { importId, fishCount: 30 } });
+      expect(death).toMatchObject({ reason: "DISEASE" });
+      expect(Number(death.estimatedAvgWeightG)).toBe(50);
+      const lot = await prisma.feedInventoryBatch.findFirstOrThrow({ where: { importId }, include: { balance: true } });
+      expect(Number(lot.balance?.quantityOnHandKg)).toBe(0);
+      expect(await prisma.alert.count({ where: { companyId: tenant.companyId } })).toBe(0);
+
+      // The same file again adds nothing.
+      const again = await upload("/preview", tenant.ownerToken, file).expect(201);
+      expect(again.body.data).toMatchObject({ counts: { feeding: 0, mortality: 0, weighing: 0, water: 0 }, skipped: 7 });
+      await upload("", tenant.ownerToken, file).expect(400);
+
+      // A file with a row it can't place writes nothing at all.
+      const bad = await workbook([
+        { sheet: "Ölüm", rows: [["Tarih", "Tank kodu", "Adet"], [daysAgo(3), tenant.tankCode, 5], [daysAgo(3), "YOK-99", 5]] },
+      ]);
+      const badPreview = await upload("/preview", tenant.ownerToken, bad).expect(201);
+      expect(badPreview.body.data.errors).toEqual([{ sheet: "Ölüm", row: 3, message: '"YOK-99" kodlu tank bulunamadı.' }]);
+      await upload("", tenant.ownerToken, bad).expect(400);
+      expect(await prisma.mortalityEvent.count({ where: { batchId } })).toBe(2);
+
+      // Only importers, and only their own company's imports.
+      await upload("/preview", roleTokens.WORKER, file).expect(403);
+      await request(app.getHttpServer()).delete(`/api/v1/imports/${importId}`).set("Authorization", auth(companyB.ownerToken)).expect(404);
+
+      const list = await request(app.getHttpServer()).get("/api/v1/imports").set("Authorization", auth(tenant.ownerToken)).expect(200);
+      expect(list.body.data[0]).toMatchObject({ id: importId, undoneAt: null, counts: { feeding: 3, mortality: 2, weighing: 1, water: 1, skipped: 0 } });
+
+      await request(app.getHttpServer()).delete(`/api/v1/imports/${importId}`).set("Authorization", auth(tenant.ownerToken)).expect(200);
+      expect(await prisma.feedingEvent.count({ where: { batchId } })).toBe(0);
+      expect(await prisma.feedInventoryBatch.count({ where: { importId } })).toBe(0);
+      expect(await prisma.waterQualityReading.count({ where: { importId } })).toBe(0);
+      const restored = await prisma.batchCurrentState.findUniqueOrThrow({ where: { batchId } });
+      expect(restored.estimatedCount).toBe(1000);
+      expect(Number(restored.estimatedAvgWeightG)).toBe(50);
+      await request(app.getHttpServer()).delete(`/api/v1/imports/${importId}`).set("Authorization", auth(tenant.ownerToken)).expect(409);
+    });
+  });
+
   describe("weight forecast", () => {
     it("grows a weighed batch by the farm's water temperature (TGC)", async () => {
       const tenant = await seedTenant(prisma, "tgc");

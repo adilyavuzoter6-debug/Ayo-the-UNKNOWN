@@ -83,6 +83,9 @@ export enum Permission {
   AUDIT_LOG_READ = "audit_log:read",
   INSPECTION_REPORT_READ = "inspection_report:read",
 
+  /** Excel import of historical records (and undoing one). */
+  DATA_IMPORT = "data:import",
+
   PLATFORM_ADMIN_CROSS_TENANT_ACCESS = "platform_admin:cross_tenant_access",
 }
 
@@ -146,6 +149,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
     Permission.INSPECTION_REPORT_READ,
+    Permission.DATA_IMPORT,
   ],
   GENERAL_MANAGER: [
     Permission.COMPANY_READ,
@@ -197,6 +201,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
     Permission.INSPECTION_REPORT_READ,
+    Permission.DATA_IMPORT,
   ],
   FARM_MANAGER: [
     Permission.COMPANY_READ,
@@ -243,6 +248,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     Permission.ALERT_RESOLVE,
     Permission.AUDIT_LOG_READ,
     Permission.INSPECTION_REPORT_READ,
+    Permission.DATA_IMPORT,
   ],
   VETERINARIAN: [
     Permission.COMPANY_READ,

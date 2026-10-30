@@ -57,7 +57,8 @@ export async function sendApiRequest<T>({ token, companyId, path, init = {}, ide
   if (idempotencyKey) {
     headers.set("Idempotency-Key", idempotencyKey);
   }
-  if (init.body && !headers.has("Content-Type")) {
+  // A file upload's multipart boundary is set by the browser; everything else is JSON.
+  if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -130,6 +131,9 @@ export function useApiClient() {
         request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }, options),
       del: <T,>(path: string, options?: RequestOptions) =>
         request<T>(path, { method: "DELETE" }, options),
+      /** Posts a form with files (multipart). */
+      upload: <T,>(path: string, form: FormData, options?: RequestOptions) =>
+        request<T>(path, { method: "POST", body: form }, options),
     }),
     [request],
   );

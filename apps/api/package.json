@@ -33,6 +33,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "jose": "^5.9.0",
+    "read-excel-file": "9.3.12",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "svix": "^1.99.1",
@@ -53,7 +54,8 @@
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "write-excel-file": "4.1.1"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

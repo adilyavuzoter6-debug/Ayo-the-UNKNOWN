@@ -690,6 +690,28 @@ export interface InspectionReport {
   totalFeedKg: number;
 }
 
+export type ImportKind = "feeding" | "mortality" | "weighing" | "water";
+
+/** A checked Excel file: what it would write, what it leaves out and the rows it can't read. */
+export interface ImportPreview {
+  fileName: string;
+  counts: Record<ImportKind, number>;
+  skipped: number;
+  errorCount: number;
+  errors: { sheet: string; row: number; message: string }[];
+  ignoredSheets: string[];
+  batches: { lotCode: string; deaths: number; weighings: number; liveNow: number; liveAfter: number }[];
+}
+
+export interface DataImport {
+  id: string;
+  fileName: string;
+  counts: Record<ImportKind | "skipped", number>;
+  createdAt: string;
+  undoneAt: string | null;
+  userName: string | null;
+}
+
 /** Members' 👍/👎 on assistant answers, newest first, with the overall 👍 count. */
 export interface AdminAssistantFeedback {
   total: number;

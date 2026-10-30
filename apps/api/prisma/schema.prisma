@@ -42,6 +42,7 @@ model Company {
   invitations Invitation[]
   idempotencyRecords IdempotencyRecord[]
   assistantFeedback  AssistantFeedback[]
+  dataImports        DataImport[]
 
   @@map("companies")
 
@@ -459,6 +460,8 @@ model MortalityEvent {
   occurredAt          DateTime
   createdById         String
   notes               String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId            String?
   createdAt           DateTime        @default(now())
 
   tank  Tank      @relation(fields: [tankId], references: [id])
@@ -466,6 +469,7 @@ model MortalityEvent {
 
   @@index([companyId, tankId, occurredAt])
   @@index([companyId, batchId, occurredAt])
+  @@index([importId])
   @@map("mortality_events")
 }
 
@@ -494,12 +498,15 @@ model WeightSample {
   occurredAt         DateTime
   createdById        String
   notes              String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId           String?
   createdAt          DateTime     @default(now())
 
   tank  Tank      @relation(fields: [tankId], references: [id])
   batch FishBatch @relation(fields: [batchId], references: [id])
 
   @@index([companyId, batchId, occurredAt])
+  @@index([importId])
   @@map("weight_samples")
 }
 
@@ -554,11 +561,14 @@ model WaterQualityReading {
   occurredAt         DateTime
   createdById        String?
   notes              String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId           String?
   createdAt          DateTime      @default(now())
 
   tank Tank @relation(fields: [tankId], references: [id])
 
   @@index([companyId, tankId, occurredAt])
+  @@index([importId])
   @@map("water_quality_readings")
 }
 
@@ -829,6 +839,8 @@ model FeedInventoryBatch {
   manufactureDate DateTime?
   expiryDate      DateTime?
   unitCostPerKg   Decimal?  @db.Decimal(12, 4)
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId        String?
   createdById     String
   createdAt       DateTime  @default(now())
 
@@ -838,6 +850,7 @@ model FeedInventoryBatch {
   transactions FeedInventoryTransaction[]
 
   @@index([companyId, warehouseId, feedProductId])
+  @@index([importId])
   @@map("feed_inventory_batches")
 }
 
@@ -867,11 +880,14 @@ model FeedInventoryTransaction {
   referenceType        String?
   referenceId          String?
   notes                String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId             String?
   createdAt            DateTime        @default(now())
 
   feedInventoryBatch FeedInventoryBatch @relation(fields: [feedInventoryBatchId], references: [id])
 
   @@index([companyId, warehouseId, feedInventoryBatchId, occurredAt])
+  @@index([importId])
   @@map("feed_inventory_transactions")
 }
 
@@ -907,6 +923,8 @@ model FeedingEvent {
   occurredAt    DateTime
   createdById   String
   notes         String?
+  /// Set on rows written by an Excel import (DataImport), so the import can be undone as a whole.
+  importId      String?
   createdAt     DateTime      @default(now())
 
   inventoryTransactionId String @unique
@@ -917,6 +935,7 @@ model FeedingEvent {
 
   @@index([companyId, tankId, occurredAt])
   @@index([companyId, batchId, occurredAt])
+  @@index([importId])
   @@map("feeding_events")
 }
 
@@ -1157,4 +1176,22 @@ model AssistantFeedback {
   @@index([companyId, createdAt])
   @@index([createdAt])
   @@map("assistant_feedback")
+}
+
+/// One Excel import of historical records (feeding, mortality, weighings, water quality). The rows
+/// it wrote carry its id in importId, so the whole import can be undone; undoing keeps this row.
+model DataImport {
+  id        String    @id @default(cuid())
+  companyId String
+  userId    String
+  fileName  String
+  /// Rows written per kind and duplicates skipped: { feeding, mortality, weighing, water, skipped }.
+  counts    Json
+  createdAt DateTime  @default(now())
+  undoneAt  DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@map("data_imports")
 }
