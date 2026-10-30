@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, HttpStatus, Inject, Injectable } fr
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
 import type { TenantContext } from "../../common/types/request-context";
 import { ASSISTANT_MODEL, type AssistantModel, type AssistantTurn } from "./assistant-model";
+import { usableTimeZone } from "../../common/utils/time-zone";
 import { AssistantTools } from "./assistant-tools";
 import type { AssistantFeedbackDto } from "./dto/assistant-feedback.dto";
 
@@ -95,7 +96,7 @@ export class AssistantService {
       where: { id: tenant.membershipId },
       select: { company: { select: { name: true, timezone: true } } },
     });
-    const timeZone = company?.company.timezone ?? "Europe/Istanbul";
+    const timeZone = usableTimeZone(company?.company.timezone);
     const today = new Intl.DateTimeFormat("tr", { timeZone, dateStyle: "full" }).format(new Date());
     const context = `Şirket: ${company?.company.name ?? "—"}. Bugün: ${today} (${timeZone}). Tarihleri araçlara YYYY-AA-GG biçiminde ver.`;
 

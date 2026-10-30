@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
+import { usableTimeZone } from "../../common/utils/time-zone";
 import { FcrCalculationService } from "../batch-performance/fcr-calculation.service";
 import { SgrCalculationService } from "../batch-performance/sgr-calculation.service";
 import { dailyMeans, degreeDays, fitTgc, growWeight, median, temperatureProfile, type TemperatureProfile } from "./thermal-growth";
@@ -235,7 +236,7 @@ export class FarmStatsService {
       throw new NotFoundException("Farm not found.");
     }
     const span = Math.min(Math.max(Math.round(days) || 30, 7), 90);
-    const timeZone = farm.timezone ?? "Europe/Istanbul";
+    const timeZone = usableTimeZone(farm.timezone);
     const dayOf = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
     const since = new Date(Date.now() - (span + 1) * 86_400_000);
     const inFarm = { tank: { farmSection: { farmId } } };

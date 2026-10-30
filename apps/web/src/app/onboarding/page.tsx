@@ -21,6 +21,7 @@ import { useActiveCompany } from "@/components/providers/active-company-provider
 import { useCreateCompany, useMyCompanies } from "@/hooks/use-companies";
 import { ApiError } from "@/lib/api-error";
 import { Logo } from "@/components/shared/logo";
+import { TimezoneSelect } from "@/components/farms/timezone-select";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function OnboardingPage() {
 
   const form = useForm<CreateCompanyInput>({
     resolver: zodResolver(createCompanySchema),
-    defaultValues: { name: "", legalName: "", countryCode: "", timezone: "" },
+    defaultValues: { name: "", legalName: "", countryCode: "", timezone: "Europe/Istanbul" },
   });
 
   // One company per account: anyone who already belongs to a company goes straight into the
@@ -148,7 +149,7 @@ export default function OnboardingPage() {
                           <FormItem>
                             <FormLabel>Timezone</FormLabel>
                             <FormControl>
-                              <Input placeholder="Europe/Istanbul" {...field} />
+                              <TimezoneSelect value={field.value} onChange={field.onChange} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

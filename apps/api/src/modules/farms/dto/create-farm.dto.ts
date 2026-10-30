@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsLatitude, IsLongitude, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsLatitude, IsLongitude, IsOptional, IsString, IsTimeZone, Matches, MaxLength, MinLength } from "class-validator";
 
 /** Mirrors packages/validation/src/farm.ts `createFarmSchema` (shape only). */
 export class CreateFarmDto {
@@ -18,7 +18,7 @@ export class CreateFarmDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsTimeZone({ message: "Geçerli bir saat dilimi seçin (ör. Europe/Istanbul)." })
   timezone?: string;
 
   @ApiPropertyOptional()

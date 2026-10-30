@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { TenantPrismaService } from "../../prisma/tenant-prisma.service";
+import { usableTimeZone } from "../../common/utils/time-zone";
 import type { TenantContext } from "../../common/types/request-context";
 import { AuditService } from "../audit/audit.service";
 import { FeedInventoryProjectionService } from "../feed-inventory/feed-inventory-projection.service";
@@ -336,7 +337,7 @@ export class ImportsService {
       client.feedProduct.findMany({ where: { deletedAt: null }, select: { id: true, name: true } }),
       client.warehouse.findMany({ where: { deletedAt: null }, select: { id: true, farmId: true }, orderBy: { createdAt: "asc" } }),
     ]);
-    const timeZone = membership?.company.timezone ?? "Europe/Istanbul";
+    const timeZone = usableTimeZone(membership?.company.timezone);
     const localDay = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(at);
     const now = Date.now();
 

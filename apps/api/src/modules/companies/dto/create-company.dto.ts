@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsString, Length, MaxLength, MinLength } from "class-validator";
+import { IsOptional, IsString, IsTimeZone, Length, MaxLength, MinLength } from "class-validator";
 
 /**
  * Mirrors packages/validation/src/company.ts `createCompanySchema` (shape only — see
@@ -25,7 +25,6 @@ export class CreateCompanyDto {
   countryCode!: string;
 
   @ApiProperty({ description: "IANA timezone", example: "Europe/Istanbul" })
-  @IsString()
-  @MinLength(1)
+  @IsTimeZone({ message: "Geçerli bir saat dilimi seçin (ör. Europe/Istanbul)." })
   timezone!: string;
 }

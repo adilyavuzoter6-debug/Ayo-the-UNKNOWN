@@ -6,6 +6,7 @@ import {
   IsLongitude,
   IsOptional,
   IsString,
+  IsTimeZone,
   Matches,
   MaxLength,
   MinLength,
@@ -29,7 +30,7 @@ export class UpdateFarmDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
+  @IsTimeZone({ message: "Geçerli bir saat dilimi seçin (ör. Europe/Istanbul)." })
   timezone?: string;
 
   @ApiPropertyOptional()

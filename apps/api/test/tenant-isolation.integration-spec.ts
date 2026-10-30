@@ -4961,6 +4961,20 @@ describe("Tenant isolation & authorization (integration)", () => {
     });
   });
 
+  describe("company time zone", () => {
+    it("takes a real IANA zone only, never a typed town name", async () => {
+      await prisma.user.create({ data: { authProviderId: "tz-founder", email: "tz@test.aquai.local", fullName: "TZ Founder" } });
+      const create = (timezone: string) =>
+        request(app.getHttpServer())
+          .post("/api/v1/companies")
+          .set("Authorization", auth("tz-founder"))
+          .send({ name: "Fethiye Alabalık", countryCode: "TR", timezone });
+      const refused = await create("Fethıye").expect(400);
+      expect(JSON.stringify(refused.body)).toContain("saat dilimi");
+      await create("Europe/Istanbul").expect(201);
+    });
+  });
+
   describe("Excel import of history", () => {
     type Cell = string | number | Date | null;
     const workbook = async (sheets: { sheet: string; rows: Cell[][] }[]) => {
