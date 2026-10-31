@@ -113,10 +113,10 @@ export default function ImportPage() {
       <PanelCard title="1. Şablonu indirin">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4.5 py-4 text-sm">
           <p className="max-w-md text-muted-foreground">
-            Çiftlik, tank ve partiler ile her kayıt türü için bir sekme; nasıl doldurulacağı ve kodlarınız içinde. Kendi
-            dosyanızı da kullanabilirsiniz; sekme ve sütun adları şablondakiyle aynı olsun yeter.
+            Çiftlik, tank ve partiler ile her kayıt türü için bir sekme; nasıl doldurulacağı ve kodlarınız içinde. Nasıl
+            doldurulduğunu görmek için 6 aylık örnek bir tesisle dolu dosyayı da indirebilirsiniz.
           </p>
-          <TemplateButton />
+          <TemplateButtons />
         </div>
       </PanelCard>
 
@@ -166,12 +166,12 @@ export default function ImportPage() {
   );
 }
 
-function TemplateButton() {
+function TemplateButtons() {
   const api = useApiClient();
-  const [busy, setBusy] = React.useState(false);
+  const [busy, setBusy] = React.useState<"empty" | "example" | null>(null);
 
-  async function download() {
-    setBusy(true);
+  async function download(kind: "empty" | "example") {
+    setBusy(kind);
     try {
       const [farms, feeds, species] = await Promise.all([
         api.get<Farm[]>("/farms"),
@@ -185,19 +185,28 @@ function TemplateButton() {
           ),
         )
       ).flat();
-      await downloadImportTemplate({ tanks, feeds: feeds.map((f) => f.name), species: species.map((s) => s.name) });
+      await downloadImportTemplate(
+        { tanks, feeds: feeds.map((f) => f.name), species: species.map((s) => s.name) },
+        { example: kind === "example" },
+      );
     } catch (error) {
       toast.error(errorText(error, "Şablon hazırlanamadı."));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   return (
-    <Button variant="outline" disabled={busy} onClick={() => void download()}>
-      {busy ? <Loader2 className="animate-spin" /> : <Download />}
-      Şablonu indir
-    </Button>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" disabled={busy !== null} onClick={() => void download("empty")}>
+        {busy === "empty" ? <Loader2 className="animate-spin" /> : <Download />}
+        Şablonu indir
+      </Button>
+      <Button variant="ghost" disabled={busy !== null} onClick={() => void download("example")}>
+        {busy === "example" ? <Loader2 className="animate-spin" /> : <FileSpreadsheet />}
+        Örnek dolu dosya
+      </Button>
+    </div>
   );
 }
 

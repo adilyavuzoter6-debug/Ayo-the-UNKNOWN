@@ -1,8 +1,11 @@
 /**
  * The Excel template for importing a farm: an instructions tab, one tab per kind with the headers
  * the importer reads (structure first, then history), and the company's own codes and names to copy
- * from. Built in the browser like the exports (lib/excel.ts), so it always matches the importer.
+ * from. Built in the browser like the exports (lib/excel.ts), so it always matches the importer. The
+ * example version comes filled in with lib/import-example.ts.
  */
+
+import { exampleRows, type ExampleCell } from "./import-example";
 
 const SHEETS = [
   { name: "Çiftlikler", headers: ["Çiftlik adı", "Çiftlik kodu"] },
@@ -75,45 +78,64 @@ const INSTRUCTIONS: [string, string][] = [
   ["Geri alma", "Bir içe aktarımı Ayarlar → Veri aktarma sayfasından tek seferde geri alabilirsiniz; oluşturduğu çiftlik, tank ve partiler de silinir."],
 ];
 
-export async function downloadImportTemplate(codes: {
+export interface TemplateCodes {
   tanks: { farmName: string; farmCode: string; tankCode: string }[];
   feeds: string[];
   species: string[];
-}): Promise<void> {
-  const { default: writeXlsxFile } = await import("write-excel-file/browser");
+}
+
+const EXAMPLE_NOTE =
+  "ÖRNEK DOSYA: Rakamlar, 6 aylık uydurma bir alabalık tesisine aittir ve nasıl doldurulacağını göstermek içindir. Kendi verilerinizle değiştirip yükleyin; yüklerseniz 'Örnek Alabalık Tesisi' oluşur ve Veri aktarma sayfasından geri alabilirsiniz. Yem adları, uygulamanızdaki yem ürünleriyle aynı olmalı.";
+
+/** The workbook's tabs, ready for write-excel-file: empty tabs, or with `example`, filled in. */
+export function importWorkbook(codes: TemplateCodes, example: boolean) {
   const bold = (value: string) => ({ value, fontWeight: "bold" as const });
   const text = (value: string | undefined) => (value ? { value, type: String, wrap: true } : null);
+  const cell = (value: ExampleCell) =>
+    value === null
+      ? null
+      : value instanceof Date
+        ? { value, type: Date, format: "dd.mm.yyyy" }
+        : typeof value === "number"
+          ? { value, type: Number }
+          : { value, type: String };
+  const filled = example ? exampleRows() : {};
   const rows = Math.max(codes.tanks.length, codes.feeds.length, codes.species.length);
 
-  await writeXlsxFile(
-    [
-      {
-        sheet: "Nasıl doldurulur",
-        columns: [{ width: 16 }, { width: 110 }],
-        data: [
-          [bold("Piscatio · çiftlik ve geçmiş kayıtları içe aktarma şablonu"), null],
-          [null, null],
-          ...INSTRUCTIONS.map(([title, body]) => [bold(title), text(body)]),
-        ],
-      },
-      ...SHEETS.map((sheet) => ({
-        sheet: sheet.name,
-        stickyRowsCount: 1,
-        columns: sheet.headers.map((h) => ({ width: Math.max(12, h.length + 4) })),
-        data: [sheet.headers.map((h) => ({ ...bold(h), wrap: true }))],
-      })),
-      {
-        sheet: "Kodlarınız",
-        columns: [{ width: 24 }, { width: 14 }, { width: 12 }, { width: 4 }, { width: 28 }, { width: 4 }, { width: 28 }],
-        data: [
-          [bold("Çiftlik"), bold("Çiftlik kodu"), bold("Tank kodu"), null, bold("Yem ürünleri"), null, bold("Balık türleri")],
-          ...Array.from({ length: rows }, (_, i) => {
-            const tank = codes.tanks[i];
-            return [text(tank?.farmName), text(tank?.farmCode), text(tank?.tankCode), null, text(codes.feeds[i]), null, text(codes.species[i])];
-          }),
-        ],
-      },
-    ],
-    { fontFamily: "Calibri", fontSize: 11 },
-  ).toFile("Piscatio-ice-aktarma-sablonu.xlsx");
+  return [
+    {
+      sheet: "Nasıl doldurulur",
+      columns: [{ width: 16 }, { width: 110 }],
+      data: [
+        [bold(example ? "Piscatio · içe aktarma şablonu (örnek dolu)" : "Piscatio · çiftlik ve geçmiş kayıtları içe aktarma şablonu"), null],
+        ...(example ? [[bold("Örnek"), text(EXAMPLE_NOTE)]] : []),
+        [null, null],
+        ...INSTRUCTIONS.map(([title, body]) => [bold(title), text(body)]),
+      ],
+    },
+    ...SHEETS.map((sheet) => ({
+      sheet: sheet.name,
+      stickyRowsCount: 1,
+      columns: sheet.headers.map((h) => ({ width: Math.max(12, h.length + 4) })),
+      data: [sheet.headers.map((h) => ({ ...bold(h), wrap: true })), ...(filled[sheet.name] ?? []).map((row) => row.map(cell))],
+    })),
+    {
+      sheet: "Kodlarınız",
+      columns: [{ width: 24 }, { width: 14 }, { width: 12 }, { width: 4 }, { width: 28 }, { width: 4 }, { width: 28 }],
+      data: [
+        [bold("Çiftlik"), bold("Çiftlik kodu"), bold("Tank kodu"), null, bold("Yem ürünleri"), null, bold("Balık türleri")],
+        ...Array.from({ length: rows }, (_, i) => {
+          const tank = codes.tanks[i];
+          return [text(tank?.farmName), text(tank?.farmCode), text(tank?.tankCode), null, text(codes.feeds[i]), null, text(codes.species[i])];
+        }),
+      ],
+    },
+  ];
+}
+
+export async function downloadImportTemplate(codes: TemplateCodes, { example = false } = {}): Promise<void> {
+  const { default: writeXlsxFile } = await import("write-excel-file/browser");
+  await writeXlsxFile(importWorkbook(codes, example), { fontFamily: "Calibri", fontSize: 11 }).toFile(
+    example ? "Piscatio-ornek-dolu-sablon.xlsx" : "Piscatio-ice-aktarma-sablonu.xlsx",
+  );
 }
